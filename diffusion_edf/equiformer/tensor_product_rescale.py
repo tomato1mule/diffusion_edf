@@ -1,6 +1,7 @@
 '''
     Rescale output and weights of tensor product.
 '''
+from typing import List, Tuple, Optional, Dict, Any
 
 import torch
 import e3nn
@@ -12,22 +13,22 @@ from e3nn.nn.models.v2106.gate_points_message_passing import tp_path_exists
 import collections
 from e3nn.math import perm
 
-
+@compile_mode('script')
 class TensorProductRescale(torch.nn.Module):
     def __init__(self,
-        irreps_in1, irreps_in2, irreps_out,
-        instructions,
-        bias=True, rescale=True,
-        internal_weights=None, shared_weights=None,
-        normalization=None):
+        irreps_in1: o3.Irreps, irreps_in2: o3.Irreps, irreps_out: o3.Irreps,
+        instructions: List[Tuple[int, int, int, str, bool, float]],
+        bias: bool = True, rescale: bool = True,
+        internal_weights: Optional[bool] = None, shared_weights: Optional[bool] = None,
+        normalization: Optional[str] = None):
         
         super().__init__()
 
-        self.irreps_in1 = irreps_in1
-        self.irreps_in2 = irreps_in2
-        self.irreps_out = irreps_out
-        self.rescale = rescale
-        self.use_bias = bias
+        self.irreps_in1: o3.Irreps = irreps_in1
+        self.irreps_in2: o3.Irreps = irreps_in2
+        self.irreps_out: o3.Irreps = irreps_out
+        self.rescale: bool = rescale
+        self.use_bias: bool = bias
         
         # e3nn.__version__ == 0.4.4
         # Use `path_normalization` == 'none' to remove normalization factor
@@ -38,8 +39,13 @@ class TensorProductRescale(torch.nn.Module):
             path_normalization='none')
         
         self.init_rescale_bias()
+
+        # self.register_buffer(name='_bias_slices',
+        #                      tensor=torch.tensor([(slice_.start, slice_.stop) for slice_ in self.bias_slices], dtype=torch.long),
+        #                      persistent=False)
+        self.bias_slices = tuple([(slice_.start, slice_.stop) for slice_ in self.bias_slices])
     
-    
+    @torch.jit.unused
     def calculate_fan_in(self, ins):
         return {
             'uvw': (self.irreps_in1[ins.i_in1].mul * self.irreps_in2[ins.i_in2].mul),
@@ -52,7 +58,7 @@ class TensorProductRescale(torch.nn.Module):
             'u<vw': self.irreps_in1[ins.i_in1].mul * (self.irreps_in2[ins.i_in2].mul - 1) // 2,
         }[ins.connection_mode]
         
-        
+    @torch.jit.unused
     def init_rescale_bias(self) -> None:
         
         irreps_out = self.irreps_out
@@ -123,7 +129,7 @@ class TensorProductRescale(torch.nn.Module):
             #    out_bias.uniform_(-sqrt_k, sqrt_k)
                 
 
-    def forward_tp_rescale_bias(self, x, y, weight=None):
+    def forward_tp_rescale_bias(self, x: torch.Tensor, y: torch.Tensor, weight: Optional[torch.Tensor] = None) -> torch.Tensor:
         
         out = self.tp(x, y, weight)
         
@@ -131,23 +137,24 @@ class TensorProductRescale(torch.nn.Module):
         #    for (slice, slice_sqrt_k) in self.slices_sqrt_k.values():
         #        out[:, slice] /= slice_sqrt_k
         if self.use_bias:
-            for (_, slice, bias) in zip(self.bias_slice_idx, self.bias_slices, self.bias):
+            for slice, bias in zip(self.bias_slices, self.bias):
                 #out[:, slice] += bias
-                out.narrow(1, slice.start, slice.stop - slice.start).add_(bias)
+                out.narrow(1, slice[0], slice[1] - slice[0]).add_(bias)
+                
         return out
         
 
-    def forward(self, x, y, weight=None):
+    def forward(self, x: torch.Tensor, y: torch.Tensor, weight: Optional[torch.Tensor] = None) -> torch.Tensor:
         out = self.forward_tp_rescale_bias(x, y, weight)
         return out
     
-
+@compile_mode('script')
 class FullyConnectedTensorProductRescale(TensorProductRescale):
     def __init__(self,
-        irreps_in1, irreps_in2, irreps_out,
-        bias=True, rescale=True,
-        internal_weights=None, shared_weights=None,
-        normalization=None):
+        irreps_in1: o3.Irreps, irreps_in2: o3.Irreps, irreps_out: o3.Irreps,
+        bias: bool = True, rescale: bool = True,
+        internal_weights: Optional[bool] = None, shared_weights: Optional[bool] = None,
+        normalization: Optional[str] = None):
         
         instructions = [
             (i_1, i_2, i_out, 'uvw', True, 1.0)
@@ -157,19 +164,19 @@ class FullyConnectedTensorProductRescale(TensorProductRescale):
             if ir_out in ir_1 * ir_2
         ]
         super().__init__(irreps_in1, irreps_in2, irreps_out,
-            instructions=instructions,
-            bias=bias, rescale=rescale,
-            internal_weights=internal_weights, shared_weights=shared_weights,
-            normalization=normalization)
+                         instructions=instructions,
+                         bias=bias, rescale=rescale,
+                         internal_weights=internal_weights, shared_weights=shared_weights,
+                         normalization=normalization)
         
 @compile_mode('script')
 class LinearRS(FullyConnectedTensorProductRescale):
-    def __init__(self, irreps_in, irreps_out, bias=True, rescale=True):
+    def __init__(self, irreps_in: o3.Irreps, irreps_out: o3.Irreps, bias: bool = True, rescale: bool = True):
         super().__init__(irreps_in, o3.Irreps('1x0e'), irreps_out, 
             bias=bias, rescale=rescale, internal_weights=True, 
             shared_weights=True, normalization=None)
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         y = torch.ones_like(x[:, 0:1])
         out = self.forward_tp_rescale_bias(x, y)
         return out

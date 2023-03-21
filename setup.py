@@ -22,12 +22,11 @@ setup(
     ],
     python_requires="<3.9",
     install_requires=[
-        'torch==1.11.0',
-        'torchvision==0.12.0',
-        'torchaudio==0.11.0',
-        'torch-geometric==2.1.0.post1',
+        'torch==1.13.0',
+        'torchvision==0.14.0',
+        'torch-geometric==2.2.0',
         'pytorch3d==0.7.2',
-        'e3nn==0.4.4',
+        # 'e3nn==0.4.4',
         'pyyaml',        # 6.0
         'tqdm',          # 4.64.1
         'jupyter',       # 1.0.0
