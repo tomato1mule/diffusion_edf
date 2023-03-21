@@ -1,3 +1,5 @@
+from typing import List, Tuple, Any, Dict, Union, Optional
+
 import torch
 from torch_cluster import radius_graph
 from torch_scatter import scatter
@@ -156,9 +158,12 @@ class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRes
         out = self.gate(out)
         return out
     
-
-def DepthwiseTensorProduct(irreps_node_input, irreps_edge_attr, irreps_node_output, 
-    internal_weights=False, bias=True):
+def DepthwiseTensorProduct(irreps_node_input: o3.Irreps, 
+                           irreps_edge_attr: o3.Irreps, 
+                           irreps_node_output: o3.Irreps, 
+                           internal_weights: bool = False,
+                           bias: bool = True,
+                           rescale: bool = True) -> TensorProductRescale:
     '''
         The irreps of output is pre-determined. 
         `irreps_node_output` is used to get certain types of vectors.
@@ -179,11 +184,11 @@ def DepthwiseTensorProduct(irreps_node_input, irreps_edge_attr, irreps_node_outp
     instructions = [(i_1, i_2, p[i_out], mode, train)
         for i_1, i_2, i_out, mode, train in instructions]
     tp = TensorProductRescale(irreps_node_input, irreps_edge_attr,
-            irreps_output, instructions,
-            internal_weights=internal_weights,
-            shared_weights=internal_weights,
-            bias=bias, rescale=_RESCALE)
-    return tp    
+                              irreps_output, instructions,
+                              internal_weights=internal_weights,
+                              shared_weights=internal_weights,
+                              bias=bias, rescale=rescale)
+    return tp
 
 
 class SeparableFCTP(torch.nn.Module):
@@ -691,12 +696,12 @@ class NodeEmbeddingNetwork(torch.nn.Module):
 
 
 class ScaledScatter(torch.nn.Module):
-    def __init__(self, avg_aggregate_num):
+    def __init__(self, avg_aggregate_num: float):
         super().__init__()
         self.avg_aggregate_num = avg_aggregate_num + 0.0
 
 
-    def forward(self, x, index, dim, dim_size=None):
+    def forward(self, x: torch.Tensor, index: torch.Tensor, dim: int, dim_size: Optional[int] = None) -> torch.Tensor:
         out = scatter(x, index, dim=dim, dim_size=dim_size)
         out = out.div(self.avg_aggregate_num ** 0.5)
         return out
@@ -706,11 +711,15 @@ class ScaledScatter(torch.nn.Module):
         return 'avg_aggregate_num={}'.format(self.avg_aggregate_num)
     
 
+@compile_mode('script')
 class EdgeDegreeEmbeddingNetwork(torch.nn.Module):
-    def __init__(self, irreps_node_embedding, irreps_edge_attr, fc_neurons, avg_aggregate_num):
+    def __init__(self, irreps_node_embedding: o3.Irreps, irreps_edge_attr: o3.Irreps, fc_neurons: List[int], 
+                 avg_aggregate_num: float,
+                 use_bias: bool = True, 
+                 rescale: bool = True):
         super().__init__()
         self.exp = LinearRS(o3.Irreps('1x0e'), irreps_node_embedding, 
-            bias=_USE_BIAS, rescale=_RESCALE)
+                            bias=use_bias, rescale=rescale)
         self.dw = DepthwiseTensorProduct(irreps_node_embedding, 
             irreps_edge_attr, irreps_node_embedding, 
             internal_weights=False, bias=False)
@@ -722,7 +731,11 @@ class EdgeDegreeEmbeddingNetwork(torch.nn.Module):
         self.scale_scatter = ScaledScatter(avg_aggregate_num)
         
     
-    def forward(self, node_input, edge_attr, edge_scalars, edge_src, edge_dst):
+    def forward(self, node_input: torch.Tensor, 
+                edge_attr: torch.Tensor, 
+                edge_scalars: torch.Tensor, 
+                edge_src: torch.Tensor, 
+                edge_dst: torch.Tensor) -> torch.Tensor:
         node_features = torch.ones_like(node_input.narrow(1, 0, 1))
         node_features = self.exp(node_features)
         weight = self.rad(edge_scalars)

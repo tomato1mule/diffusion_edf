@@ -1,3 +1,5 @@
+from typing import List, Tuple, Optional
+
 import torch
 import torch.nn as nn
 from torch.nn import init
@@ -7,7 +9,7 @@ from .fast_activation import Activation
    
 
 class RadialProfile(nn.Module):
-    def __init__(self, ch_list, use_layer_norm=True, use_offset=True):
+    def __init__(self, ch_list: List[int], use_layer_norm: bool = True, use_offset: bool = True):
         super().__init__()
         modules = []
         input_channels = ch_list[0]
@@ -43,8 +45,8 @@ class RadialProfile(nn.Module):
             init.uniform_(self.offset, -bound, bound)
             
         
-    def forward(self, f_in):
-        f_out = self.net(f_in)
+    def forward(self, f_in: torch.Tensor) -> torch.Tensor:
+        f_out: torch.Tensor = self.net(f_in)
         if self.offset is not None:
             f_out = f_out + self.offset.reshape(1, -1) 
         return f_out
