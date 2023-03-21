@@ -586,43 +586,49 @@ class TransBlock(torch.nn.Module):
     '''
     
     def __init__(self,
-        irreps_node_input, irreps_node_attr,
-        irreps_edge_attr, irreps_node_output,
-        fc_neurons,
-        irreps_head, num_heads, irreps_pre_attn=None, 
-        rescale_degree=False, nonlinear_message=False,
-        alpha_drop=0.1, proj_drop=0.1,
-        drop_path_rate=0.0,
-        irreps_mlp_mid=None,
-        norm_layer='layer'):
+        irreps_node_input: o3.Irreps, 
+        irreps_node_attr: o3.Irreps,
+        irreps_edge_attr: o3.Irreps, 
+        irreps_node_output: o3.Irreps,
+        fc_neurons: List[int],
+        irreps_head: o3.Irreps,
+        num_heads: int, 
+        irreps_pre_attn: Optional[o3.Irreps] = None, 
+        rescale_degree: bool = False, 
+        nonlinear_message: bool = False,
+        alpha_drop: float = 0.1,
+        proj_drop: float = 0.1,
+        drop_path_rate: float = 0.0,
+        irreps_mlp_mid: Optional[o3.Irreps] = None, 
+        norm_layer: str = 'layer'):
         
         super().__init__()
-        self.irreps_node_input = o3.Irreps(irreps_node_input)
-        self.irreps_node_attr = o3.Irreps(irreps_node_attr)
-        self.irreps_edge_attr = o3.Irreps(irreps_edge_attr)
-        self.irreps_node_output = o3.Irreps(irreps_node_output)
-        self.irreps_pre_attn = self.irreps_node_input if irreps_pre_attn is None \
-            else o3.Irreps(irreps_pre_attn)
-        self.irreps_head = o3.Irreps(irreps_head)
-        self.num_heads = num_heads
-        self.rescale_degree = rescale_degree
-        self.nonlinear_message = nonlinear_message
-        self.irreps_mlp_mid = o3.Irreps(irreps_mlp_mid) if irreps_mlp_mid is not None \
-            else self.irreps_node_input
+        self.irreps_node_input: o3.Irreps = o3.Irreps(irreps_node_input)
+        self.irreps_node_attr: o3.Irreps = o3.Irreps(irreps_node_attr)
+        self.irreps_edge_attr: o3.Irreps = o3.Irreps(irreps_edge_attr)
+        self.irreps_node_output: o3.Irreps = o3.Irreps(irreps_node_output)
+        self.irreps_pre_attn: o3.Irreps = self.irreps_node_input if irreps_pre_attn is None \
+                                                                 else o3.Irreps(irreps_pre_attn)
+        self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
+        self.num_heads: int = num_heads
+        self.rescale_degree: int = rescale_degree
+        self.nonlinear_message: bool = nonlinear_message
+        self.irreps_mlp_mid: o3.Irreps = o3.Irreps(irreps_mlp_mid) if irreps_mlp_mid is not None \
+                                                                   else self.irreps_node_input
         
         self.norm_1 = get_norm_layer(norm_layer)(self.irreps_node_input)
         self.ga = GraphAttention(irreps_node_input=self.irreps_node_input, 
-            irreps_node_attr=self.irreps_node_attr,
-            irreps_edge_attr=self.irreps_edge_attr, 
-            irreps_node_output=self.irreps_node_input,
-            fc_neurons=fc_neurons,
-            irreps_head=self.irreps_head, 
-            num_heads=self.num_heads, 
-            irreps_pre_attn=self.irreps_pre_attn, 
-            rescale_degree=self.rescale_degree, 
-            nonlinear_message=self.nonlinear_message,
-            alpha_drop=alpha_drop, 
-            proj_drop=proj_drop)
+                                 irreps_node_attr=self.irreps_node_attr,
+                                 irreps_edge_attr=self.irreps_edge_attr, 
+                                 irreps_node_output=self.irreps_node_input,
+                                 fc_neurons=fc_neurons,
+                                 irreps_head=self.irreps_head, 
+                                 num_heads=self.num_heads, 
+                                 irreps_pre_attn=self.irreps_pre_attn, 
+                                 rescale_degree=self.rescale_degree, 
+                                 nonlinear_message=self.nonlinear_message,
+                                 alpha_drop=alpha_drop, 
+                                 proj_drop=proj_drop)
         
         self.drop_path = GraphDropPath(drop_path_rate) if drop_path_rate > 0. else None
         
@@ -643,8 +649,7 @@ class TransBlock(torch.nn.Module):
                 bias=True, rescale=_RESCALE)
             
             
-    def forward(self, node_input, node_attr, edge_src, edge_dst, edge_attr, edge_scalars, 
-        batch):
+    def forward(self, node_input, node_attr, edge_src, edge_dst, edge_attr, edge_scalars, batch):
         
         node_output = node_input
         node_features = node_input
