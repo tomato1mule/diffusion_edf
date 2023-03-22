@@ -142,11 +142,13 @@ class Gate(torch.nn.Module):
         1. Use `narrow` to split tensor.
         2. Use `Activation` in this file.
     '''
-    def __init__(self, irreps_scalars, act_scalars, irreps_gates, act_gates, irreps_gated):
+    def __init__(self, irreps_scalars: o3.Irreps, act_scalars: List[Callable], 
+                 irreps_gates: o3.Irreps, act_gates: List[Callable], 
+                 irreps_gated: o3.Irreps):
         super().__init__()
-        irreps_scalars = o3.Irreps(irreps_scalars)
-        irreps_gates = o3.Irreps(irreps_gates)
-        irreps_gated = o3.Irreps(irreps_gated)
+        irreps_scalars: o3.Irreps = o3.Irreps(irreps_scalars)
+        irreps_gates: o3.Irreps = o3.Irreps(irreps_gates)
+        irreps_gated: o3.Irreps = o3.Irreps(irreps_gated)
 
         if len(irreps_gates) > 0 and irreps_gates.lmax > 0:
             raise ValueError(f"Gate scalars must be scalars, instead got irreps_gates = {irreps_gates}")
@@ -154,38 +156,47 @@ class Gate(torch.nn.Module):
             raise ValueError(f"Scalars must be scalars, instead got irreps_scalars = {irreps_scalars}")
         if irreps_gates.num_irreps != irreps_gated.num_irreps:
             raise ValueError(f"There are {irreps_gated.num_irreps} irreps in irreps_gated, but a different number ({irreps_gates.num_irreps}) of gate scalars in irreps_gates")
-        #assert len(irreps_scalars) == 1
-        #assert len(irreps_gates) == 1
 
-        self.irreps_scalars = irreps_scalars
-        self.irreps_gates = irreps_gates
-        self.irreps_gated = irreps_gated
-        self._irreps_in = (irreps_scalars + irreps_gates + irreps_gated).simplify()
+        self.irreps_scalars: o3.Irreps = irreps_scalars
+        self.irreps_gates: o3.Irreps = irreps_gates
+        self.irreps_gated: o3.Irreps = irreps_gated
+        self._irreps_in: o3.Irreps = (irreps_scalars + irreps_gates + irreps_gated).simplify()
         
         self.act_scalars = Activation(irreps_scalars, act_scalars)
-        irreps_scalars = self.act_scalars.irreps_out
+        irreps_scalars: o3.Irreps = self.act_scalars.irreps_out
 
         self.act_gates = Activation(irreps_gates, act_gates)
-        irreps_gates = self.act_gates.irreps_out
+        irreps_gates: o3.Irreps = self.act_gates.irreps_out
 
         self.mul = o3.ElementwiseTensorProduct(irreps_gated, irreps_gates)
-        irreps_gated = self.mul.irreps_out
+        irreps_gated: o3.Irreps = self.mul.irreps_out
+
+        for (mul, ir), (mul2, ir2) in zip(self.irreps_scalars, irreps_scalars):
+            assert mul == mul2 and ir[0] == ir2[0] and ir[1] == ir2[1] 
+        for (mul, ir), (mul2, ir2) in zip(self.irreps_gates, irreps_gates):
+            assert mul == mul2 and ir[0] == ir2[0] and ir[1] == ir2[1] 
+        for (mul, ir), (mul2, ir2) in zip(self.irreps_gated, irreps_gated):
+            assert mul == mul2 and ir[0] == ir2[0] and ir[1] == ir2[1] 
 
         self._irreps_out = irreps_scalars + irreps_gated
+
+        self.scalars_dim: int = self.irreps_scalars.dim
+        self.gates_dim: int = self.irreps_gates.dim
+        self.gated_dim: int = self.irreps_gated.dim
+        self.input_dim: int = self.irreps_in.dim
+        assert self.scalars_dim + self.gates_dim + self.gated_dim == self.input_dim
         
 
     def __repr__(self):
         return f"{self.__class__.__name__} ({self.irreps_in} -> {self.irreps_out})"
 
 
-    def forward(self, features):
-        scalars_dim = self.irreps_scalars.dim
-        gates_dim = self.irreps_gates.dim
-        input_dim = self.irreps_in.dim
-        scalars = features.narrow(-1, 0, scalars_dim)
-        gates = features.narrow(-1, scalars_dim, gates_dim)
-        gated = features.narrow(-1, (scalars_dim + gates_dim), 
-            (input_dim - scalars_dim - gates_dim))
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        # features.shape == (..., scalar + gates + gated)
+        assert features.shape[-1] == self.input_dim
+        scalars = features.narrow(-1, 0, self.scalars_dim)
+        gates = features.narrow(-1, self.scalars_dim, self.gates_dim)
+        gated = features.narrow(-1, (self.scalars_dim + self.gates_dim), self.gated_dim)
         
         scalars = self.act_scalars(scalars)
         if gates.shape[-1]:

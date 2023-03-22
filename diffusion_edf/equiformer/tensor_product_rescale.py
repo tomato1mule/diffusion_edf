@@ -236,34 +236,34 @@ def irreps2gate(irreps: o3.Irreps) -> Tuple[o3.Irreps, o3.Irreps, o3.Irreps]:
     return irreps_scalars, irreps_gates, irreps_gated
 
 
-class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRescale):
-    def __init__(self, irreps_in1: o3.Irreps, 
-                 irreps_in2: o3.Irreps, 
-                 irreps_out: o3.Irreps,
-                 bias: bool = True, rescale: bool = True,
-                 internal_weights: Optional[bool] = None, shared_weights: Optional[bool] = None,
-                 normalization: Optional[str] = None):
+# class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRescale):
+#     def __init__(self, irreps_in1: o3.Irreps, 
+#                  irreps_in2: o3.Irreps, 
+#                  irreps_out: o3.Irreps,
+#                  bias: bool = True, rescale: bool = True,
+#                  internal_weights: Optional[bool] = None, shared_weights: Optional[bool] = None,
+#                  normalization: Optional[str] = None):
         
-        irreps_scalars, irreps_gates, irreps_gated = irreps2gate(irreps_out)
-        if irreps_gated.num_irreps == 0:
-            gate = e3nn.nn.Activation(irreps_out, acts=[torch.nn.functional.silu])
-        else:
-            gate = e3nn.nn.Gate(
-                irreps_scalars, [torch.nn.functional.silu for _, ir in irreps_scalars],  # scalar
-                irreps_gates, [torch.sigmoid for _, ir in irreps_gates],  # gates (scalars)
-                irreps_gated  # gated tensors
-            )
-        super().__init__(irreps_in1, irreps_in2, gate.irreps_in,
-            bias=bias, rescale=rescale,
-            internal_weights=internal_weights, shared_weights=shared_weights,
-            normalization=normalization)
-        self.gate = gate
+#         irreps_scalars, irreps_gates, irreps_gated = irreps2gate(irreps_out)
+#         if irreps_gated.num_irreps == 0:
+#             gate = e3nn.nn.Activation(irreps_out, acts=[torch.nn.functional.silu])
+#         else:
+#             gate = e3nn.nn.Gate(
+#                 irreps_scalars, [torch.nn.functional.silu for _, ir in irreps_scalars],  # scalar
+#                 irreps_gates, [torch.sigmoid for _, ir in irreps_gates],  # gates (scalars)
+#                 irreps_gated  # gated tensors
+#             )
+#         super().__init__(irreps_in1, irreps_in2, gate.irreps_in,
+#             bias=bias, rescale=rescale,
+#             internal_weights=internal_weights, shared_weights=shared_weights,
+#             normalization=normalization)
+#         self.gate = gate
         
     
-    def forward(self, x, y, weight=None):
-        out = self.forward_tp_rescale_bias(x, y, weight)
-        out = self.gate(out)
-        return out
+#     def forward(self, x, y, weight=None):
+#         out = self.forward_tp_rescale_bias(x, y, weight)
+#         out = self.gate(out)
+#         return out
     
     
 def sort_irreps_even_first(irreps):

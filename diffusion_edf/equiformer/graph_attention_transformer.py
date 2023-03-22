@@ -101,19 +101,20 @@ class FullyConnectedTensorProductRescaleNorm(FullyConnectedTensorProductRescale)
         
 
 class FullyConnectedTensorProductRescaleNormSwishGate(FullyConnectedTensorProductRescaleNorm):
-    
-    def __init__(self, irreps_in1, irreps_in2, irreps_out,
-        bias=True, rescale=True,
-        internal_weights=None, shared_weights=None,
-        normalization=None, norm_layer='graph'):
+    def __init__(self, irreps_in1: o3.Irreps, 
+                 irreps_in2: o3.Irreps, 
+                 irreps_out: o3.Irreps,
+                 bias: bool = True, rescale: bool = True,
+                 internal_weights: Optional[bool] = None, shared_weights: Optional[bool] = None,
+                 normalization: Optional[str] = None, norm_layer: str = 'graph'):
         
         irreps_scalars, irreps_gates, irreps_gated = irreps2gate(irreps_out)
         if irreps_gated.num_irreps == 0:
             gate = Activation(irreps_out, acts=[torch.nn.SiLU()])
         else:
             gate = Gate(
-                irreps_scalars, [torch.nn.SiLU() for _, ir in irreps_scalars],  # scalar
-                irreps_gates, [torch.sigmoid for _, ir in irreps_gates],  # gates (scalars)
+                irreps_scalars, [torch.nn.SiLU() for _ in irreps_scalars],  # scalar
+                irreps_gates, [torch.sigmoid for _ in irreps_gates],  # gates (scalars)
                 irreps_gated  # gated tensors
             )
         super().__init__(irreps_in1, irreps_in2, gate.irreps_in,
@@ -143,8 +144,8 @@ class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRes
             gate = Activation(irreps_out, acts=[torch.nn.SiLU()])
         else: # use gate nonlinearity if there are non-scalar (L>0) components in the irreps_out.
             gate = Gate(
-                irreps_scalars, [torch.nn.SiLU() for _, ir in irreps_scalars],  # scalar
-                irreps_gates, [torch.sigmoid for _, ir in irreps_gates],  # gates (scalars)
+                irreps_scalars, [torch.nn.SiLU() for _ in irreps_scalars],  # scalar
+                irreps_gates, [torch.sigmoid for _ in irreps_gates],  # gates (scalars)
                 irreps_gated  # gated tensors
             )
         super().__init__(irreps_in1, irreps_in2, gate.irreps_in,
