@@ -6,6 +6,7 @@ from typing import List, Tuple, Optional, Dict, Any
 import torch
 import e3nn
 from e3nn import o3
+import e3nn.nn
 from e3nn.util.jit import compile_mode
 
 from e3nn.nn.models.v2106.gate_points_message_passing import tp_path_exists
@@ -182,7 +183,42 @@ class LinearRS(FullyConnectedTensorProductRescale):
         return out
     
 
-def irreps2gate(irreps):
+def irreps2gate(irreps: o3.Irreps) -> Tuple[o3.Irreps, o3.Irreps, o3.Irreps]:
+    """
+    Parameters
+    ----------
+    irreps : `e3nn.o3.Irreps`
+        representation of the input
+
+    Returns
+    ----------
+    irreps_scalars : `e3nn.o3.Irreps`
+        scalar parts of input irreps (L=0)
+    irreps_gates : `e3nn.o3.Irreps`
+        another scalar irreps (L=0) that will serve as a gate to irreps_gated (L>0)
+    irreps_gated : `e3nn.o3.Irreps`
+        non-scalar parts of input irreps (L>0)
+
+    Examples
+    --------
+    >>> irreps_scalars, irreps_gates, irreps_gated = irreps2gate("3x0e+4x1e+5x2e+20x0e")
+    >>> irreps_scalars
+    23x0e
+    >>> irreps_gates
+    9x0e
+    >>> irreps_gated
+    4x1e+5x2e
+
+
+    >>> irreps_scalars, irreps_gates, irreps_gated = irreps2gate("3x0e+20x0e")
+    >>> irreps_scalars
+    23x0e
+    >>> irreps_gates
+    <empty o3.Irreps>
+    >>> irreps_gated
+    <empty o3.Irreps>
+
+    """
     irreps_scalars = []
     irreps_gated = []
     for mul, ir in irreps:
@@ -201,11 +237,12 @@ def irreps2gate(irreps):
 
 
 class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRescale):
-    def __init__(self,
-        irreps_in1, irreps_in2, irreps_out,
-        bias=True, rescale=True,
-        internal_weights=None, shared_weights=None,
-        normalization=None):
+    def __init__(self, irreps_in1: o3.Irreps, 
+                 irreps_in2: o3.Irreps, 
+                 irreps_out: o3.Irreps,
+                 bias: bool = True, rescale: bool = True,
+                 internal_weights: Optional[bool] = None, shared_weights: Optional[bool] = None,
+                 normalization: Optional[str] = None):
         
         irreps_scalars, irreps_gates, irreps_gated = irreps2gate(irreps_out)
         if irreps_gated.num_irreps == 0:

@@ -3,7 +3,7 @@
     
     Speed up some special cases used in GIN and GAT.
 '''
-
+from typing import List, Tuple, Optional, Union, Callable
 import torch
 
 from e3nn import o3
@@ -11,18 +11,46 @@ from e3nn.math import normalize2mom
 from e3nn.util.jit import compile_mode
 
 
-@compile_mode('trace')
+@compile_mode('script')
 class Activation(torch.nn.Module):
-    '''
-        Directly apply activation when irreps is type-0.
-    '''
-    def __init__(self, irreps_in, acts):
+    r"""Scalar activation function. 
+    Unlike e3nn.nn.Activation, this module directly apply activation when irreps is type-0.
+
+    Odd scalar inputs require activation functions with a defined parity (odd or even).
+
+    Parameters
+    ----------
+    irreps_in : `e3nn.o3.Irreps`
+        representation of the input
+
+    acts : list of function or None
+        list of activation functions, `None` if non-scalar or identity
+
+    Examples
+    --------
+    Note that 'acts' is a list of nonlinearity (activation).
+    >>> a = Activation(irreps_in = "256x0o", acts = [torch.abs])
+    >>> a.irreps_out
+    256x0e
+
+    Note that 'acts' is a list of nonlinearity (activation).
+    >>> a = Activation(irreps_in = "256x0o+16x1e", acts = [torch.nn.SiLU(), None])
+    >>> a.irreps_out
+    256x0o+16x1e
+
+    'acts' must be 'None' for non-scalar (L>=1) irrep parts.
+    >>> a = Activation(irreps_in = "256x0o+16x1e", acts = [torch.nn.SiLU(), torch.nn.SiLU()])
+    >>> < ValueError("Activation: cannot apply an activation function to a non-scalar input.") >
+    """
+    def __init__(self, irreps_in: o3.Irreps, acts: List[Optional[Callable]]):
+        """__init__() is Completely Identical to e3nn.nn.Activation.__init__()
+        """
         super().__init__()
-        irreps_in = o3.Irreps(irreps_in)
+        irreps_in: o3.Irreps = o3.Irreps(irreps_in)
         assert len(irreps_in) == len(acts), (irreps_in, acts)
 
         # normalize the second moment
-        acts = [normalize2mom(act) if act is not None else None for act in acts]
+        acts: List[Optional[Callable]] = [normalize2mom(act) if act is not None else None for act in acts] # normalize moment (e3nn functionality)
 
         from e3nn.util._argtools import _get_device
 
@@ -52,32 +80,53 @@ class Activation(torch.nn.Module):
 
         self.irreps_in = irreps_in
         self.irreps_out = o3.Irreps(irreps_out)
+
+        self.is_acts_none: List[bool] = []
+        for i, act in enumerate(acts):
+            if act is None:
+                acts[i] = torch.nn.Identity()
+                self.is_acts_none.append(True)
+            else:
+                self.is_acts_none.append(False)
         self.acts = torch.nn.ModuleList(acts)
-        assert len(self.irreps_in) == len(self.acts)
+        self.is_acts_none = tuple(self.is_acts_none)
         
+        assert len(self.irreps_in) == len(self.acts)
+
+        # If there is only one irrep in o3.Irreps, and the irrep is a scalar, then just apply the only activation to it.
+        # For example, "8x0e" is the case.
+        # On the other hand, "8x0e+7x0e", "8x1e", "8x0e+7x1e" is not the case.
+        if len(self.acts) == 1 and self.acts[0] is not None: # activation for non-scalar irrep cannot be 'None', thus the only irrep must be scalar (L=0).
+            self.simple: bool = True
+        else:
+            self.simple: bool = False
 
     #def __repr__(self):
     #    acts = "".join(["x" if a is not None else " " for a in self.acts])
     #    return f"{self.__class__.__name__} [{self.acts}] ({self.irreps_in} -> {self.irreps_out})"
+
     def extra_repr(self):
         output_str = super(Activation, self).extra_repr()
         output_str = output_str + '{} -> {}, '.format(self.irreps_in, self.irreps_out)
         return output_str
     
 
-    def forward(self, features, dim=-1):
-        # directly apply activation without narrow
-        if len(self.acts) == 1:
+    def forward(self, features: torch.Tensor, dim: int = -1) -> torch.Tensor:
+        # If there is only one irrep in o3.Irreps, and the irrep is a scalar, then just apply the only activation to it.
+        # For example, "8x0e" is the case.
+        # On the other hand, "8x0e+7x0e", "8x1e", "8x0e+7x1e" is not the case.
+        if self.simple: # activation for non-scalar irrep cannot be 'None', thus the only irrep must be scalar (L=0).
             return self.acts[0](features)
         
+        # Otherwise, same behavior as e3nn.nn.Activation.forward()
         output = []
         index = 0
-        for (mul, ir), act in zip(self.irreps_in, self.acts):
-            if act is not None:
+        for (mul, ir), act, is_act_none in zip(self.irreps_in, self.acts, self.is_acts_none):
+            if not is_act_none:
                 output.append(act(features.narrow(dim, index, mul)))
             else:
-                output.append(features.narrow(dim, index, mul * ir.dim))
-            index += mul * ir.dim
+                output.append(features.narrow(dim, index, mul * (2*ir[0] + 1)))
+            index += mul * (2*ir[0] + 1)
 
         if len(output) > 1:
             return torch.cat(output, dim=dim)

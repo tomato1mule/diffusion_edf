@@ -131,16 +131,17 @@ class FullyConnectedTensorProductRescaleNormSwishGate(FullyConnectedTensorProduc
     
 
 class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRescale):
-    
-    def __init__(self, irreps_in1, irreps_in2, irreps_out,
-        bias=True, rescale=True,
-        internal_weights=None, shared_weights=None,
-        normalization=None):
+    def __init__(self, irreps_in1: o3.Irreps, 
+                 irreps_in2: o3.Irreps, 
+                 irreps_out: o3.Irreps,
+                 bias: bool = True, rescale: bool = True,
+                 internal_weights: Optional[bool] = None, shared_weights: Optional[bool] = None,
+                 normalization: Optional[str] = None):
         
         irreps_scalars, irreps_gates, irreps_gated = irreps2gate(irreps_out)
-        if irreps_gated.num_irreps == 0:
+        if irreps_gated.num_irreps == 0: # use typical scalar activation if irreps_out is all scalar (L=0)
             gate = Activation(irreps_out, acts=[torch.nn.SiLU()])
-        else:
+        else: # use gate nonlinearity if there are non-scalar (L>0) components in the irreps_out.
             gate = Gate(
                 irreps_scalars, [torch.nn.SiLU() for _, ir in irreps_scalars],  # scalar
                 irreps_gates, [torch.sigmoid for _, ir in irreps_gates],  # gates (scalars)
@@ -546,31 +547,32 @@ class FeedForwardNetwork(torch.nn.Module):
         Use two (FCTP + Gate)
     '''
     def __init__(self,
-        irreps_node_input, irreps_node_attr,
-        irreps_node_output, irreps_mlp_mid=None,
-        proj_drop=0.1):
+        irreps_node_input: o3.Irreps, irreps_node_attr: o3.Irreps,
+        irreps_node_output: o3.Irreps, irreps_mlp_mid: Optional[o3.Irreps] = None,
+        proj_drop: float = 0.1, bias: bool = True, rescale: bool = True):
         
         super().__init__()
-        self.irreps_node_input = o3.Irreps(irreps_node_input)
-        self.irreps_node_attr = o3.Irreps(irreps_node_attr)
-        self.irreps_mlp_mid = o3.Irreps(irreps_mlp_mid) if irreps_mlp_mid is not None \
+        self.irreps_node_input: o3.Irreps = o3.Irreps(irreps_node_input)
+        self.irreps_node_attr: o3.Irreps = o3.Irreps(irreps_node_attr)
+        self.irreps_mlp_mid: o3.Irreps = o3.Irreps(irreps_mlp_mid) if irreps_mlp_mid is not None \
             else self.irreps_node_input
-        self.irreps_node_output = o3.Irreps(irreps_node_output)
+        self.irreps_node_output: o3.Irreps = o3.Irreps(irreps_node_output)
         
         self.fctp_1 = FullyConnectedTensorProductRescaleSwishGate(
             self.irreps_node_input, self.irreps_node_attr, self.irreps_mlp_mid, 
-            bias=True, rescale=_RESCALE)
+            bias=bias, rescale=rescale)
         self.fctp_2 = FullyConnectedTensorProductRescale(
             self.irreps_mlp_mid, self.irreps_node_attr, self.irreps_node_output, 
-            bias=True, rescale=_RESCALE)
+            bias=bias, rescale=rescale)
         
-        self.proj_drop = None
-        if proj_drop != 0.0:
-            self.proj_drop = EquivariantDropout(self.irreps_node_output, 
-                drop_prob=proj_drop)
+        
+        if not proj_drop:
+            self.proj_drop = None
+        else:
+            self.proj_drop = EquivariantDropout(self.irreps_node_output, drop_prob=proj_drop)
             
         
-    def forward(self, node_input, node_attr):
+    def forward(self, node_input: torch.Tensor, node_attr: torch.Tensor) -> torch.Tensor:
         node_output = self.fctp_1(node_input, node_attr)
         node_output = self.fctp_2(node_output, node_attr)
         if self.proj_drop is not None:
