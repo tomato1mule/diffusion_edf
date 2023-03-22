@@ -494,10 +494,10 @@ class FeedForwardNetwork(torch.nn.Module):
             
         
     def forward(self, node_input: torch.Tensor, node_attr: torch.Tensor) -> torch.Tensor:
-        node_output = self.fctp_1(node_input, node_attr)
-        node_output = self.fctp_2(node_output, node_attr)
+        node_output: torch.Tensor = self.fctp_1(node_input, node_attr)
+        node_output: torch.Tensor = self.fctp_2(node_output, node_attr)
         if self.proj_drop is not None:
-            node_output = self.proj_drop(node_output)
+            node_output: torch.Tensor = self.proj_drop(node_output)
         return node_output
     
     
