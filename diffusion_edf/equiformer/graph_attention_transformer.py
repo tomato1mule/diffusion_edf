@@ -109,9 +109,9 @@ class FullyConnectedTensorProductRescaleNormSwishGate(FullyConnectedTensorProduc
                  normalization: Optional[str] = None, norm_layer: str = 'graph'):
         
         irreps_scalars, irreps_gates, irreps_gated = irreps2gate(irreps_out)
-        if irreps_gated.num_irreps == 0:
-            gate = Activation(irreps_out, acts=[torch.nn.SiLU()])
-        else:
+        if irreps_gated.num_irreps == 0: # use typical scalar activation if irreps_out is all scalar (L=0)
+            gate = Activation(irreps_out, acts=[torch.nn.SiLU() for _ in irreps_out])
+        else: # use gate nonlinearity if there are non-scalar (L>0) components in the irreps_out.
             gate = Gate(
                 irreps_scalars, [torch.nn.SiLU() for _ in irreps_scalars],  # scalar
                 irreps_gates, [torch.sigmoid for _ in irreps_gates],  # gates (scalars)
@@ -141,7 +141,7 @@ class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRes
         
         irreps_scalars, irreps_gates, irreps_gated = irreps2gate(irreps_out)
         if irreps_gated.num_irreps == 0: # use typical scalar activation if irreps_out is all scalar (L=0)
-            gate = Activation(irreps_out, acts=[torch.nn.SiLU()])
+            gate = Activation(irreps_out, acts=[torch.nn.SiLU() for _ in irreps_out])
         else: # use gate nonlinearity if there are non-scalar (L>0) components in the irreps_out.
             gate = Gate(
                 irreps_scalars, [torch.nn.SiLU() for _ in irreps_scalars],  # scalar
