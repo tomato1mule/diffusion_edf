@@ -1,3 +1,5 @@
+from typing import List, Tuple, Any, Union, Optional
+
 import torch
 import torch.nn as nn
 from e3nn import o3
@@ -58,18 +60,18 @@ class EquivariantLayerNorm(torch.nn.Module):
         return '{}({}, eps={})'.format(self.__class__.__name__, 
             self.irreps_in, self.eps)
     
-
+@compile_mode('script')
 class EquivariantLayerNormV2(nn.Module):
     
-    def __init__(self, irreps, eps=1e-5, affine=True, normalization='component'):
+    def __init__(self, irreps: Irreps, eps: float = 1e-5, affine: bool = True, normalization: str = 'component'):
         super().__init__()
 
-        self.irreps = Irreps(irreps)
-        self.eps = eps
-        self.affine = affine
+        self.irreps: Irreps = Irreps(irreps)
+        self.eps: float = eps
+        self.affine: bool = affine
 
-        num_scalar = sum(mul for mul, ir in self.irreps if ir.l == 0 and ir.p == 1)
-        num_features = self.irreps.num_irreps
+        num_scalar: int = sum(mul for mul, ir in self.irreps if ir.l == 0 and ir.p == 1)
+        num_features: int = self.irreps.num_irreps
 
         if affine:
             self.affine_weight = nn.Parameter(torch.ones(num_features))
@@ -79,7 +81,7 @@ class EquivariantLayerNormV2(nn.Module):
             self.register_parameter('affine_bias', None)
 
         assert normalization in ['norm', 'component'], "normalization needs to be 'norm' or 'component'"
-        self.normalization = normalization
+        self.normalization: str = normalization
 
 
     def __repr__(self):
@@ -87,29 +89,31 @@ class EquivariantLayerNormV2(nn.Module):
 
 
     @torch.cuda.amp.autocast(enabled=False)
-    def forward(self, node_input, **kwargs):
+    def forward(self, node_input: torch.Tensor) -> torch.Tensor:
         # batch, *size, dim = node_input.shape  # TODO: deal with batch
         # node_input = node_input.reshape(batch, -1, dim)  # [batch, sample, stacked features]
         # node_input has shape [batch * nodes, dim], but with variable nr of nodes.
         # the node_input batch slices this into separate graphs
-        dim = node_input.shape[-1]
+        dim: int = node_input.shape[-1]
 
         fields = []
-        ix = 0
-        iw = 0
-        ib = 0
+        ix: int = 0
+        iw: int = 0
+        ib: int = 0
 
         for mul, ir in self.irreps:  # mul is the multiplicity (number of copies) of some irrep type (ir)
-            d = ir.dim
+            # d: int = ir.dim
+            d: int = 2*ir[0] + 1
             #field = node_input[:, ix: ix + mul * d]  # [batch * sample, mul * repr]
-            field = node_input.narrow(1, ix, mul*d)
+            field: torch.Tensor = node_input.narrow(1, ix, mul*d)
             ix += mul * d
 
             # [batch * sample, mul, repr]
             field = field.reshape(-1, mul, d)
 
             # For scalars first compute and subtract the mean
-            if ir.l == 0 and ir.p == 1:
+            #if ir.l == 0 and ir.p == 1:
+            if ir[0] == 0 and ir[1] == 1:
                 # Compute the mean
                 field_mean = torch.mean(field, dim=1, keepdim=True) # [batch, mul, 1]]
                 # Subtract the mean
@@ -123,7 +127,7 @@ class EquivariantLayerNormV2(nn.Module):
                 field_norm = field.pow(2).mean(-1)  # [batch * sample, mul]
             else:
                 raise ValueError("Invalid normalization option {}".format(self.normalization))
-            field_norm = torch.mean(field_norm, dim=1, keepdim=True)    
+            field_norm: torch.Tensor = torch.mean(field_norm, dim=1, keepdim=True)    
 
             # Then apply the rescaling (divide by the sqrt of the squared_norm, i.e., divide by the norm
             field_norm = (field_norm + self.eps).pow(-0.5)  # [batch, mul]
@@ -135,7 +139,8 @@ class EquivariantLayerNormV2(nn.Module):
             
             field = field * field_norm.reshape(-1, mul, 1)  # [batch * sample, mul, repr]
             
-            if self.affine and d == 1 and ir.p == 1:  # scalars
+            #if self.affine and d == 1 and ir.p == 1:  # scalars
+            if self.affine and d == 1 and ir[1] == 1:  # scalars
                 bias = self.affine_bias[ib: ib + mul]  # [batch, mul]
                 ib += mul
                 field += bias.reshape(mul, 1)  # [batch * sample, mul, repr]
@@ -144,11 +149,11 @@ class EquivariantLayerNormV2(nn.Module):
             fields.append(field.reshape(-1, mul * d))  # [batch * sample, mul * repr]
 
         if ix != dim:
-            fmt = "`ix` should have reached node_input.size(-1) ({}), but it ended at {}"
-            msg = fmt.format(dim, ix)
+            fmt: str = "`ix` should have reached node_input.size(-1) ({}), but it ended at {}"
+            msg: str = fmt.format(dim, ix)
             raise AssertionError(msg)
 
-        output = torch.cat(fields, dim=-1)  # [batch * sample, stacked features]
+        output: torch.Tensor = torch.cat(fields, dim=-1)  # [batch * sample, stacked features]
         return output
 
 
