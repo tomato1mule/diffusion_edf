@@ -72,8 +72,8 @@ class SmoothLeakyReLU(torch.nn.Module):
         return 'negative_slope={}'.format(self.alpha)
             
 
-def get_mul_0(irreps):
-    mul_0 = 0
+def get_mul_0(irreps: o3.Irreps) -> int:
+    mul_0: int = 0
     for mul, ir in irreps:
         if ir.l == 0 and ir.p == 1:
             mul_0 += mul
@@ -338,36 +338,38 @@ class GraphAttention(torch.nn.Module):
         4. (0e+1e+...) -> (Value)
     '''
     def __init__(self,
-        irreps_node_input, irreps_node_attr,
-        irreps_edge_attr, irreps_node_output,
-        fc_neurons,
-        irreps_head, num_heads, irreps_pre_attn=None, 
-        rescale_degree=False, nonlinear_message=False,
-        alpha_drop=0.1, proj_drop=0.1):
+        irreps_node_input: o3.Irreps, irreps_node_attr: o3.Irreps,
+        irreps_edge_attr: o3.Irreps, irreps_node_output: o3.Irreps,
+        fc_neurons: List[int],
+        irreps_head: o3.Irreps, num_heads: int, 
+        irreps_pre_attn: Optional[o3.Irreps] = None, 
+        rescale_degree: bool = False, nonlinear_message: bool = False,
+        alpha_drop: float = 0.1, proj_drop: float = 0.1,
+        src_bias: bool = True, dst_bias: bool = False):
         
         super().__init__()
-        self.irreps_node_input = o3.Irreps(irreps_node_input)
-        self.irreps_node_attr = o3.Irreps(irreps_node_attr)
-        self.irreps_edge_attr = o3.Irreps(irreps_edge_attr)
-        self.irreps_node_output = o3.Irreps(irreps_node_output)
-        self.irreps_pre_attn = self.irreps_node_input if irreps_pre_attn is None \
+        self.irreps_node_input: o3.Irreps = o3.Irreps(irreps_node_input)
+        self.irreps_node_attr: o3.Irreps = o3.Irreps(irreps_node_attr)
+        self.irreps_edge_attr: o3.Irreps = o3.Irreps(irreps_edge_attr)
+        self.irreps_node_output: o3.Irreps = o3.Irreps(irreps_node_output)
+        self.irreps_pre_attn: o3.Irreps = self.irreps_node_input if irreps_pre_attn is None \
             else o3.Irreps(irreps_pre_attn)
-        self.irreps_head = o3.Irreps(irreps_head)
-        self.num_heads = num_heads
-        self.rescale_degree = rescale_degree
-        self.nonlinear_message = nonlinear_message
+        self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
+        self.num_heads: int = num_heads
+        self.rescale_degree: bool = rescale_degree
+        self.nonlinear_message: bool = nonlinear_message
         
         # Merge src and dst
-        self.merge_src = LinearRS(self.irreps_node_input, self.irreps_pre_attn, bias=True)
-        self.merge_dst = LinearRS(self.irreps_node_input, self.irreps_pre_attn, bias=False)
+        self.merge_src = LinearRS(self.irreps_node_input, self.irreps_pre_attn, bias=src_bias)
+        self.merge_dst = LinearRS(self.irreps_node_input, self.irreps_pre_attn, bias=dst_bias)
         
-        irreps_attn_heads = irreps_head * num_heads
+        irreps_attn_heads: o3.Irreps = irreps_head * num_heads
         irreps_attn_heads, _, _ = sort_irreps_even_first(irreps_attn_heads) #irreps_attn_heads.sort()
-        irreps_attn_heads = irreps_attn_heads.simplify() 
-        mul_alpha = get_mul_0(irreps_attn_heads)
-        mul_alpha_head = mul_alpha // num_heads
-        irreps_alpha = o3.Irreps('{}x0e'.format(mul_alpha)) # for attention score
-        irreps_attn_all = (irreps_alpha + irreps_attn_heads).simplify()
+        irreps_attn_heads: o3.Irreps = irreps_attn_heads.simplify() 
+        mul_alpha: int = get_mul_0(irreps_attn_heads)
+        mul_alpha_head: int = mul_alpha // num_heads
+        irreps_alpha: o3.Irreps = o3.Irreps('{}x0e'.format(mul_alpha)) # for attention score
+        irreps_attn_all: o3.Irreps = (irreps_alpha + irreps_attn_heads).simplify()
         
         self.sep_act = None
         if self.nonlinear_message:
@@ -409,11 +411,13 @@ class GraphAttention(torch.nn.Module):
                 drop_prob=proj_drop)
         
         
-    def forward(self, node_input, edge_src, edge_dst, edge_attr, edge_scalars):
+    def forward(self, node_input: torch.Tensor, 
+                edge_src: torch.Tensor, edge_dst: torch.Tensor, 
+                edge_attr: torch.Tensor, edge_scalars: torch.Tensor) -> torch.Tensor:
         
-        message_src = self.merge_src(node_input)
-        message_dst = self.merge_dst(node_input)
-        message = message_src[edge_src] + message_dst[edge_dst]
+        message_src: torch.Tensor = self.merge_src(node_input)
+        message_dst: torch.Tensor = self.merge_dst(node_input)
+        message: torch.Tensor = message_src[edge_src] + message_dst[edge_dst]
         
         if self.nonlinear_message:          
             weight = self.sep_act.dtp_rad(edge_scalars)
@@ -569,7 +573,7 @@ class TransBlock(torch.nn.Module):
             self.ffn_shortcut = FullyConnectedTensorProductRescale(
                 self.irreps_node_input, self.irreps_node_attr, 
                 self.irreps_node_output, 
-                bias=True, rescale=_RESCALE)
+                bias=True, rescale=True)
             
             
     def forward(self, node_input, node_attr, edge_src, edge_dst, edge_attr, edge_scalars, batch):

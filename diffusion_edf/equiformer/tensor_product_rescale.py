@@ -349,7 +349,7 @@ class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRes
 #         return out
 
     
-def sort_irreps_even_first(irreps):
+def sort_irreps_even_first(irreps: o3.Irreps):
     Ret = collections.namedtuple("sort", ["irreps", "p", "inv"])
     out = [(ir.l, -ir.p, i, mul) for i, (mul, ir) in enumerate(irreps)]
     out = sorted(out)
