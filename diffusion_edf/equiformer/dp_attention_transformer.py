@@ -22,10 +22,6 @@ from .drop import EquivariantDropout, EquivariantScalarsDropout, GraphDropPath
 from .gaussian_rbf import GaussianRadialBasisLayer
 from .graph_attention_transformer import (
     get_norm_layer,
-    FullyConnectedTensorProductRescaleNorm, 
-    FullyConnectedTensorProductRescaleNormSwishGate, 
-    FullyConnectedTensorProductRescaleSwishGate, 
-    DepthwiseTensorProduct,
     SeparableFCTP,
     Vec2AttnHeads, 
     AttnHeads2Vec,
