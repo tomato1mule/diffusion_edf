@@ -11,6 +11,22 @@ from e3nn.math import normalize2mom
 from e3nn.util.jit import compile_mode
 
 
+class SmoothLeakyReLU(torch.nn.Module):
+    def __init__(self, negative_slope: float = 0.2):
+        super().__init__()
+        self.alpha: float = negative_slope
+        
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x1 = ((1 + self.alpha) / 2) * x
+        x2 = ((1 - self.alpha) / 2) * x * (2 * torch.sigmoid(x) - 1)
+        return x1 + x2
+    
+    
+    def extra_repr(self):
+        return 'negative_slope={}'.format(self.alpha)
+
+
 @compile_mode('script')
 class Activation(torch.nn.Module):
     r"""Scalar activation function. 

@@ -23,7 +23,7 @@ from .tensor_product_rescale import (TensorProductRescale, LinearRS,
                                      FullyConnectedTensorProductRescaleSwishGate, 
                                      DepthwiseTensorProduct,
                                      irreps2gate, sort_irreps_even_first)
-from .fast_activation import Activation, Gate
+from .fast_activation import Activation, Gate, SmoothLeakyReLU
 from .drop import EquivariantDropout, EquivariantScalarsDropout, GraphDropPath
 from .gaussian_rbf import GaussianRadialBasisLayer
 
@@ -33,16 +33,6 @@ from .bessel_rbf import RadialBasis
 
 
 
-
-_RESCALE = True
-_USE_BIAS = True
-
-# QM9
-_MAX_ATOM_TYPE = 5
-# Statistics of QM9 with cutoff radius = 5
-_AVG_NUM_NODES = 18.03065905448718
-_AVG_DEGREE = 15.57930850982666
-  
 
 def get_norm_layer(norm_type):
     if norm_type == 'graph':
@@ -57,22 +47,6 @@ def get_norm_layer(norm_type):
         return None
     else:
         raise ValueError('Norm type {} not supported.'.format(norm_type))
-    
-
-class SmoothLeakyReLU(torch.nn.Module):
-    def __init__(self, negative_slope=0.2):
-        super().__init__()
-        self.alpha = negative_slope
-        
-    
-    def forward(self, x):
-        x1 = ((1 + self.alpha) / 2) * x
-        x2 = ((1 - self.alpha) / 2) * x * (2 * torch.sigmoid(x) - 1)
-        return x1 + x2
-    
-    
-    def extra_repr(self):
-        return 'negative_slope={}'.format(self.alpha)
             
 
 def get_mul_0(irreps: o3.Irreps) -> int:
@@ -232,91 +206,91 @@ class AttnHeads2Vec(torch.nn.Module):
         return '{}(irreps_head={})'.format(self.__class__.__name__, self.irreps_head)
 
 
-class ConcatIrrepsTensor(torch.nn.Module):
+# class ConcatIrrepsTensor(torch.nn.Module):
     
-    def __init__(self, irreps_1, irreps_2):
-        super().__init__()
-        assert irreps_1 == irreps_1.simplify()
-        self.check_sorted(irreps_1)
-        assert irreps_2 == irreps_2.simplify()
-        self.check_sorted(irreps_2)
+#     def __init__(self, irreps_1, irreps_2):
+#         super().__init__()
+#         assert irreps_1 == irreps_1.simplify()
+#         self.check_sorted(irreps_1)
+#         assert irreps_2 == irreps_2.simplify()
+#         self.check_sorted(irreps_2)
         
-        self.irreps_1 = irreps_1
-        self.irreps_2 = irreps_2
-        self.irreps_out = irreps_1 + irreps_2
-        self.irreps_out, _, _ = sort_irreps_even_first(self.irreps_out) #self.irreps_out.sort()
-        self.irreps_out = self.irreps_out.simplify()
+#         self.irreps_1 = irreps_1
+#         self.irreps_2 = irreps_2
+#         self.irreps_out = irreps_1 + irreps_2
+#         self.irreps_out, _, _ = sort_irreps_even_first(self.irreps_out) #self.irreps_out.sort()
+#         self.irreps_out = self.irreps_out.simplify()
         
-        self.ir_mul_list = []
-        lmax = max(irreps_1.lmax, irreps_2.lmax)
-        irreps_max = []
-        for i in range(lmax + 1):
-            irreps_max.append((1, (i, -1)))
-            irreps_max.append((1, (i,  1)))
-        irreps_max = o3.Irreps(irreps_max)
+#         self.ir_mul_list = []
+#         lmax = max(irreps_1.lmax, irreps_2.lmax)
+#         irreps_max = []
+#         for i in range(lmax + 1):
+#             irreps_max.append((1, (i, -1)))
+#             irreps_max.append((1, (i,  1)))
+#         irreps_max = o3.Irreps(irreps_max)
         
-        start_idx_1, start_idx_2 = 0, 0
-        dim_1_list, dim_2_list = self.get_irreps_dim(irreps_1), self.get_irreps_dim(irreps_2)
-        for _, ir in irreps_max:
-            dim_1, dim_2 = None, None
-            index_1 = self.get_ir_index(ir, irreps_1)
-            index_2 = self.get_ir_index(ir, irreps_2)
-            if index_1 != -1:
-                dim_1 = dim_1_list[index_1]
-            if index_2 != -1:
-                dim_2 = dim_2_list[index_2]
-            self.ir_mul_list.append((start_idx_1, dim_1, start_idx_2, dim_2))
-            start_idx_1 = start_idx_1 + dim_1 if dim_1 is not None else start_idx_1
-            start_idx_2 = start_idx_2 + dim_2 if dim_2 is not None else start_idx_2
+#         start_idx_1, start_idx_2 = 0, 0
+#         dim_1_list, dim_2_list = self.get_irreps_dim(irreps_1), self.get_irreps_dim(irreps_2)
+#         for _, ir in irreps_max:
+#             dim_1, dim_2 = None, None
+#             index_1 = self.get_ir_index(ir, irreps_1)
+#             index_2 = self.get_ir_index(ir, irreps_2)
+#             if index_1 != -1:
+#                 dim_1 = dim_1_list[index_1]
+#             if index_2 != -1:
+#                 dim_2 = dim_2_list[index_2]
+#             self.ir_mul_list.append((start_idx_1, dim_1, start_idx_2, dim_2))
+#             start_idx_1 = start_idx_1 + dim_1 if dim_1 is not None else start_idx_1
+#             start_idx_2 = start_idx_2 + dim_2 if dim_2 is not None else start_idx_2
           
             
-    def get_irreps_dim(self, irreps):
-        muls = []
-        for mul, ir in irreps:
-            muls.append(mul * ir.dim)
-        return muls
+#     def get_irreps_dim(self, irreps):
+#         muls = []
+#         for mul, ir in irreps:
+#             muls.append(mul * ir.dim)
+#         return muls
     
     
-    def check_sorted(self, irreps):
-        lmax = None
-        p = None
-        for _, ir in irreps:
-            if p is None and lmax is None:
-                p = ir.p
-                lmax = ir.l
-                continue
-            if ir.l == lmax:
-                assert p < ir.p, 'Parity order error: {}'.format(irreps)
-            assert lmax <= ir.l                
+#     def check_sorted(self, irreps):
+#         lmax = None
+#         p = None
+#         for _, ir in irreps:
+#             if p is None and lmax is None:
+#                 p = ir.p
+#                 lmax = ir.l
+#                 continue
+#             if ir.l == lmax:
+#                 assert p < ir.p, 'Parity order error: {}'.format(irreps)
+#             assert lmax <= ir.l                
         
     
-    def get_ir_index(self, ir, irreps):
-        for index, (_, irrep) in enumerate(irreps):
-            if irrep == ir:
-                return index
-        return -1
+#     def get_ir_index(self, ir, irreps):
+#         for index, (_, irrep) in enumerate(irreps):
+#             if irrep == ir:
+#                 return index
+#         return -1
     
     
-    def forward(self, feature_1, feature_2):
+#     def forward(self, feature_1, feature_2):
         
-        output = []
-        for i in range(len(self.ir_mul_list)):
-            start_idx_1, mul_1, start_idx_2, mul_2 = self.ir_mul_list[i]
-            if mul_1 is not None:
-                output.append(feature_1.narrow(-1, start_idx_1, mul_1))
-            if mul_2 is not None:
-                output.append(feature_2.narrow(-1, start_idx_2, mul_2))
-        output = torch.cat(output, dim=-1)
-        return output
+#         output = []
+#         for i in range(len(self.ir_mul_list)):
+#             start_idx_1, mul_1, start_idx_2, mul_2 = self.ir_mul_list[i]
+#             if mul_1 is not None:
+#                 output.append(feature_1.narrow(-1, start_idx_1, mul_1))
+#             if mul_2 is not None:
+#                 output.append(feature_2.narrow(-1, start_idx_2, mul_2))
+#         output = torch.cat(output, dim=-1)
+#         return output
     
     
-    def __repr__(self):
-        return '{}(irreps_1={}, irreps_2={})'.format(self.__class__.__name__, 
-            self.irreps_1, self.irreps_2)
+#     def __repr__(self):
+#         return '{}(irreps_1={}, irreps_2={})'.format(self.__class__.__name__, 
+#             self.irreps_1, self.irreps_2)
 
         
 @compile_mode('script')
-class GraphAttention(torch.nn.Module):
+class GraphAttentionMLP(torch.nn.Module):
     '''
         1. Message = Alpha * Value
         2. Two Linear to merge src and dst -> Separable FCTP -> 0e + (0e+1e+...)
@@ -329,7 +303,7 @@ class GraphAttention(torch.nn.Module):
         fc_neurons: Optional[List[int]],
         irreps_head: o3.Irreps, num_heads: int, 
         irreps_pre_attn: Optional[o3.Irreps] = None, 
-        rescale_degree: bool = False, nonlinear_message: bool = False,
+        rescale_degree: bool = False, attn_type: str = 'mlp',
         alpha_drop: float = 0.1, proj_drop: float = 0.1,
         src_bias: bool = True, dst_bias: bool = False):
         
@@ -343,7 +317,9 @@ class GraphAttention(torch.nn.Module):
         self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
         self.num_heads: int = num_heads
         self.rescale_degree: bool = rescale_degree
-        self.nonlinear_message: bool = nonlinear_message
+        if attn_type not in ['mlp', 'linear', 'dp']:
+            raise ValueError(f"Unknown attention type: {attn_type}")
+        self.attn_type: str = attn_type
         
         # Merge src and dst
         self.merge_src = LinearRS(self.irreps_node_input, self.irreps_pre_attn, bias=src_bias)
@@ -357,38 +333,30 @@ class GraphAttention(torch.nn.Module):
         irreps_alpha: o3.Irreps = o3.Irreps('{}x0e'.format(mul_alpha)) # for attention score
         irreps_attn_all: o3.Irreps = (irreps_alpha + irreps_attn_heads).simplify()
         
-        self.sep_act = None
-        if self.nonlinear_message:
-            # Use an extra separable FCTP and Swish Gate for value
-            self.sep_act = SeparableFCTP(irreps_node_input = self.irreps_pre_attn, 
-                                         irreps_edge_attr = self.irreps_edge_attr, 
-                                         irreps_node_output = self.irreps_pre_attn, 
-                                         fc_neurons = fc_neurons, 
-                                         use_activation = True, 
-                                         norm_layer = None, 
-                                         internal_weights = False)
-            self.sep_alpha = LinearRS(self.sep_act.dtp.irreps_out, irreps_alpha)
-            self.sep_value = SeparableFCTP(irreps_node_input = self.irreps_pre_attn, 
-                                           irreps_edge_attr = self.irreps_edge_attr, 
-                                           irreps_node_output = irreps_attn_heads, 
-                                           fc_neurons = None, 
-                                           use_activation = False, 
-                                           norm_layer = None, 
-                                           internal_weights = True)
-            self.vec2heads_alpha = Vec2AttnHeads(o3.Irreps('{}x0e'.format(mul_alpha_head)), 
-                num_heads)
-            self.vec2heads_value = Vec2AttnHeads(self.irreps_head, num_heads)
-        else:
-            self.sep = SeparableFCTP(self.irreps_pre_attn, 
-                self.irreps_edge_attr, irreps_attn_all, fc_neurons, 
-                use_activation=False, norm_layer=None)
-            self.vec2heads = Vec2AttnHeads(
-                (o3.Irreps('{}x0e'.format(mul_alpha_head)) + irreps_head).simplify(), 
-                num_heads)
+        # Use an extra separable FCTP and Swish Gate for value
+        self.sep_act = SeparableFCTP(irreps_node_input = self.irreps_pre_attn, 
+                                        irreps_edge_attr = self.irreps_edge_attr, 
+                                        irreps_node_output = self.irreps_pre_attn, 
+                                        fc_neurons = fc_neurons, 
+                                        use_activation = True, 
+                                        norm_layer = None, 
+                                        internal_weights = False)
+        self.sep_alpha = LinearRS(self.sep_act.dtp.irreps_out, irreps_alpha)
+        self.sep_value = SeparableFCTP(irreps_node_input = self.irreps_pre_attn, 
+                                        irreps_edge_attr = self.irreps_edge_attr, 
+                                        irreps_node_output = irreps_attn_heads, 
+                                        fc_neurons = None, 
+                                        use_activation = False, 
+                                        norm_layer = None, 
+                                        internal_weights = True)
+        self.vec2heads_alpha = Vec2AttnHeads(irreps_head = o3.Irreps('{}x0e'.format(mul_alpha_head)), 
+                                                num_heads = num_heads)
+        self.vec2heads_value = Vec2AttnHeads(irreps_head = self.irreps_head, 
+                                                num_heads = num_heads)
         
-        self.alpha_act = Activation(o3.Irreps('{}x0e'.format(mul_alpha_head)), 
-            [SmoothLeakyReLU(0.2)])
-        self.heads2vec = AttnHeads2Vec(irreps_head)
+        self.alpha_act = Activation(irreps_in = o3.Irreps('{}x0e'.format(mul_alpha_head)), 
+                                    acts = [SmoothLeakyReLU(0.2)])
+        self.heads2vec = AttnHeads2Vec(irreps_head = irreps_head)
         
         self.mul_alpha_head = mul_alpha_head
         self.alpha_dot = torch.nn.Parameter(torch.randn(1, num_heads, mul_alpha_head))
@@ -398,11 +366,12 @@ class GraphAttention(torch.nn.Module):
         if alpha_drop != 0.0:
             self.alpha_dropout = torch.nn.Dropout(alpha_drop)
         
-        self.proj = LinearRS(irreps_attn_heads, self.irreps_node_output)
+        self.proj = LinearRS(irreps_in = irreps_attn_heads, 
+                             irreps_out = self.irreps_node_output)
         self.proj_drop = None
         if proj_drop != 0.0:
-            self.proj_drop = EquivariantDropout(self.irreps_node_input, 
-                drop_prob=proj_drop)
+            self.proj_drop = EquivariantDropout(irreps = self.irreps_node_input, 
+                                                drop_prob = proj_drop)
         
         
     def forward(self, node_input: torch.Tensor, 
@@ -413,40 +382,34 @@ class GraphAttention(torch.nn.Module):
         message_dst: torch.Tensor = self.merge_dst(node_input)
         message: torch.Tensor = message_src[edge_src] + message_dst[edge_dst]
         
-        if self.nonlinear_message:          
-            weight = self.sep_act.dtp_rad(edge_scalars)
-            message = self.sep_act.dtp(message, edge_attr, weight)
-            alpha = self.sep_alpha(message)                        # f_ij^(L=0) part  ||  Linear: irreps_in -> 'mul_alpha x 0e'
-            alpha = self.vec2heads_alpha(alpha)
-            value = self.sep_act.lin(message)                      # f_ij^(L>=0) part (before activation)
-            value = self.sep_act.gate(value)                       # f_ij^(L>=0) part (after activation)
-            value = self.sep_value(value, edge_attr=edge_attr, edge_scalars=edge_scalars) # DTP + Linear for f_ij^(L>=0) part
-            value = self.vec2heads_value(value)
-        else:
-            message = self.sep(message, edge_attr=edge_attr, edge_scalars=edge_scalars)
-            message = self.vec2heads(message)
-            head_dim_size = message.shape[-1]
-            alpha = message.narrow(2, 0, self.mul_alpha_head)
-            value = message.narrow(2, self.mul_alpha_head, (head_dim_size - self.mul_alpha_head))
+      
+        weight: torch.Tensor = self.sep_act.dtp_rad(edge_scalars)
+        message: torch.Tensor = self.sep_act.dtp(message, edge_attr, weight)
+        alpha: torch.Tensor = self.sep_alpha(message)                        # f_ij^(L=0) part  ||  Linear: irreps_in -> 'mul_alpha x 0e'
+        alpha: torch.Tensor = self.vec2heads_alpha(alpha)                    # reshape (N, Heads*head_dim) -> (N, Heads, head_dim)
+        value: torch.Tensor = self.sep_act.lin(message)                      # f_ij^(L>=0) part (before activation)
+        value: torch.Tensor = self.sep_act.gate(value)                       # f_ij^(L>=0) part (after activation)
+        value: torch.Tensor = self.sep_value(value, edge_attr=edge_attr, edge_scalars=edge_scalars) # DTP + Linear for f_ij^(L>=0) part
+        value: torch.Tensor = self.vec2heads_value(value)                    # reshape (N, Heads*head_dim) -> (N, Heads, head_dim)
         
         # inner product
-        alpha = self.alpha_act(alpha)
-        alpha = torch.einsum('bik, aik -> bi', alpha, self.alpha_dot)
-        alpha = torch_geometric.utils.softmax(alpha, edge_dst)
-        alpha = alpha.unsqueeze(-1)
+        alpha: torch.Tensor = self.alpha_act(alpha)          # Leaky ReLU
+        alpha: torch.Tensor = torch.einsum('ehk, hk -> eh', alpha, self.alpha_dot.squeeze(0)) # Linear layer: (N_edge, N_head mul_alpha_head) -> (N_edge, N_head)
+        alpha: torch.Tensor = torch_geometric.utils.softmax(alpha, edge_dst, dim=-2)          # Softmax
+        alpha: torch.Tensor = alpha.unsqueeze(-1)                              # (N_edge, N_head)
         if self.alpha_dropout is not None:
             alpha = self.alpha_dropout(alpha)
-        attn = value * alpha
-        attn = scatter(attn, index=edge_dst, dim=0, dim_size=node_input.shape[0])
-        attn = self.heads2vec(attn)
+        attn: torch.Tensor = value * alpha
+        attn: torch.Tensor = scatter(attn, index=edge_dst, dim=0, dim_size=node_input.shape[0])
+        attn: torch.Tensor = self.heads2vec(attn)
         
         if self.rescale_degree:
-            degree = torch_geometric.utils.degree(edge_dst, 
+            degree: torch.Tensor = torch_geometric.utils.degree(edge_dst, 
                 num_nodes=node_input.shape[0], dtype=node_input.dtype)
-            degree = degree.view(-1, 1)
+            degree: torch.Tensor = degree.view(-1, 1)
             attn = attn * degree
             
-        node_output = self.proj(attn)
+        node_output: torch.Tensor = self.proj(attn) # Final Linear layer.
         
         if self.proj_drop is not None:
             node_output = self.proj_drop(node_output)
@@ -455,10 +418,135 @@ class GraphAttention(torch.nn.Module):
     
     
     def extra_repr(self):
-        output_str = super(GraphAttention, self).extra_repr()
+        output_str = super().extra_repr()
         output_str = output_str + 'rescale_degree={}, '.format(self.rescale_degree)
         return output_str
-                    
+
+
+@compile_mode('script')
+class GraphAttentionLinear(torch.nn.Module):
+    '''
+        1. Message = Alpha * Value
+        2. Two Linear to merge src and dst -> Separable FCTP -> 0e + (0e+1e+...)
+        3. 0e -> Activation -> Inner Product -> (Alpha)
+        4. (0e+1e+...) -> (Value)
+    '''
+    def __init__(self,
+        irreps_node_input: o3.Irreps, irreps_node_attr: o3.Irreps,
+        irreps_edge_attr: o3.Irreps, irreps_node_output: o3.Irreps,
+        fc_neurons: Optional[List[int]],
+        irreps_head: o3.Irreps, num_heads: int, 
+        irreps_pre_attn: Optional[o3.Irreps] = None, 
+        rescale_degree: bool = False, attn_type: str = 'mlp',
+        alpha_drop: float = 0.1, proj_drop: float = 0.1,
+        src_bias: bool = True, dst_bias: bool = False):
+        
+        super().__init__()
+        self.irreps_node_input: o3.Irreps = o3.Irreps(irreps_node_input)
+        self.irreps_node_attr: o3.Irreps = o3.Irreps(irreps_node_attr)
+        self.irreps_edge_attr: o3.Irreps = o3.Irreps(irreps_edge_attr)
+        self.irreps_node_output: o3.Irreps = o3.Irreps(irreps_node_output)
+        self.irreps_pre_attn: o3.Irreps = self.irreps_node_input if irreps_pre_attn is None \
+            else o3.Irreps(irreps_pre_attn)
+        self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
+        self.num_heads: int = num_heads
+        self.rescale_degree: bool = rescale_degree
+        if attn_type not in ['mlp', 'linear', 'dp']:
+            raise ValueError(f"Unknown attention type: {attn_type}")
+        self.attn_type: str = attn_type
+        
+        # Merge src and dst
+        self.merge_src = LinearRS(self.irreps_node_input, self.irreps_pre_attn, bias=src_bias)
+        self.merge_dst = LinearRS(self.irreps_node_input, self.irreps_pre_attn, bias=dst_bias)
+        
+        irreps_attn_heads: o3.Irreps = irreps_head * num_heads
+        irreps_attn_heads, _, _ = sort_irreps_even_first(irreps_attn_heads) #irreps_attn_heads.sort()
+        irreps_attn_heads: o3.Irreps = irreps_attn_heads.simplify() 
+        mul_alpha: int = get_mul_0(irreps_attn_heads) # how many 0e in irreps_attn_heads
+        mul_alpha_head: int = mul_alpha // num_heads  # how many 0e per head
+        irreps_alpha: o3.Irreps = o3.Irreps('{}x0e'.format(mul_alpha)) # for attention score
+        irreps_attn_all: o3.Irreps = (irreps_alpha + irreps_attn_heads).simplify()
+        
+
+        self.sep = SeparableFCTP(irreps_node_input = self.irreps_pre_attn, 
+                                    irreps_edge_attr = self.irreps_edge_attr, 
+                                    irreps_node_output = irreps_attn_all, 
+                                    fc_neurons = fc_neurons, 
+                                    use_activation = False, 
+                                    norm_layer = None,
+                                    internal_weights = False)
+        self.vec2heads = Vec2AttnHeads(irreps_head = (o3.Irreps('{}x0e'.format(mul_alpha_head)) + irreps_head).simplify(), 
+                                        num_heads = num_heads)
+
+        
+        self.alpha_act = Activation(irreps_in = o3.Irreps('{}x0e'.format(mul_alpha_head)), 
+                                    acts = [SmoothLeakyReLU(0.2)])
+        self.heads2vec = AttnHeads2Vec(irreps_head = irreps_head)
+        
+        self.mul_alpha_head = mul_alpha_head
+        self.alpha_dot = torch.nn.Parameter(torch.randn(1, num_heads, mul_alpha_head))
+        torch_geometric.nn.inits.glorot(self.alpha_dot) # Following GATv2
+        
+        self.alpha_dropout = None
+        if alpha_drop != 0.0:
+            self.alpha_dropout = torch.nn.Dropout(alpha_drop)
+        
+        self.proj = LinearRS(irreps_in = irreps_attn_heads, 
+                             irreps_out = self.irreps_node_output)
+        self.proj_drop = None
+        if proj_drop != 0.0:
+            self.proj_drop = EquivariantDropout(irreps = self.irreps_node_input, 
+                                                drop_prob = proj_drop)
+        
+        
+    def forward(self, node_input: torch.Tensor, 
+                edge_src: torch.Tensor, edge_dst: torch.Tensor, 
+                edge_attr: torch.Tensor, edge_scalars: torch.Tensor) -> torch.Tensor:
+        
+        message_src: torch.Tensor = self.merge_src(node_input)
+        message_dst: torch.Tensor = self.merge_dst(node_input)
+        message: torch.Tensor = message_src[edge_src] + message_dst[edge_dst]
+        
+
+        # No Gate -> DTP -> Linear as in MLP attention.
+        message: torch.Tensor = self.sep(message, edge_attr=edge_attr, edge_scalars=edge_scalars)
+        message: torch.Tensor = self.vec2heads(message)
+        head_dim_size: int = message.shape[-1]
+        alpha: torch.Tensor = message.narrow(-1, 0, self.mul_alpha_head)
+        value: torch.Tensor = message.narrow(-1, self.mul_alpha_head, (head_dim_size - self.mul_alpha_head))
+        
+        # inner product
+        alpha: torch.Tensor = self.alpha_act(alpha)          # Leaky ReLU
+        alpha: torch.Tensor = torch.einsum('ehk, hk -> eh', alpha, self.alpha_dot.squeeze(0)) # Linear layer: (N_edge, N_head mul_alpha_head) -> (N_edge, N_head)
+        alpha: torch.Tensor = torch_geometric.utils.softmax(alpha, edge_dst, dim=-2)          # Softmax
+        alpha: torch.Tensor = alpha.unsqueeze(-1)                              # (N_edge, N_head)
+        if self.alpha_dropout is not None:
+            alpha = self.alpha_dropout(alpha)
+        attn: torch.Tensor = value * alpha
+        attn: torch.Tensor = scatter(attn, index=edge_dst, dim=0, dim_size=node_input.shape[0])
+        attn: torch.Tensor = self.heads2vec(attn)
+        
+        if self.rescale_degree:
+            degree: torch.Tensor = torch_geometric.utils.degree(edge_dst, 
+                num_nodes=node_input.shape[0], dtype=node_input.dtype)
+            degree: torch.Tensor = degree.view(-1, 1)
+            attn = attn * degree
+            
+        node_output: torch.Tensor = self.proj(attn) # Final Linear layer.
+        
+        if self.proj_drop is not None:
+            node_output = self.proj_drop(node_output)
+        
+        return node_output
+    
+    
+    def extra_repr(self):
+        output_str = super().extra_repr()
+        output_str = output_str + 'rescale_degree={}, '.format(self.rescale_degree)
+        return output_str
+
+
+
 
 @compile_mode('script')
 class FeedForwardNetwork(torch.nn.Module):
@@ -597,29 +685,6 @@ class TransBlock(torch.nn.Module):
         
         return node_output
     
-        
-class NodeEmbeddingNetwork(torch.nn.Module):
-    
-    def __init__(self, irreps_node_embedding, max_atom_type=_MAX_ATOM_TYPE, bias=True):
-        
-        super().__init__()
-        self.max_atom_type = max_atom_type
-        self.irreps_node_embedding = o3.Irreps(irreps_node_embedding)
-        self.atom_type_lin = LinearRS(o3.Irreps('{}x0e'.format(self.max_atom_type)), 
-            self.irreps_node_embedding, bias=bias)
-        self.atom_type_lin.tp.weight.data.mul_(self.max_atom_type ** 0.5)
-        
-        
-    def forward(self, node_atom):
-        '''
-            `node_atom` is a LongTensor.
-        '''
-        node_atom_onehot = torch.nn.functional.one_hot(node_atom, self.max_atom_type).float()
-        node_attr = node_atom_onehot
-        node_embedding = self.atom_type_lin(node_atom_onehot)
-        
-        return node_embedding, node_attr, node_atom_onehot
-
 
 class ScaledScatter(torch.nn.Module):
     def __init__(self, avg_aggregate_num: float):
@@ -673,6 +738,50 @@ class EdgeDegreeEmbeddingNetwork(torch.nn.Module):
             dim_size=node_features.shape[0])
         return node_features
     
+
+
+
+####################################################################
+####################################################################
+####################################################################
+########################### QM9 Specific ###########################
+####################################################################
+####################################################################
+####################################################################
+
+
+_RESCALE = True
+
+# QM9
+_MAX_ATOM_TYPE = 5
+# Statistics of QM9 with cutoff radius = 5
+_AVG_NUM_NODES = 18.03065905448718
+_AVG_DEGREE = 15.57930850982666
+
+
+class NodeEmbeddingNetwork(torch.nn.Module):
+    
+    def __init__(self, irreps_node_embedding, max_atom_type=_MAX_ATOM_TYPE, bias=True):
+        
+        super().__init__()
+        self.max_atom_type = max_atom_type
+        self.irreps_node_embedding = o3.Irreps(irreps_node_embedding)
+        self.atom_type_lin = LinearRS(o3.Irreps('{}x0e'.format(self.max_atom_type)), 
+            self.irreps_node_embedding, bias=bias)
+        self.atom_type_lin.tp.weight.data.mul_(self.max_atom_type ** 0.5)
+        
+        
+    def forward(self, node_atom):
+        '''
+            `node_atom` is a LongTensor.
+        '''
+        node_atom_onehot = torch.nn.functional.one_hot(node_atom, self.max_atom_type).float()
+        node_attr = node_atom_onehot
+        node_embedding = self.atom_type_lin(node_atom_onehot)
+        
+        return node_embedding, node_attr, node_atom_onehot
+
+
 
 class GraphAttentionTransformer(torch.nn.Module):
     def __init__(self,
