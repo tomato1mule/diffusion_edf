@@ -303,7 +303,7 @@ class GraphAttentionMLP(torch.nn.Module):
         fc_neurons: Optional[List[int]],
         irreps_head: o3.Irreps, num_heads: int, 
         irreps_pre_attn: Optional[o3.Irreps] = None, 
-        rescale_degree: bool = False, attn_type: str = 'mlp',
+        rescale_degree: bool = False, 
         alpha_drop: float = 0.1, proj_drop: float = 0.1,
         src_bias: bool = True, dst_bias: bool = False):
         
@@ -317,9 +317,6 @@ class GraphAttentionMLP(torch.nn.Module):
         self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
         self.num_heads: int = num_heads
         self.rescale_degree: bool = rescale_degree
-        if attn_type not in ['mlp', 'linear', 'dp']:
-            raise ValueError(f"Unknown attention type: {attn_type}")
-        self.attn_type: str = attn_type
         
         # Merge src and dst
         self.merge_src = LinearRS(self.irreps_node_input, self.irreps_pre_attn, bias=src_bias)
@@ -437,7 +434,7 @@ class GraphAttentionLinear(torch.nn.Module):
         fc_neurons: Optional[List[int]],
         irreps_head: o3.Irreps, num_heads: int, 
         irreps_pre_attn: Optional[o3.Irreps] = None, 
-        rescale_degree: bool = False, attn_type: str = 'mlp',
+        rescale_degree: bool = False,
         alpha_drop: float = 0.1, proj_drop: float = 0.1,
         src_bias: bool = True, dst_bias: bool = False):
         
@@ -451,9 +448,6 @@ class GraphAttentionLinear(torch.nn.Module):
         self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
         self.num_heads: int = num_heads
         self.rescale_degree: bool = rescale_degree
-        if attn_type not in ['mlp', 'linear', 'dp']:
-            raise ValueError(f"Unknown attention type: {attn_type}")
-        self.attn_type: str = attn_type
         
         # Merge src and dst
         self.merge_src = LinearRS(self.irreps_node_input, self.irreps_pre_attn, bias=src_bias)
@@ -604,7 +598,7 @@ class TransBlock(torch.nn.Module):
         num_heads: int, 
         irreps_pre_attn: Optional[o3.Irreps] = None, 
         rescale_degree: bool = False, 
-        nonlinear_message: bool = False,
+        attn_type: str = 'mlp',
         alpha_drop: float = 0.1,
         proj_drop: float = 0.1,
         drop_path_rate: float = 0.0,
@@ -621,23 +615,41 @@ class TransBlock(torch.nn.Module):
         self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
         self.num_heads: int = num_heads
         self.rescale_degree: int = rescale_degree
-        self.nonlinear_message: bool = nonlinear_message
+        if attn_type not in ['mlp', 'linear', 'dp']:
+            raise ValueError(f"Unknown attention type: {attn_type}")
+        self.attn_type: str = attn_type
         self.irreps_mlp_mid: o3.Irreps = o3.Irreps(irreps_mlp_mid) if irreps_mlp_mid is not None \
                                                                    else self.irreps_node_input
         
         self.norm_1 = get_norm_layer(norm_layer)(self.irreps_node_input)
-        self.ga = GraphAttention(irreps_node_input=self.irreps_node_input, 
-                                 irreps_node_attr=self.irreps_node_attr,
-                                 irreps_edge_attr=self.irreps_edge_attr, 
-                                 irreps_node_output=self.irreps_node_input,
-                                 fc_neurons=fc_neurons,
-                                 irreps_head=self.irreps_head, 
-                                 num_heads=self.num_heads, 
-                                 irreps_pre_attn=self.irreps_pre_attn, 
-                                 rescale_degree=self.rescale_degree, 
-                                 nonlinear_message=self.nonlinear_message,
-                                 alpha_drop=alpha_drop, 
-                                 proj_drop=proj_drop)
+        if self.attn_type == 'mlp':
+            self.ga = GraphAttentionMLP(irreps_node_input=self.irreps_node_input, 
+                                    irreps_node_attr=self.irreps_node_attr,
+                                    irreps_edge_attr=self.irreps_edge_attr, 
+                                    irreps_node_output=self.irreps_node_input,
+                                    fc_neurons=fc_neurons,
+                                    irreps_head=self.irreps_head, 
+                                    num_heads=self.num_heads, 
+                                    irreps_pre_attn=self.irreps_pre_attn, 
+                                    rescale_degree=self.rescale_degree, 
+                                    alpha_drop=alpha_drop, 
+                                    proj_drop=proj_drop)
+        elif self.attn_type == 'linear':
+            self.ga = GraphAttentionLinear(irreps_node_input=self.irreps_node_input, 
+                                    irreps_node_attr=self.irreps_node_attr,
+                                    irreps_edge_attr=self.irreps_edge_attr, 
+                                    irreps_node_output=self.irreps_node_input,
+                                    fc_neurons=fc_neurons,
+                                    irreps_head=self.irreps_head, 
+                                    num_heads=self.num_heads, 
+                                    irreps_pre_attn=self.irreps_pre_attn, 
+                                    rescale_degree=self.rescale_degree, 
+                                    alpha_drop=alpha_drop, 
+                                    proj_drop=proj_drop)
+        elif self.attn_type == 'dp':
+            raise NotImplementedError
+        else:
+            raise ValueError(f"Unknown attention type: {self.attn_type}")
         
         self.drop_path = GraphDropPath(drop_path_rate) if drop_path_rate > 0. else None
         
@@ -658,24 +670,27 @@ class TransBlock(torch.nn.Module):
                 bias=True, rescale=True)
             
             
-    def forward(self, node_input, node_attr, edge_src, edge_dst, edge_attr, edge_scalars, batch):
+    def forward(self, node_input: torch.Tensor, node_attr: torch.Tensor, 
+                edge_src: torch.Tensor, edge_dst: torch.Tensor, 
+                edge_attr: torch.Tensor, edge_scalars: torch.Tensor, 
+                batch: Optional[torch.Tensor]) -> torch.Tensor:
         
-        node_output = node_input
-        node_features = node_input
-        node_features = self.norm_1(node_features, batch=batch)
+        node_output: torch.Tensor = node_input
+        node_features: torch.Tensor = node_input
+        node_features: torch.Tensor = self.norm_1(node_features, batch=batch)
         #norm_1_output = node_features
-        node_features = self.ga(node_input=node_features, 
-                                edge_src=edge_src, edge_dst=edge_dst, 
-                                edge_attr=edge_attr, edge_scalars=edge_scalars)
+        node_features: torch.Tensor = self.ga(node_input=node_features, 
+                                              edge_src=edge_src, edge_dst=edge_dst, 
+                                              edge_attr=edge_attr, edge_scalars=edge_scalars)
         
         if self.drop_path is not None:
             node_features = self.drop_path(node_features, batch)
-        node_output = node_output + node_features
+        node_output: torch.Tensor = node_output + node_features
         
-        node_features = node_output
-        node_features = self.norm_2(node_features, batch=batch)
+        node_features: torch.Tensor = node_output
+        node_features: torch.Tensor = self.norm_2(node_features, batch=batch)
         #node_features = self.concat_norm_output(norm_1_output, node_features)
-        node_features = self.ffn(node_features, node_attr)
+        node_features: torch.Tensor = self.ffn(node_features, node_attr)
         if self.ffn_shortcut is not None:
             node_output = self.ffn_shortcut(node_output, node_attr)
         
