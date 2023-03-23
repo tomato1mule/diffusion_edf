@@ -168,10 +168,10 @@ class Vec2AttnHeads(torch.nn.Module):
         Reshape vectors of shape [N, irreps_mid] to vectors of shape
         [N, num_heads, irreps_head].
     '''
-    def __init__(self, irreps_head, num_heads):
+    def __init__(self, irreps_head: o3.Irreps, num_heads: int):
         super().__init__()
-        self.num_heads = num_heads
-        self.irreps_head = irreps_head
+        self.num_heads: int = num_heads
+        self.irreps_head: o3.Irreps = irreps_head
         self.irreps_mid_in = []
         for mul, ir in irreps_head:
             self.irreps_mid_in.append((mul * num_heads, ir))
@@ -181,12 +181,13 @@ class Vec2AttnHeads(torch.nn.Module):
         for mul, ir in self.irreps_mid_in:
             self.mid_in_indices.append((start_idx, start_idx + mul * ir.dim))
             start_idx = start_idx + mul * ir.dim
+        self.mid_in_indices = tuple(self.mid_in_indices)
     
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         N, _ = x.shape
         out = []
-        for ir_idx, (start_idx, end_idx) in enumerate(self.mid_in_indices):
+        for start_idx, end_idx in self.mid_in_indices:
             temp = x.narrow(1, start_idx, end_idx - start_idx)
             temp = temp.reshape(N, self.num_heads, -1)
             out.append(temp)
@@ -205,7 +206,7 @@ class AttnHeads2Vec(torch.nn.Module):
         Convert vectors of shape [N, num_heads, irreps_head] into
         vectors of shape [N, irreps_head * num_heads].
     '''
-    def __init__(self, irreps_head):
+    def __init__(self, irreps_head: o3.Irreps):
         super().__init__()
         self.irreps_head = irreps_head
         self.head_indices = []
@@ -213,12 +214,13 @@ class AttnHeads2Vec(torch.nn.Module):
         for mul, ir in self.irreps_head:
             self.head_indices.append((start_idx, start_idx + mul * ir.dim))
             start_idx = start_idx + mul * ir.dim
+        self.head_indices = tuple(self.head_indices)
     
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         N, _, _ = x.shape
         out = []
-        for ir_idx, (start_idx, end_idx) in enumerate(self.head_indices):
+        for start_idx, end_idx in self.head_indices:
             temp = x.narrow(2, start_idx, end_idx - start_idx)
             temp = temp.reshape(N, -1)
             out.append(temp)
@@ -350,8 +352,8 @@ class GraphAttention(torch.nn.Module):
         irreps_attn_heads: o3.Irreps = irreps_head * num_heads
         irreps_attn_heads, _, _ = sort_irreps_even_first(irreps_attn_heads) #irreps_attn_heads.sort()
         irreps_attn_heads: o3.Irreps = irreps_attn_heads.simplify() 
-        mul_alpha: int = get_mul_0(irreps_attn_heads)
-        mul_alpha_head: int = mul_alpha // num_heads
+        mul_alpha: int = get_mul_0(irreps_attn_heads) # how many 0e in irreps_attn_heads
+        mul_alpha_head: int = mul_alpha // num_heads  # how many 0e per head
         irreps_alpha: o3.Irreps = o3.Irreps('{}x0e'.format(mul_alpha)) # for attention score
         irreps_attn_all: o3.Irreps = (irreps_alpha + irreps_attn_heads).simplify()
         
@@ -366,9 +368,13 @@ class GraphAttention(torch.nn.Module):
                                          norm_layer = None, 
                                          internal_weights = False)
             self.sep_alpha = LinearRS(self.sep_act.dtp.irreps_out, irreps_alpha)
-            self.sep_value = SeparableFCTP(self.irreps_pre_attn, 
-                self.irreps_edge_attr, irreps_attn_heads, fc_neurons=None, 
-                use_activation=False, norm_layer=None, internal_weights=True)
+            self.sep_value = SeparableFCTP(irreps_node_input = self.irreps_pre_attn, 
+                                           irreps_edge_attr = self.irreps_edge_attr, 
+                                           irreps_node_output = irreps_attn_heads, 
+                                           fc_neurons = None, 
+                                           use_activation = False, 
+                                           norm_layer = None, 
+                                           internal_weights = True)
             self.vec2heads_alpha = Vec2AttnHeads(o3.Irreps('{}x0e'.format(mul_alpha_head)), 
                 num_heads)
             self.vec2heads_value = Vec2AttnHeads(self.irreps_head, num_heads)
@@ -410,11 +416,11 @@ class GraphAttention(torch.nn.Module):
         if self.nonlinear_message:          
             weight = self.sep_act.dtp_rad(edge_scalars)
             message = self.sep_act.dtp(message, edge_attr, weight)
-            alpha = self.sep_alpha(message)
+            alpha = self.sep_alpha(message)                        # f_ij^(L=0) part  ||  Linear: irreps_in -> 'mul_alpha x 0e'
             alpha = self.vec2heads_alpha(alpha)
-            value = self.sep_act.lin(message)
-            value = self.sep_act.gate(value)
-            value = self.sep_value(value, edge_attr=edge_attr, edge_scalars=edge_scalars)
+            value = self.sep_act.lin(message)                      # f_ij^(L>=0) part (before activation)
+            value = self.sep_act.gate(value)                       # f_ij^(L>=0) part (after activation)
+            value = self.sep_value(value, edge_attr=edge_attr, edge_scalars=edge_scalars) # DTP + Linear for f_ij^(L>=0) part
             value = self.vec2heads_value(value)
         else:
             message = self.sep(message, edge_attr=edge_attr, edge_scalars=edge_scalars)
