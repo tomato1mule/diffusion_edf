@@ -19,7 +19,10 @@ from .layer_norm import EquivariantLayerNormV2
 from .fast_layer_norm import EquivariantLayerNormFast
 from .radial_func import RadialProfile
 from .tensor_product_rescale import (TensorProductRescale, LinearRS,
-    FullyConnectedTensorProductRescale, FullyConnectedTensorProductRescaleSwishGate, irreps2gate, sort_irreps_even_first)
+                                     FullyConnectedTensorProductRescale, 
+                                     FullyConnectedTensorProductRescaleSwishGate, 
+                                     DepthwiseTensorProduct,
+                                     irreps2gate, sort_irreps_even_first)
 from .fast_activation import Activation, Gate
 from .drop import EquivariantDropout, EquivariantScalarsDropout, GraphDropPath
 from .gaussian_rbf import GaussianRadialBasisLayer
@@ -79,69 +82,48 @@ def get_mul_0(irreps: o3.Irreps) -> int:
             mul_0 += mul
     return mul_0
 
-    
-def DepthwiseTensorProduct(irreps_node_input: o3.Irreps, 
-                           irreps_edge_attr: o3.Irreps, 
-                           irreps_node_output: o3.Irreps, 
-                           internal_weights: bool = False,
-                           bias: bool = True,
-                           rescale: bool = True) -> TensorProductRescale:
-    '''
-        The irreps of output is pre-determined. 
-        `irreps_node_output` is used to get certain types of vectors.
-    '''
-    irreps_output = []
-    instructions = []
-    
-    for i, (mul, ir_in) in enumerate(irreps_node_input):
-        for j, (_, ir_edge) in enumerate(irreps_edge_attr):
-            for ir_out in ir_in * ir_edge:
-                if ir_out in irreps_node_output or ir_out == o3.Irrep(0, 1):
-                    k = len(irreps_output)
-                    irreps_output.append((mul, ir_out))
-                    instructions.append((i, j, k, 'uvu', True))
-        
-    irreps_output = o3.Irreps(irreps_output)
-    irreps_output, p, _ = sort_irreps_even_first(irreps_output) #irreps_output.sort()
-    instructions = [(i_1, i_2, p[i_out], mode, train)
-        for i_1, i_2, i_out, mode, train in instructions]
-    tp = TensorProductRescale(irreps_node_input, irreps_edge_attr,
-                              irreps_output, instructions,
-                              internal_weights=internal_weights,
-                              shared_weights=internal_weights,
-                              bias=bias, rescale=rescale)
-    return tp
 
-
+@compile_mode('script')
 class SeparableFCTP(torch.nn.Module):
     '''
         Use separable FCTP for spatial convolution.
+        
+        DTP + RadialFC + Linear (+ LayerNorm + Gate)
+
+        Parameters
+        ----------
+        fc_neurons : list of function or None
+            list of activation functions, `None` if non-scalar or identity
     '''
-    def __init__(self, irreps_node_input, irreps_edge_attr, irreps_node_output, 
-        fc_neurons, use_activation=False, norm_layer='graph', 
-        internal_weights=False):
+    def __init__(self, irreps_node_input: o3.Irreps, irreps_edge_attr: o3.Irreps, irreps_node_output: o3.Irreps, 
+        fc_neurons: Optional[List[int]], use_activation: bool = False, norm_layer: Optional[str] = None, 
+        internal_weights: bool = False):
         
         super().__init__()
         self.irreps_node_input = o3.Irreps(irreps_node_input)
         self.irreps_edge_attr = o3.Irreps(irreps_edge_attr)
         self.irreps_node_output = o3.Irreps(irreps_node_output)
+
         norm = get_norm_layer(norm_layer)
-        
-        self.dtp = DepthwiseTensorProduct(self.irreps_node_input, self.irreps_edge_attr, 
-            self.irreps_node_output, bias=False, internal_weights=internal_weights)
+
+        self.dtp: TensorProductRescale = DepthwiseTensorProduct(self.irreps_node_input, 
+                                                                self.irreps_edge_attr, 
+                                                                self.irreps_node_output, 
+                                                                bias=False, 
+                                                                internal_weights=internal_weights)
         
         self.dtp_rad = None
         if fc_neurons is not None:
-            self.dtp_rad = RadialProfile(fc_neurons + [self.dtp.tp.weight_numel])
-            for (slice, slice_sqrt_k) in self.dtp.slices_sqrt_k.values():
-                self.dtp_rad.net[-1].weight.data[slice, :] *= slice_sqrt_k
-                self.dtp_rad.offset.data[slice] *= slice_sqrt_k
+            self.dtp_rad = RadialProfile(fc_neurons + [self.dtp.tp.weight_numel]) # Simple Linear layer for radial function. Each layer dim is: [fc_neuron1 (input), fc_neuron2, ..., weight_numel (output)]
+            for (slice, slice_sqrt_k) in self.dtp.slices_sqrt_k.values():  # Seems to be for normalization
+                self.dtp_rad.net[-1].weight.data[slice, :] *= slice_sqrt_k # Seems to be for normalization
+                self.dtp_rad.offset.data[slice] *= slice_sqrt_k            # Seems to be for normalization 
                 
-        irreps_lin_output = self.irreps_node_output
+        irreps_lin_output: o3.Irreps = self.irreps_node_output
         irreps_scalars, irreps_gates, irreps_gated = irreps2gate(self.irreps_node_output)
         if use_activation:
-            irreps_lin_output = irreps_scalars + irreps_gates + irreps_gated
-            irreps_lin_output = irreps_lin_output.simplify()
+            irreps_lin_output: o3.Irreps = irreps_scalars + irreps_gates + irreps_gated
+            irreps_lin_output: o3.Irreps = irreps_lin_output.simplify()
         self.lin = LinearRS(self.dtp.irreps_out.simplify(), irreps_lin_output)
         
         self.norm = None
@@ -150,25 +132,27 @@ class SeparableFCTP(torch.nn.Module):
         
         self.gate = None
         if use_activation:
-            if irreps_gated.num_irreps == 0:
-                gate = Activation(self.irreps_node_output, acts=[torch.nn.SiLU()])
-            else:
+            if irreps_gated.num_irreps == 0: # use typical scalar activation if irreps_out is all scalar (L=0)
+                gate = Activation(self.irreps_node_output, acts=[torch.nn.SiLU() for _ in self.irreps_node_output])
+            else: # use gate nonlinearity if there are non-scalar (L>0) components in the irreps_out.
                 gate = Gate(
-                    irreps_scalars, [torch.nn.SiLU() for _, ir in irreps_scalars],  # scalar
-                    irreps_gates, [torch.sigmoid for _, ir in irreps_gates],  # gates (scalars)
+                    irreps_scalars, [torch.nn.SiLU() for _ in irreps_scalars],  # scalar
+                    irreps_gates, [torch.sigmoid for _ in irreps_gates],  # gates (scalars)
                     irreps_gated  # gated tensors
                 )
             self.gate = gate
     
     
-    def forward(self, node_input, edge_attr, edge_scalars, batch=None, **kwargs):
+    def forward(self, node_input: torch.Tensor, edge_attr: torch.Tensor, edge_scalars: Optional[torch.Tensor], 
+                batch: Optional[torch.Tensor] = None) -> torch.Tensor:
         '''
             Depthwise TP: `node_input` TP `edge_attr`, with TP parametrized by 
             self.dtp_rad(`edge_scalars`).
         '''
-        weight = None
         if self.dtp_rad is not None and edge_scalars is not None:    
             weight = self.dtp_rad(edge_scalars)
+        else:
+            weight = None
         out = self.dtp(node_input, edge_attr, weight)
         out = self.lin(out)
         if self.norm is not None:
@@ -340,7 +324,7 @@ class GraphAttention(torch.nn.Module):
     def __init__(self,
         irreps_node_input: o3.Irreps, irreps_node_attr: o3.Irreps,
         irreps_edge_attr: o3.Irreps, irreps_node_output: o3.Irreps,
-        fc_neurons: List[int],
+        fc_neurons: Optional[List[int]],
         irreps_head: o3.Irreps, num_heads: int, 
         irreps_pre_attn: Optional[o3.Irreps] = None, 
         rescale_degree: bool = False, nonlinear_message: bool = False,
@@ -374,9 +358,13 @@ class GraphAttention(torch.nn.Module):
         self.sep_act = None
         if self.nonlinear_message:
             # Use an extra separable FCTP and Swish Gate for value
-            self.sep_act = SeparableFCTP(self.irreps_pre_attn, 
-                self.irreps_edge_attr, self.irreps_pre_attn, fc_neurons, 
-                use_activation=True, norm_layer=None, internal_weights=False)
+            self.sep_act = SeparableFCTP(irreps_node_input = self.irreps_pre_attn, 
+                                         irreps_edge_attr = self.irreps_edge_attr, 
+                                         irreps_node_output = self.irreps_pre_attn, 
+                                         fc_neurons = fc_neurons, 
+                                         use_activation = True, 
+                                         norm_layer = None, 
+                                         internal_weights = False)
             self.sep_alpha = LinearRS(self.sep_act.dtp.irreps_out, irreps_alpha)
             self.sep_value = SeparableFCTP(self.irreps_pre_attn, 
                 self.irreps_edge_attr, irreps_attn_heads, fc_neurons=None, 
@@ -517,7 +505,7 @@ class TransBlock(torch.nn.Module):
         irreps_node_attr: o3.Irreps,
         irreps_edge_attr: o3.Irreps, 
         irreps_node_output: o3.Irreps,
-        fc_neurons: List[int],
+        fc_neurons: Optional[List[int]],
         irreps_head: o3.Irreps,
         num_heads: int, 
         irreps_pre_attn: Optional[o3.Irreps] = None, 
@@ -645,17 +633,19 @@ class ScaledScatter(torch.nn.Module):
 
 @compile_mode('script')
 class EdgeDegreeEmbeddingNetwork(torch.nn.Module):
-    def __init__(self, irreps_node_embedding: o3.Irreps, irreps_edge_attr: o3.Irreps, fc_neurons: List[int], 
+    def __init__(self, irreps_node_embedding: o3.Irreps, irreps_edge_attr: o3.Irreps, fc_neurons: Optional[List[int]], 
                  avg_aggregate_num: float,
                  use_bias: bool = True, 
                  rescale: bool = True):
         super().__init__()
+        if fc_neurons is None:
+            fc_neurons = []
         self.exp = LinearRS(o3.Irreps('1x0e'), irreps_node_embedding, 
                             bias=use_bias, rescale=rescale)
         self.dw = DepthwiseTensorProduct(irreps_node_embedding, 
             irreps_edge_attr, irreps_node_embedding, 
             internal_weights=False, bias=False)
-        self.rad = RadialProfile(fc_neurons + [self.dw.tp.weight_numel])
+        self.rad = RadialProfile(ch_list = fc_neurons + [self.dw.tp.weight_numel]) # Simple Linear layer for radial function. Each layer dim is: [fc_neuron1 (input), fc_neuron2, ..., weight_numel (output)]
         for (slice, slice_sqrt_k) in self.dw.slices_sqrt_k.values():
             self.rad.net[-1].weight.data[slice, :] *= slice_sqrt_k
             self.rad.offset.data[slice] *= slice_sqrt_k

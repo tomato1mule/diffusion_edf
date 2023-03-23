@@ -89,7 +89,7 @@ class EquivariantLayerNormV2(nn.Module):
 
 
     @torch.cuda.amp.autocast(enabled=False)
-    def forward(self, node_input: torch.Tensor) -> torch.Tensor:
+    def forward(self, node_input: torch.Tensor, batch: Optional[torch.Tensor] = None) -> torch.Tensor:
         # batch, *size, dim = node_input.shape  # TODO: deal with batch
         # node_input = node_input.reshape(batch, -1, dim)  # [batch, sample, stacked features]
         # node_input has shape [batch * nodes, dim], but with variable nr of nodes.

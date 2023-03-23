@@ -348,6 +348,39 @@ class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRes
 #         out = self.gate(out)
 #         return out
 
+
+def DepthwiseTensorProduct(irreps_node_input: o3.Irreps, 
+                           irreps_edge_attr: o3.Irreps, 
+                           irreps_node_output: o3.Irreps, 
+                           internal_weights: bool = False,
+                           bias: bool = True,
+                           rescale: bool = True) -> TensorProductRescale:
+    '''
+        The irreps of output is pre-determined. 
+        `irreps_node_output` is used to get certain types of vectors.
+    '''
+    irreps_output = []
+    instructions = []
+    
+    for i, (mul, ir_in) in enumerate(irreps_node_input):
+        for j, (_, ir_edge) in enumerate(irreps_edge_attr):
+            for ir_out in ir_in * ir_edge:
+                if ir_out in irreps_node_output or ir_out == o3.Irrep(0, 1):
+                    k = len(irreps_output)
+                    irreps_output.append((mul, ir_out))
+                    instructions.append((i, j, k, 'uvu', True))
+        
+    irreps_output = o3.Irreps(irreps_output)
+    irreps_output, p, _ = sort_irreps_even_first(irreps_output) #irreps_output.sort()
+    instructions = [(i_1, i_2, p[i_out], mode, train)
+        for i_1, i_2, i_out, mode, train in instructions]
+    tp = TensorProductRescale(irreps_node_input, irreps_edge_attr,
+                              irreps_output, instructions,
+                              internal_weights=internal_weights,
+                              shared_weights=internal_weights,
+                              bias=bias, rescale=rescale)
+    return tp
+
     
 def sort_irreps_even_first(irreps: o3.Irreps):
     Ret = collections.namedtuple("sort", ["irreps", "p", "inv"])

@@ -9,6 +9,14 @@ from .fast_activation import Activation
    
 
 class RadialProfile(nn.Module):
+    """
+    Simple FC Layer for radial function.
+
+    Parameters
+    ----------
+    ch_list : List[int]
+        number of fc neurons of each layer: [input_dim, h1_dim, h2_dim, ..., out_dim]
+    """
     def __init__(self, ch_list: List[int], use_layer_norm: bool = True, use_offset: bool = True):
         super().__init__()
         modules = []
