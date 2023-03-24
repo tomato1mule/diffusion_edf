@@ -26,11 +26,15 @@ setup(
         'torchvision==0.14.0',
         'torch-geometric==2.2.0',
         'pytorch3d==0.7.2',
-        # 'e3nn==0.4.4',
+        'e3nn==0.4.4',
+        'open3d==0.16.0',
         'pyyaml',        # 6.0
         'tqdm',          # 4.64.1
         'jupyter',       # 1.0.0
         'pandas',
         'plotly',
+        'dash',
+        'dash_vtk',
+        'dash_daq',
     ]
 )
