@@ -344,7 +344,7 @@ class PointCloud():
 
 
 class Demo(metaclass=ABCMeta): 
-    name: Optional[str] = None
+    name: str = ''
 
     @abstractmethod
     def to(self, device: Union[str, torch.device]) -> Demo:
@@ -424,6 +424,18 @@ class TargetPoseDemo(Demo):
             name = rename
 
         return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, name = name, device=device)
+    
+    def __repr__(self) -> str:
+        string = f"TargetPoseDemo"
+        if self.name:
+            string = string + f"  (name: {self.name})"
+        return string
+
+    def __str__(self) -> str:
+        string = f"TargetPoseDemo"
+        if self.name:
+            string = string + f"  (name: {self.name})"
+        return string
 
 
 class DemoSequence():
@@ -454,9 +466,12 @@ class DemoSequence():
     
     def __getitem__(self, idx) -> Union[Demo, List[Demo]]:
         return self.demo_seq[idx]
+    
+    def __len__(self) -> int:
+        return len(self.demo_seq)
 
     def get_data_seq(self) -> List[Dict]:
-        return [demo.get_data() for demo in self.demo_seq]
+        return [demo.get_data_dict() for demo in self.demo_seq]
 
     def save_data(self, path: str) -> bool:
         gzip_save(data=self.get_data_seq(), path = path)
@@ -479,6 +494,20 @@ class DemoSequence():
     def from_file(path: str, device: Union[str, torch.device] = 'cpu') -> DemoSequence:
         data_dict_seq: List[Dict] = gzip_load(path=path)
         return DemoSequence.from_data_seq(data_dict_seq=data_dict_seq, device=device)
+    
+    def __repr__(self) -> str:
+        string = f"Demonstration sequence of length: {self.__len__()}"
+        for i in range(self.__len__()):
+            string += f"\n\tDemo {i}: {self.demo_seq[i].__str__()}"
+
+        return string
+
+    def __str__(self) -> str:
+        string = f"Demonstration sequence of length: {self.__len__()}"
+        for i in range(self.__len__()):
+            string += f"\n\tDemo {i}: {self.demo_seq[i].__str__()}"
+
+        return string
     
 
 def save_demos(demos: List[DemoSequence], dir: str):
