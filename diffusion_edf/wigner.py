@@ -3,15 +3,16 @@ from typing import List
 import torch
 from e3nn.o3._wigner import _Jd
 from e3nn.math._linalg import direct_sum
+from e3nn.util.jit import compile_mode
 from pytorch3d import transforms
 
 @torch.jit.script
-def quat_to_angle_fast(q): # >10 times faster than e3nn's quaternion_to_angle function
+def quat_to_angle_fast(q: torch.Tensor) -> torch.Tensor: # >10 times faster than e3nn's quaternion_to_angle function
     ang = transforms.matrix_to_euler_angles(transforms.quaternion_to_matrix(q), "YXY").T
     return ang
 
 @torch.jit.script
-def _z_rot_mat(angle, l: int):
+def _z_rot_mat(angle: torch.Tensor, l: int) -> torch.Tensor:
     r"""
     Create the matrix representation of a z-axis rotation by the given angle,
     in the irrep l of dimension 2 * l + 1, in the basis of real centered
@@ -35,7 +36,7 @@ def _z_rot_mat(angle, l: int):
     return M
 
 @torch.jit.script
-def wigner_D(l: int, alpha, beta, gamma, J):
+def wigner_D(l: int, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor, J: torch.Tensor) -> torch.Tensor:
     r"""Wigner D matrix representation of :math:`SO(3)`.
     It satisfies the following properties:
     * :math:`D(\text{identity rotation}) = \text{identity matrix}`
@@ -75,7 +76,7 @@ def wigner_D(l: int, alpha, beta, gamma, J):
     return Xa @ J @ Xb @ J @ Xc
 
 @torch.jit.script
-def D_from_angles_(ls: List[int], muls: List[int], Js: List[torch.Tensor], alpha, beta, gamma):
+def D_from_angles_(ls: List[int], muls: List[int], Js: List[torch.Tensor], alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor) -> List[torch.Tensor]:
     Ds = []
     for l, mul, J in zip(ls, muls, Js):
         D = wigner_D(l, alpha, beta, gamma, J)
@@ -95,7 +96,7 @@ def D_from_angles(irreps, Js, alpha, beta, gamma):
     #return torch.block_diag(*Ds)
 
 @torch.jit.script
-def D_from_quaternion_(ls: List[int], muls: List[int], Js: List[torch.Tensor], q):
+def D_from_quaternion_(ls: List[int], muls: List[int], Js: List[torch.Tensor], q: torch.Tensor) -> List[torch.Tensor]:
     angle = quat_to_angle_fast(q)
     alpha, beta, gamma = angle[0], angle[1], angle[2]
     return D_from_angles_(ls=ls, muls=muls, Js=Js, alpha=alpha, beta=beta, gamma=gamma)
@@ -113,7 +114,7 @@ def D_from_quaternion(irreps, Js, q):
 
 
 @torch.jit.script
-def transform_feature_slice(feature, alpha, beta, gamma, l: int, J):
+def transform_feature_slice(feature: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor, l: int, J: torch.Tensor) -> torch.Tensor:
     assert feature.dim() == 2
     feature = feature.reshape(feature.shape[-2], -1, 2*l+1) # (N_query, mul*(2l+1)) -> (N_query, mul, 2l+1)
     D = wigner_D(l, alpha, beta, gamma, J) # (Nt, 2l+1, 2l+1)
@@ -122,7 +123,7 @@ def transform_feature_slice(feature, alpha, beta, gamma, l: int, J):
     return feature_transformed
 
 @torch.jit.script
-def transform_feature_(ls: List[int], feature_slices: List[torch.Tensor], Js: List[torch.Tensor], alpha, beta, gamma):
+def transform_feature_(ls: List[int], feature_slices: List[torch.Tensor], Js: List[torch.Tensor], alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
     feature_transformed = []
     for l, feature_slice, J in zip(ls, feature_slices, Js):
         feature_transformed_slice = transform_feature_slice(feature_slice, alpha, beta, gamma, l, J)
@@ -140,7 +141,7 @@ def transform_feature(irreps, feature, alpha, beta, gamma, Js):
     return transform_feature_(ls, feature_slices, Js, alpha, beta, gamma)
 
 @torch.jit.script
-def transform_feature_quat_(ls: List[int], feature_slices: List[torch.Tensor], Js: List[torch.Tensor], q: torch.Tensor):
+def transform_feature_quat_(ls: List[int], feature_slices: List[torch.Tensor], Js: List[torch.Tensor], q: torch.Tensor) -> torch.Tensor:
     q = transforms.standardize_quaternion(q / torch.norm(q, dim=-1, keepdim=True))
     angle = quat_to_angle_fast(q)
     alpha, beta, gamma = angle[0], angle[1], angle[2]
@@ -155,7 +156,7 @@ def transform_feature_quat(irreps, feature, q, Js):
 
     return transform_feature_quat_(ls, feature_slices, Js, q)
 
-
+@compile_mode('script')
 class TransformFeatureQuaternion(torch.nn.Module):
     def __init__(self, irreps):
         super().__init__()
