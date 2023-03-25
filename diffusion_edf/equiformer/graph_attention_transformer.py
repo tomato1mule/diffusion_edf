@@ -25,7 +25,6 @@ from .tensor_product_rescale import (TensorProductRescale, LinearRS,
                                      irreps2gate, sort_irreps_even_first)
 from .fast_activation import Activation, Gate, SmoothLeakyReLU
 from .drop import EquivariantDropout, EquivariantScalarsDropout, GraphDropPath
-from .gaussian_rbf import GaussianRadialBasisLayer
 
 # for bessel radial basis
 # from ocpmodels.models.gemnet.layers.radial_basis import RadialBasis
@@ -846,7 +845,8 @@ class GraphAttentionTransformer(torch.nn.Module):
         self.atom_embed = NodeEmbeddingNetwork(self.irreps_node_embedding, _MAX_ATOM_TYPE)
         self.basis_type = basis_type
         if self.basis_type == 'gaussian':
-            self.rbf = GaussianRadialBasisLayer(self.number_of_basis, cutoff=self.max_radius)
+            raise NotImplementedError
+            #self.rbf = GaussianRadialBasisLayer(self.number_of_basis, cutoff=self.max_radius)
         elif self.basis_type == 'bessel':
             self.rbf = RadialBasis(self.number_of_basis, cutoff=self.max_radius, 
                 rbf={'name': 'spherical_bessel'})
@@ -914,7 +914,7 @@ class GraphAttentionTransformer(torch.nn.Module):
                 or isinstance(module, EquivariantLayerNormV2)
                 or isinstance(module, EquivariantInstanceNorm)
                 or isinstance(module, EquivariantGraphNorm)
-                or isinstance(module, GaussianRadialBasisLayer) 
+                #or isinstance(module, GaussianRadialBasisLayer) 
                 or isinstance(module, RadialBasis)):
                 for parameter_name, _ in module.named_parameters():
                     if isinstance(module, torch.nn.Linear) and 'weight' in parameter_name:

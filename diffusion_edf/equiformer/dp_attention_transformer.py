@@ -19,7 +19,7 @@ from .tensor_product_rescale import (TensorProductRescale, LinearRS,
     FullyConnectedTensorProductRescale, irreps2gate)
 from .fast_activation import Activation, Gate
 from .drop import EquivariantDropout, EquivariantScalarsDropout, GraphDropPath
-from .gaussian_rbf import GaussianRadialBasisLayer
+#from .gaussian_rbf import GaussianRadialBasisLayer
 from .graph_attention_transformer import (
     get_norm_layer,
     SeparableFCTP,
@@ -297,7 +297,8 @@ class DotProductAttentionTransformer(torch.nn.Module):
         self.irreps_mlp_mid = o3.Irreps(irreps_mlp_mid)
         
         self.atom_embed = NodeEmbeddingNetwork(self.irreps_node_embedding, _MAX_ATOM_TYPE)
-        self.rbf = GaussianRadialBasisLayer(self.number_of_basis, cutoff=self.max_radius)
+        #self.rbf = GaussianRadialBasisLayer(self.number_of_basis, cutoff=self.max_radius)
+        raise NotImplementedError
         self.edge_deg_embed = EdgeDegreeEmbeddingNetwork(self.irreps_node_embedding, 
             self.irreps_edge_attr, self.fc_neurons, _AVG_DEGREE)
         
