@@ -1,4 +1,5 @@
 from typing import List, Optional, Union, Tuple
+import math
 
 import torch
 from e3nn import o3
@@ -338,3 +339,105 @@ class RadiusGraphBlock(torch.nn.Module):
         return node_feature, node_coord, \
                edge_src, edge_dst, edge_length, edge_attr, \
                degree, batch
+    
+
+
+
+
+
+
+@compile_mode('script')
+class DownBlock(torch.nn.Module):  
+    def __init__(self,
+        irreps: o3.Irreps, 
+        irreps_edge_attr: o3.Irreps, 
+        irreps_head: o3.Irreps,
+        num_heads: int, 
+        fc_neurons: List[int],
+        init_radius: float,
+        pool_ratio: float,
+        n_scales: int,
+        n_layers_per_scale: int,
+        pool_method: Optional[str] = 'fps',
+        deterministic: bool = False,
+        irreps_mlp_mid: Union[o3.Irreps, int] = 3,
+        attn_type: str = 'mlp',
+        alpha_drop: float = 0.1,
+        proj_drop: float = 0.1,
+        drop_path_rate: float = 0.0):
+        
+        super().__init__()
+        self.irreps: o3.Irreps = o3.Irreps(irreps)
+        self.irreps_edge_attr: o3.Irreps = o3.Irreps(irreps_edge_attr)
+        self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
+        self.num_heads: int = num_heads
+        self.fc_neurons: List[int] = fc_neurons
+        self.n_scales: int = n_scales
+        self.n_layers_per_scale: int = n_layers_per_scale
+        self.pool_ratio: float = pool_ratio
+        self.pool_method: Optional[str] = pool_method
+        self.deterministic: bool = deterministic
+        if self.pool_ratio == 1.0:
+            assert self.pool_method is None
+        else:
+            assert self.pool_method is not None
+        assert self.n_layers_per_scale >= 1
+
+
+        self.layers = torch.nn.ModuleList()
+        self.radius_list: List[float] = []
+        
+        radius = init_radius * math.sqrt(self.pool_ratio)
+        for s in range(self.n_scales):
+            radius = radius / math.sqrt(self.pool_ratio)
+            self.radius_list.append(radius)
+
+            if self.pool_method is not None:
+                self.layers.append(
+                    PoolingBlock(irreps_src = self.irreps,
+                                irreps_dst = self.irreps,
+                                irreps_edge_attr = self.irreps_edge_attr,
+                                irreps_head = self.irreps_head,
+                                num_heads = self.num_heads,
+                                fc_neurons = self.fc_neurons,
+                                pool_radius = radius,
+                                pool_ratio = self.pool_ratio,
+                                pool_method = self.pool_method,
+                                deterministic = self.deterministic,
+                                irreps_mlp_mid = irreps_mlp_mid,
+                                attn_type = attn_type,
+                                alpha_drop = alpha_drop,
+                                proj_drop = proj_drop,
+                                drop_path_rate = drop_path_rate)
+                )
+            
+            n_self_connecting_layers = self.n_layers_per_scale - (self.pool_method is not None)
+            if n_self_connecting_layers >= 1:
+                self.layers.append(
+                    RadiusGraphBlock(irreps = self.irreps,
+                                     irreps_edge_attr = self.irreps_edge_attr,
+                                     irreps_head = self.irreps_head,
+                                     num_heads = self.num_heads,
+                                     fc_neurons = self.fc_neurons,
+                                     radius = radius,
+                                     n_layers = n_self_connecting_layers,
+                                     irreps_mlp_mid = irreps_mlp_mid,
+                                     attn_type = attn_type,
+                                     alpha_drop = alpha_drop,
+                                     proj_drop = proj_drop,
+                                     drop_path_rate = drop_path_rate)
+                )
+
+
+
+    def forward(self, node_feature: torch.Tensor,
+                node_coord: torch.Tensor,
+                batch: torch.Tensor) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+
+        outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = []
+        for layer in self.layers:
+            output = layer(node_feature = node_feature, node_coord = node_coord, batch = batch)
+            outputs.append(output)
+            node_feature, node_coord, batch = output[0], output[1], output[7]
+        
+        return outputs
