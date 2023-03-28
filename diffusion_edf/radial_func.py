@@ -35,7 +35,7 @@ class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
         if offset is None:
             offset = 0.01 * self.cutoff # For stability, weights should be zero when edge length is very small (otherwise, gradients of spherical harmonics would blow up).
         self.offset: float = float(offset)
-        if self.offset > 0.:
+        if self.offset < 0.:
             warnings.warn(f"Negative offset ({self.offset}) is provided for radial basis encoder. Are you sure?")
 
         self.mean_init_max = 1.0

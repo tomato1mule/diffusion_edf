@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Dict, Union, Optional, Tuple
 
 import torch
 from e3nn.o3._wigner import _Jd
@@ -156,51 +156,44 @@ def transform_feature_quat(irreps, feature, q, Js):
 
     return transform_feature_quat_(ls, feature_slices, Js, q)
 
+
 @compile_mode('script')
 class TransformFeatureQuaternion(torch.nn.Module):
-    def __init__(self, irreps):
+    def __init__(self, irreps, device: Union[str, torch.device]):
         super().__init__()
         self.ls = tuple([ir.l for mul, ir in irreps])
         self.slices = tuple([(slice_.start, slice_.stop) for slice_ in irreps.slices()])
-
-        self.Js = torch.nn.ParameterList([torch.nn.Parameter(_Jd[l].to(dtype = torch.float32), requires_grad=False) for l in self.ls])
-
-    @torch.jit.unused
-    def requires_grad_(self, requires_grad: bool):
-        return self
+        self.J_dict = {}
+        for l in self.ls:
+            self.J_dict[f'J_{l}']: Dict[torch.Tensor] = _Jd[l].to(dtype=torch.float32, device=device)
 
     def forward(self, feature, q):
         feature_slices = []
         for slice_ in self.slices:
             feature_slices.append(feature[..., slice_[0]:slice_[1]])
-        Js = [J.detach() for J in self.Js]
+
+        Js = list(self.J_dict[f'J_{l}'] for l in self.ls)
 
         return transform_feature_quat_(ls=self.ls, feature_slices=feature_slices, Js=Js, q=q)
 
+
+# @compile_mode('script')
 # class TransformFeatureQuaternion(torch.nn.Module):
 #     def __init__(self, irreps):
 #         super().__init__()
 #         self.ls = tuple([ir.l for mul, ir in irreps])
 #         self.slices = tuple([(slice_.start, slice_.stop) for slice_ in irreps.slices()])
-#         for l in self.ls:
-#             self.register_buffer(f'J_{l}', _Jd[l].to(dtype = torch.float32), persistent=False)
+
+#         self.Js = torch.nn.ParameterList([torch.nn.Parameter(_Jd[l].to(dtype = torch.float32), requires_grad=False) for l in self.ls])
+
+#     @torch.jit.unused
+#     def requires_grad_(self, requires_grad: bool):
+#         return self
 
 #     def forward(self, feature, q):
 #         feature_slices = []
 #         for slice_ in self.slices:
 #             feature_slices.append(feature[..., slice_[0]:slice_[1]])
-
-#         Js = tuple([self.__getattr__(f'J_{l}') for l in self.ls])
+#         Js = [J.detach() for J in self.Js]
 
 #         return transform_feature_quat_(ls=self.ls, feature_slices=feature_slices, Js=Js, q=q)
-    
-#     @torch.jit.unused
-#     @staticmethod
-#     def traced(irreps, feature_shape, q_shape):
-#         if isinstance(feature_shape, int):
-#             feature_shape = (feature_shape,)
-#         if isinstance(q_shape, int):
-#             q_shape = (q_shape,)
-
-#         q_example = torch.randn(*q_shape,4)
-#         return torch.jit.trace(TransformFeatureQuaternion(irreps=irreps), example_inputs=(irreps.randn(*feature_shape,-1), transforms.standardize_quaternion(q_example/q_example.norm(dim=-1, keepdim=True))))
