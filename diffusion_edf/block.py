@@ -227,7 +227,7 @@ class PoolingBlock(torch.nn.Module):
 
     def forward(self, node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
-                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
         node_feature_dst, node_coord_dst, edge_src, edge_dst, degree, batch_dst = self.pool_layer(node_coord_src = node_coord, 
                                                                                                   node_feature_src = node_feature, 
@@ -246,7 +246,10 @@ class PoolingBlock(torch.nn.Module):
                                       edge_attr = edge_attr,
                                       edge_scalars = edge_scalars)
         
-        return node_feature_dst, node_coord_dst, edge_src, edge_dst, degree, batch_dst
+        
+        return node_feature_dst, node_coord_dst, \
+               edge_src, edge_dst, edge_length, edge_attr, \
+               degree, batch_dst
 
 
 
@@ -310,8 +313,8 @@ class RadiusGraphBlock(torch.nn.Module):
 
     def forward(self, node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
-                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-
+                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        
         _, _, edge_src, edge_dst, degree, _ = self.radius_graph(node_coord_src = node_coord, 
                                                                 node_feature_src = node_feature, 
                                                                 batch_src = batch)
@@ -331,4 +334,7 @@ class RadiusGraphBlock(torch.nn.Module):
                                  edge_attr = edge_attr,
                                  edge_scalars = edge_scalars)
         
-        return node_feature, node_coord, edge_src, edge_dst, degree, batch
+
+        return node_feature, node_coord, \
+               edge_src, edge_dst, edge_length, edge_attr, \
+               degree, batch

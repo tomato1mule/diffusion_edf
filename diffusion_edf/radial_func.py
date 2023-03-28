@@ -1,4 +1,6 @@
+import warnings
 import math
+from typing import Union, Optional, List, Tuple, Dict
 
 import torch
 import torch.nn.functional as F
@@ -26,10 +28,15 @@ def soft_square_cutoff(x, thr:float = 0.8, n:int = 3) -> torch.Tensor:
 
 
 class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
-    def __init__(self, num_basis: int, cutoff: float, soft_cutoff: bool = True):
+    def __init__(self, num_basis: int, cutoff: float, soft_cutoff: bool = True, offset: Optional[float] = None):
         super().__init__()
-        self.num_basis = num_basis
-        self.cutoff = cutoff + 0.0
+        self.num_basis: int = num_basis
+        self.cutoff: float = float(cutoff)
+        if offset is None:
+            offset = 0.01 * self.cutoff # For stability, weights should be zero when edge length is very small (otherwise, gradients of spherical harmonics would blow up).
+        self.offset: float = float(offset)
+        if self.offset > 0.:
+            warnings.warn(f"Negative offset ({self.offset}) is provided for radial basis encoder. Are you sure?")
 
         self.mean_init_max = 1.0
         self.mean_init_min = 0
@@ -49,7 +56,7 @@ class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
         
 
     def forward(self, dist: torch.Tensor) -> torch.Tensor:
-        dist = dist / self.cutoff
+        dist = (dist - self.offset) / (self.cutoff - self.offset)
         dist = dist.unsqueeze(-1)
 
         
