@@ -163,6 +163,9 @@ class EquiformerBlock(torch.nn.Module):
         return node_output
 
 
+
+
+
 @compile_mode('script')
 class PoolingBlock(torch.nn.Module):  
     def __init__(self,
@@ -225,21 +228,17 @@ class PoolingBlock(torch.nn.Module):
     def forward(self, node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
                 batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        
-        node_coord_src = node_coord
-        node_feature_src = node_feature
-        batch_src = batch
 
-        node_feature_dst, node_coord_dst, edge_src, edge_dst, degree, batch_dst = self.pool_layer(node_coord_src = node_coord_src, 
-                                                                                                  node_feature_src = node_feature_src, 
-                                                                                                  batch_src = batch_src)
+        node_feature_dst, node_coord_dst, edge_src, edge_dst, degree, batch_dst = self.pool_layer(node_coord_src = node_coord, 
+                                                                                                  node_feature_src = node_feature, 
+                                                                                                  batch_src = batch)
         
-        edge_vec: torch.Tensor = node_coord_src.index_select(0, edge_src) - node_coord_dst.index_select(0, edge_dst)
+        edge_vec: torch.Tensor = node_coord.index_select(0, edge_src) - node_coord_dst.index_select(0, edge_dst)
         edge_attr = self.spherical_harmonics(edge_vec)
         edge_length = edge_vec.norm(dim=1, p=2)
         edge_scalars = self.radial_basis_fn(edge_length)
 
-        node_feature_dst = self.block(node_input_src = node_feature_src,
+        node_feature_dst = self.block(node_input_src = node_feature,
                                       node_input_dst = node_feature_dst,
                                       batch_dst = batch_dst,
                                       edge_src = edge_src,
@@ -249,3 +248,87 @@ class PoolingBlock(torch.nn.Module):
         
         return node_feature_dst, node_coord_dst, edge_src, edge_dst, degree, batch_dst
 
+
+
+
+
+
+@compile_mode('script')
+class RadiusGraphBlock(torch.nn.Module):  
+    def __init__(self,
+        irreps: o3.Irreps, 
+        irreps_edge_attr: o3.Irreps, 
+        irreps_head: o3.Irreps,
+        num_heads: int, 
+        fc_neurons: List[int],
+        radius: float,
+        n_layers: int,
+        irreps_mlp_mid: Union[o3.Irreps, int] = 3,
+        attn_type: str = 'mlp',
+        alpha_drop: float = 0.1,
+        proj_drop: float = 0.1,
+        drop_path_rate: float = 0.0):
+        
+        super().__init__()
+        self.irreps: o3.Irreps = o3.Irreps(irreps)
+        self.irreps_edge_attr: o3.Irreps = o3.Irreps(irreps_edge_attr)
+        self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
+        self.num_heads: int = num_heads
+        self.fc_neurons: List[int] = fc_neurons
+        self.r: float = radius
+        assert len(fc_neurons) >= 1
+        self.num_radial_basis: int = fc_neurons[0]
+        self.n_layers: int = n_layers
+        assert self.n_layers >= 1
+
+
+
+
+        self.radius_graph = RadiusGraph(r=self.r, max_num_neighbors=1000)
+
+        self.blocks = torch.nn.ModuleList([
+            EquiformerBlock(irreps_src = self.irreps, 
+                            irreps_dst = self.irreps, 
+                            irreps_edge_attr = self.irreps_edge_attr, 
+                            irreps_head = self.irreps_head,
+                            num_heads = self.num_heads, 
+                            fc_neurons = self.fc_neurons,
+                            irreps_mlp_mid = irreps_mlp_mid,
+                            attn_type = attn_type,
+                            alpha_drop = alpha_drop,
+                            proj_drop = proj_drop,
+                            drop_path_rate = drop_path_rate,
+                            src_bias = False,
+                            dst_bias = True) for _ in range(self.n_layers)
+        ])
+
+        self.radials = torch.nn.ModuleList([
+            GaussianRadialBasisLayerFiniteCutoff(num_basis=self.num_radial_basis, cutoff=self.r * 0.99) for _ in range(self.n_layers)
+        ])
+
+        self.spherical_harmonics = o3.SphericalHarmonics(irreps_out = self.irreps_edge_attr, normalize = True, normalization='component')
+
+    def forward(self, node_feature: torch.Tensor,
+                node_coord: torch.Tensor,
+                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+
+        _, _, edge_src, edge_dst, degree, _ = self.radius_graph(node_coord_src = node_coord, 
+                                                                node_feature_src = node_feature, 
+                                                                batch_src = batch)
+        
+        edge_vec: torch.Tensor = node_coord.index_select(0, edge_src) - node_coord.index_select(0, edge_dst)
+        edge_attr = self.spherical_harmonics(edge_vec)
+        edge_length = edge_vec.norm(dim=1, p=2)
+
+        for block, radial_basis_fn in zip(self.blocks, self.radials):
+            edge_scalars = radial_basis_fn(edge_length)
+
+            node_feature = block(node_input_src = node_feature,
+                                 node_input_dst = node_feature,
+                                 batch_dst = batch,
+                                 edge_src = edge_src,
+                                 edge_dst = edge_dst,
+                                 edge_attr = edge_attr,
+                                 edge_scalars = edge_scalars)
+        
+        return node_feature, node_coord, edge_src, edge_dst, degree, batch
