@@ -9,6 +9,7 @@ from torch_scatter import scatter
 from diffusion_edf.equiformer.drop import GraphDropPath, EquivariantDropout
 from diffusion_edf.equiformer.tensor_product_rescale import FullyConnectedTensorProductRescale, LinearRS, FullyConnectedTensorProductRescaleSwishGate
 from diffusion_edf.equiformer.layer_norm import EquivariantLayerNormV2
+from diffusion_edf.equiformer.graph_attention_transformer import sort_irreps_even_first
 
 from diffusion_edf.graph_attention import GraphAttentionMLP
 from diffusion_edf.connectivity import FpsPool, RadiusGraph
@@ -89,7 +90,7 @@ class EquiformerBlock(torch.nn.Module):
         if isinstance(irreps_mlp_mid, o3.Irreps):
             self.irreps_mlp_mid: o3.Irreps = o3.Irreps(irreps_mlp_mid)
         elif isinstance(irreps_mlp_mid, int):
-            self.irreps_mlp_mid = (self.irreps_emb * irreps_mlp_mid).simplify()
+            self.irreps_mlp_mid = sort_irreps_even_first((self.irreps_emb * irreps_mlp_mid))[0].simplify()
 
         self.norm_1_src = EquivariantLayerNormV2(self.irreps_src)
         self.norm_1_dst = EquivariantLayerNormV2(self.irreps_dst)
