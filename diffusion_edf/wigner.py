@@ -163,18 +163,14 @@ class TransformFeatureQuaternion(torch.nn.Module):
         super().__init__()
         self.ls = tuple([ir.l for mul, ir in irreps])
         self.slices = tuple([(slice_.start, slice_.stop) for slice_ in irreps.slices()])
-        self.J_dict = {}
-        for l in self.ls:
-            self.J_dict[f'J_{l}']: Dict[torch.Tensor] = _Jd[l].to(dtype=torch.float32, device=device)
+        self.Js = tuple(_Jd[l].to(dtype = torch.float32, device=device) for l in self.ls)
 
     def forward(self, feature, q):
         feature_slices = []
         for slice_ in self.slices:
             feature_slices.append(feature[..., slice_[0]:slice_[1]])
 
-        Js = list(self.J_dict[f'J_{l}'] for l in self.ls)
-
-        return transform_feature_quat_(ls=self.ls, feature_slices=feature_slices, Js=Js, q=q)
+        return transform_feature_quat_(ls=self.ls, feature_slices=feature_slices, Js=self.Js, q=q)
 
 
 # @compile_mode('script')
