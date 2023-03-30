@@ -28,7 +28,7 @@ def soft_square_cutoff(x, thr:float = 0.8, n:int = 3) -> torch.Tensor:
 
 
 class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
-    def __init__(self, num_basis: int, cutoff: float, soft_cutoff: bool = True, offset: Optional[float] = None):
+    def __init__(self, num_basis: int, cutoff: float, soft_cutoff: bool = True, offset: Optional[float] = None, cutoff_thr_ratio: float = 0.8):
         super().__init__()
         self.num_basis: int = num_basis
         self.cutoff: float = float(cutoff)
@@ -53,6 +53,8 @@ class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
         torch.nn.init.constant_(self.weight_logit, -math.log(self.max_weight/1. - 1)) # Inverse Softplus
 
         self.soft_cutoff: bool = soft_cutoff
+        self.cutoff_thr_ratio: float = cutoff_thr_ratio
+        assert cutoff_thr_ratio <= 0.95
         
 
     def forward(self, dist: torch.Tensor) -> torch.Tensor:
@@ -67,7 +69,7 @@ class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
         x = torch.sigmoid(self.weight_logit) * self.max_weight * x
 
         if self.soft_cutoff is True:
-            x = x * soft_square_cutoff(dist)
+            x = x * soft_square_cutoff(dist, thr=self.cutoff_thr_ratio)
 
         return x
     
