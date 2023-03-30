@@ -30,10 +30,13 @@ class RadiusGraph(torch.nn.Module):
 
 
 class RadiusConnect(torch.nn.Module):
-    def __init__(self, r: float, max_num_neighbors: int):
+    def __init__(self, r: float, max_num_neighbors: int, offset: Optional[float] = None):
         super().__init__()
         self.r: float = r
         self.max_num_neighbors: int = max_num_neighbors
+        if offset is not None:
+            raise NotImplementedError
+        self.offset = offset
 
     def forward(self, node_coord_src: torch.Tensor, batch_src: torch.Tensor, node_coord_dst: torch.Tensor, batch_dst: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         edge = radius(x = node_coord_src, y = node_coord_dst, r=self.r, batch_x=batch_src, batch_y=batch_dst, max_num_neighbors=self.max_num_neighbors)

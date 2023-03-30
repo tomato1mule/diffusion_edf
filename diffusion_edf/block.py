@@ -13,7 +13,7 @@ from diffusion_edf.equiformer.layer_norm import EquivariantLayerNormV2
 from diffusion_edf.equiformer.graph_attention_transformer import sort_irreps_even_first
 
 from diffusion_edf.graph_attention import GraphAttentionMLP
-from diffusion_edf.connectivity import FpsPool, RadiusGraph
+from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 
 
@@ -441,3 +441,159 @@ class DownBlock(torch.nn.Module):
             node_feature, node_coord, batch = output[0], output[1], output[7]
         
         return outputs
+
+
+
+
+
+
+
+
+@compile_mode('script')
+class EdfExtractor(torch.nn.Module):  
+    def __init__(self,
+        irreps_inputs: List[o3.Irreps], 
+        fc_neurons_inputs: List[List[int]],
+        irreps_emb: o3.Irreps,
+        irreps_edge_attr: o3.Irreps, 
+        irreps_head: o3.Irreps,
+        num_heads: int, 
+        fc_neurons: List[int],
+        n_layers: int,
+        cutoffs: List[float],
+        offsets: List[float],
+        query_radius: float,
+        irreps_mlp_mid: Union[o3.Irreps, int] = 3,
+        attn_type: str = 'mlp',
+        alpha_drop: float = 0.1,
+        proj_drop: float = 0.1,
+        drop_path_rate: float = 0.0):
+        
+        super().__init__()
+        self.irreps_inputs: List[o3.Irreps] = [o3.Irreps(irreps) for irreps in irreps_inputs]
+        self.fc_neurons_inputs: List[List[int]] = fc_neurons_inputs
+        self.n_scales: int = len(self.irreps_inputs)
+        self.cutoffs: List[float] = cutoffs
+        self.offsets: List[float] = offsets
+        assert len(self.offsets) == len(self.cutoffs) == len(self.fc_neurons_inputs) == self.n_scales
+
+        self.irreps_emb: o3.Irreps = o3.Irreps(irreps_emb)
+        self.emb_dim: int = self.irreps_emb.dim
+        self.irreps_edge_attr: o3.Irreps = o3.Irreps(irreps_edge_attr)
+        self.irreps_head: o3.Irreps = o3.Irreps(irreps_head)
+        self.num_heads: int = num_heads
+        self.fc_neurons: List[int] = fc_neurons
+        self.n_layers: int = n_layers
+        self.query_radius: float = query_radius
+        assert self.n_layers >= 1
+
+        self.pre_connect = torch.nn.ModuleList()
+        self.pre_radial = torch.nn.ModuleList()
+        self.pre_layers = torch.nn.ModuleList()
+        for n in range(self.n_scales):
+            self.pre_connect.append(
+                RadiusConnect(r=self.cutoffs[n], offset=None, max_num_neighbors= 1000) # TODO: offset=None -> self.offsets[n]
+            )
+            fc = self.fc_neurons_inputs[n]
+            self.pre_radial.append(
+                GaussianRadialBasisLayerFiniteCutoff(num_basis=fc[0], 
+                                                     cutoff=self.cutoffs[n], 
+                                                     offset=self.offsets[n],
+                                                     soft_cutoff=True)
+            )
+            self.pre_layers.append(
+                EquiformerBlock(irreps_src = self.irreps_inputs[n], 
+                                irreps_dst = self.irreps_emb, 
+                                irreps_edge_attr = self.irreps_edge_attr, 
+                                irreps_head = self.irreps_head,
+                                num_heads = self.num_heads, 
+                                fc_neurons = fc,
+                                irreps_mlp_mid = irreps_mlp_mid,
+                                attn_type = attn_type,
+                                alpha_drop = alpha_drop,
+                                proj_drop = proj_drop,
+                                drop_path_rate = drop_path_rate,
+                                src_bias = False,
+                                dst_bias = True)
+            )
+
+        # self.post_connect = torch.nn.ModuleList()
+        # self.post_radial = torch.nn.ModuleList()
+        # self.post_layers = torch.nn.ModuleList()
+        # for n in range(self.n_layers - 1):
+        #     self.post_connect.append(
+        #         RadiusGraph(r=self.query_radius, max_num_neighbors=1000)
+        #     )
+        #     self.post_radial.append(
+        #         GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[0], 
+        #                                              cutoff=self.query_radius, 
+        #                                              soft_cutoff=True)
+        #     )
+        #     self.post_layers.append(
+        #         EquiformerBlock(irreps_src = self.irreps_emb, 
+        #                         irreps_dst = self.irreps_emb, 
+        #                         irreps_edge_attr = self.irreps_edge_attr, 
+        #                         irreps_head = self.irreps_head,
+        #                         num_heads = self.num_heads, 
+        #                         fc_neurons = self.fc_neurons,
+        #                         irreps_mlp_mid = irreps_mlp_mid,
+        #                         attn_type = attn_type,
+        #                         alpha_drop = alpha_drop,
+        #                         proj_drop = proj_drop,
+        #                         drop_path_rate = drop_path_rate,
+        #                         src_bias = False,
+        #                         dst_bias = True)
+        #     )
+        self.spherical_harmonics = o3.SphericalHarmonics(irreps_out = self.irreps_edge_attr, normalize = True, normalization='component')    
+        self.register_buffer('zero_features', torch.zeros(1, self.emb_dim), persistent=False)
+        self.proj = LinearRS(irreps_in = self.irreps_emb,
+                             irreps_out = self.irreps_emb,
+                             bias = True)
+
+
+    def forward(self, query_coord: torch.Tensor,
+                query_batch: torch.Tensor,
+                node_features: List[torch.Tensor],
+                node_coords: List[torch.Tensor],
+                node_batches: List[torch.Tensor]) -> torch.Tensor:
+        assert len(node_features) == len(node_coords) == len(node_batches) == self.n_scales
+        assert query_coord.ndim == 2 and query_coord.shape[-1] == 3
+
+        node_feature_dst = (self.zero_features.detach()).expand(len(query_coord), self.emb_dim)
+        for n in range(self.n_scales):
+            edge_src, edge_dst = self.pre_connect[n](node_coord_src = node_coords[n], 
+                                                     batch_src = node_batches[n],
+                                                     node_coord_dst = query_coord,
+                                                     batch_dst = query_batch)
+            edge_vec = node_coords[n].index_select(0, edge_src) - query_coord.index_select(0, edge_dst)
+            edge_attr = self.spherical_harmonics(edge_vec)
+            edge_length = edge_vec.norm(dim=1, p=2)
+            edge_scalar = self.pre_radial[n](edge_length)
+
+            node_feature_dst = node_feature_dst \
+                               + self.pre_layers[n](node_input_src = node_features[n],
+                                                    node_input_dst = (self.zero_features.detach()).expand(len(query_coord), self.emb_dim),
+                                                    batch_dst = query_batch,
+                                                    edge_src = edge_src,
+                                                    edge_dst = edge_dst,
+                                                    edge_attr = edge_attr,
+                                                    edge_scalars = edge_scalar)
+
+        # for n in range(self.n_layers - 1):
+        #     _, _, edge_src, edge_dst, degree, _ = self.post_connect[n](node_coord_src = query_coord, 
+        #                                                                node_feature_src = node_feature_dst, 
+        #                                                                batch_src = query_batch)
+        #     edge_vec = query_coord.index_select(0, edge_src) - query_coord.index_select(0, edge_dst)
+        #     edge_attr = self.spherical_harmonics(edge_vec)
+        #     edge_length = edge_vec.norm(dim=1, p=2)
+        #     edge_scalar = self.post_radial[n](edge_length)
+
+        #     node_feature_dst = self.post_layers[n](node_input_src = node_feature_dst,
+        #                                            node_input_dst = node_feature_dst,
+        #                                            batch_dst = query_batch,
+        #                                            edge_src = edge_src,
+        #                                            edge_dst = edge_dst,
+        #                                            edge_attr = edge_attr,
+        #                                            edge_scalars = edge_scalar)
+        
+        return self.proj(node_feature_dst)
