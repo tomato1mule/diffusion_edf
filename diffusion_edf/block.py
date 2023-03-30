@@ -4,8 +4,6 @@ import math
 import torch
 from e3nn import o3
 from e3nn.util.jit import compile_mode
-import torch_geometric
-from torch_scatter import scatter
 
 from diffusion_edf.equiformer.drop import GraphDropPath, EquivariantDropout
 from diffusion_edf.equiformer.tensor_product_rescale import FullyConnectedTensorProductRescale, LinearRS, FullyConnectedTensorProductRescaleSwishGate
@@ -560,24 +558,24 @@ class EdfExtractor(torch.nn.Module):
         assert query_coord.ndim == 2 and query_coord.shape[-1] == 3
 
         node_feature_dst = (self.zero_features.detach()).expand(len(query_coord), self.emb_dim)
-        for n in range(self.n_scales):
-            edge_src, edge_dst = self.pre_connect[n](node_coord_src = node_coords[n], 
-                                                     batch_src = node_batches[n],
-                                                     node_coord_dst = query_coord,
-                                                     batch_dst = query_batch)
+        for n, (connect, radial, layers) in enumerate(zip(self.pre_connect, self.pre_radial, self.pre_layers)):
+            edge_src, edge_dst = connect(node_coord_src = node_coords[n], 
+                                         batch_src = node_batches[n],
+                                         node_coord_dst = query_coord,
+                                         batch_dst = query_batch)
             edge_vec = node_coords[n].index_select(0, edge_src) - query_coord.index_select(0, edge_dst)
             edge_attr = self.spherical_harmonics(edge_vec)
             edge_length = edge_vec.norm(dim=1, p=2)
-            edge_scalar = self.pre_radial[n](edge_length)
+            edge_scalar = radial(edge_length)
 
             node_feature_dst = node_feature_dst \
-                               + self.pre_layers[n](node_input_src = node_features[n],
-                                                    node_input_dst = (self.zero_features.detach()).expand(len(query_coord), self.emb_dim),
-                                                    batch_dst = query_batch,
-                                                    edge_src = edge_src,
-                                                    edge_dst = edge_dst,
-                                                    edge_attr = edge_attr,
-                                                    edge_scalars = edge_scalar)
+                               + layers(node_input_src = node_features[n],
+                                        node_input_dst = (self.zero_features.detach()).expand(len(query_coord), self.emb_dim),
+                                        batch_dst = query_batch,
+                                        edge_src = edge_src,
+                                        edge_dst = edge_dst,
+                                        edge_attr = edge_attr,
+                                        edge_scalars = edge_scalar)
 
         # for n in range(self.n_layers - 1):
         #     _, _, edge_src, edge_dst, degree, _ = self.post_connect[n](node_coord_src = query_coord, 
