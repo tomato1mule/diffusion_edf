@@ -285,7 +285,7 @@ class EdfUnet(torch.nn.Module):
             batch = batch_dst
 
         node_feature_dst, node_coord_dst, batch_dst = downstream_outputs.pop()
-        node_feature = node_feature + node_feature_dst # Skip connection.
+        node_feature = (node_feature + node_feature_dst) / math.sqrt(3) # Skip connection.
 
 
 
@@ -297,7 +297,7 @@ class EdfUnet(torch.nn.Module):
                 node_feature_dst, node_coord_dst, batch_dst = downstream_outputs.pop()
                 edge_src, edge_dst, edge_length, edge_attr = downstream_edges.pop()
                 edge_src, edge_dst, edge_attr = edge_dst, edge_src, block['parity_inversion'](edge_attr) # Swap source and destination.
-                node_feature_dst = node_feature + node_feature_dst # Skip connection.
+                node_feature_dst = (node_feature + node_feature_dst) / math.sqrt(3) # Skip connection.
 
                 edge_scalars = layer['radial'](edge_length)
                 node_feature_dst = layer['gnn'](node_input_src = node_feature,
@@ -317,7 +317,7 @@ class EdfUnet(torch.nn.Module):
             node_feature_dst, node_coord_dst, batch_dst = downstream_outputs.pop()
             edge_src, edge_dst, edge_length, edge_attr = downstream_edges.pop()
             edge_src, edge_dst, edge_attr = edge_dst, edge_src, block['parity_inversion'](edge_attr) # Swap source and destination.
-            # node_feature_dst = node_feature + node_feature_dst # Skip connection.
+            # node_feature_dst = (node_feature + node_feature_dst) / math.sqrt(2) # Cannot apply skip connection, as node number of input and output is different. Instead, directly use node_feature_dst from downstream output, therefore it serves as skip connection.
 
             edge_scalars = block['unpool_layer']['radial'](edge_length)
             node_feature_dst = block['unpool_layer']['gnn'](node_input_src = node_feature,
