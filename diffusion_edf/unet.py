@@ -73,54 +73,117 @@ class EdfUnet(torch.nn.Module):
                 assert self.pool_method[n] is not None
             assert self.n_layers[n] >= 1
 
-        self.down_layers = torch.nn.ModuleList()
-        self.up_layers = torch.nn.ModuleList()
-        self.mid_layers = torch.nn.ModuleList()
+        self.down_blocks = torch.nn.ModuleList()
+        self.up_blocks = torch.nn.ModuleList()
+        self.mid_blocks = torch.nn.ModuleList()
         
-        for s in range(self.n_scales):
-            layers = torch.nn.ModuleList()
+        for n in range(self.n_scales):
+            block = torch.nn.ModuleDict()
+            if self.pool_method[n] == 'fps':
+                block['pool'] = FpsPool(ratio=self.pool_ratio[n], random_start=not self.deterministic, r=self.radius[n], max_num_neighbors=1000)
+            else:
+                raise NotImplementedError
+            block['radius_graph'] = RadiusGraph(r=self.radius[n], max_num_neighbors=1000)
+            block['spherical_harmonics'] = o3.SphericalHarmonics(irreps_out = self.irreps_edge_attr[n], normalize = True, normalization='component')
 
-            if self.pool_method[n] is not None:
-                layers.append(
-                    PoolingBlock(irreps_src = self.irreps[n],
-                                 irreps_dst = self.irreps[n],
-                                 irreps_edge_attr = self.irreps_edge_attr[n],
-                                 irreps_head = self.irreps_head[n],
-                                 num_heads = self.num_heads[n],
-                                 fc_neurons = self.fc_neurons[n],
-                                 pool_radius = radius[n],
-                                 pool_ratio = self.pool_ratio[n],
-                                 pool_method = self.pool_method[n],
-                                 deterministic = self.deterministic,
-                                 irreps_mlp_mid = irreps_mlp_mid[n],
-                                 attn_type = attn_type[n],
-                                 alpha_drop = alpha_drop[n],
-                                 proj_drop = proj_drop[n],
-                                 drop_path_rate = drop_path_rate[n])
-                )
-            
-            n_self_connecting_layers = self.n_layers[n] - (self.pool_method[n] is not None)
-            if n_self_connecting_layers >= 1:
-                layers.append(
-                    RadiusGraphBlock(irreps = self.irreps[n],
-                                     irreps_edge_attr = self.irreps_edge_attr[n],
-                                     irreps_head = self.irreps_head[n],
-                                     num_heads = self.num_heads[n],
-                                     fc_neurons = self.fc_neurons[n],
-                                     radius = radius[n],
-                                     n_layers = n_self_connecting_layers[n],
-                                     irreps_mlp_mid = irreps_mlp_mid[n],
-                                     attn_type = attn_type[n],
-                                     alpha_drop = alpha_drop[n],
-                                     proj_drop = proj_drop[n],
-                                     drop_path_rate = drop_path_rate[n])
-                )
+            input_layer = torch.nn.ModuleDict()
+            input_layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
+            input_layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[max(n-1,0)], 
+                                                 irreps_dst = self.irreps[n], 
+                                                 irreps_edge_attr = self.irreps_edge_attr[n], 
+                                                 irreps_head = self.irreps_head[n],
+                                                 num_heads = self.num_heads[n], 
+                                                 fc_neurons = self.fc_neurons[n],
+                                                 irreps_mlp_mid = self.irreps_mlp_mid[n],
+                                                 attn_type = attn_type[n],
+                                                 alpha_drop = alpha_drop[n],
+                                                 proj_drop = proj_drop[n],
+                                                 drop_path_rate = drop_path_rate[n],
+                                                 src_bias = False,
+                                                 dst_bias = True)
+            block['input_layer'] = input_layer
+
+            layer_stack = torch.nn.ModuleList()
+            for _ in range(self.n_layers[n] - 1):
+                layer = torch.nn.ModuleDict()
+                layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
+                layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[n], 
+                                               irreps_dst = self.irreps[n], 
+                                               irreps_edge_attr = self.irreps_edge_attr[n], 
+                                               irreps_head = self.irreps_head[n],
+                                               num_heads = self.num_heads[n], 
+                                               fc_neurons = self.fc_neurons[n],
+                                               irreps_mlp_mid = irreps_mlp_mid[n],
+                                               attn_type = attn_type[n],
+                                               alpha_drop = alpha_drop[n],
+                                               proj_drop = proj_drop[n],
+                                               drop_path_rate = drop_path_rate[n],
+                                               src_bias = False,
+                                               dst_bias = True)
+                layer_stack.append(layer)
+            block['layer_stack'] = layer_stack
+
+            self.down_blocks.append(block)
 
 
 
     def forward(self, node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
                 batch: torch.Tensor) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+
+        for n, block in enumerate(self.down_blocks):
+            ##### Pooling #####
+            pool_graph = block['pool'](node_coord_src = node_coord, 
+                                       node_feature_src = node_feature, 
+                                       batch_src = batch)
+            node_feature_dst, node_coord_dst, edge_src, edge_dst, degree, batch_dst = pool_graph
+            edge_vec: torch.Tensor = node_coord.index_select(0, edge_src) - node_coord_dst.index_select(0, edge_dst)
+            edge_length = edge_vec.norm(dim=1, p=2)
+            edge_attr = block['spherical_harmonics'](edge_vec)
+
+            edge_scalars = block['input_layer']['radial'](edge_length)
+            node_feature_dst = block['input_layer']['gnn'](node_input_src = node_feature,
+                                                           node_input_dst = node_feature_dst,
+                                                           batch_dst = batch_dst,
+                                                           edge_src = edge_src,
+                                                           edge_dst = edge_dst,
+                                                           edge_attr = edge_attr,
+                                                           edge_scalars = edge_scalars)
+            
+
+            node_feature = node_feature_dst
+            node_coord = node_coord_dst
+            batch = batch_dst
+            
+            ##### Radius Graph #####
+            radius_graph = block['radius_graph'](node_coord_src = node_coord, 
+                                                 node_feature_src = node_feature, 
+                                                 batch_src = batch)
+            node_feature_dst, node_coord_dst, edge_src, edge_dst, degree, batch_dst = radius_graph
+            edge_vec: torch.Tensor = node_coord.index_select(0, edge_src) - node_coord_dst.index_select(0, edge_dst)
+            edge_length = edge_vec.norm(dim=1, p=2)
+            edge_attr = block['spherical_harmonics'](edge_vec)
+
+            for i, layer in enumerate(block['layer_stack']):
+                edge_scalars = layer['radial'](edge_length)
+                node_feature_dst = layer['gnn'](node_input_src = node_feature,
+                                                node_input_dst = node_feature_dst,
+                                                batch_dst = batch_dst,
+                                                edge_src = edge_src,
+                                                edge_dst = edge_dst,
+                                                edge_attr = edge_attr,
+                                                edge_scalars = edge_scalars)
+
+
+            node_feature = node_feature_dst
+            node_coord = node_coord_dst
+            batch = batch_dst
+            
+            
+
+
+
+
 
         outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = []
         for layer in self.layers:
