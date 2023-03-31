@@ -32,7 +32,6 @@ class EdfUnet(torch.nn.Module):
         self.irreps: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps]
         self.irreps_edge_attr: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps_edge_attr]
         self.num_heads: List[int] = num_heads
-        self.irreps_head: List[o3.Irreps] = [multiply_irreps(irrep, 1/self.num_heads) for irrep in self.irreps]
         self.fc_neurons: List[List[int]] = fc_neurons
         self.radius: List[float] = radius
         self.pool_ratio: List[float] = pool_ratio
@@ -65,7 +64,21 @@ class EdfUnet(torch.nn.Module):
         else:
             self.drop_path_rate: List[float] = [drop_path_rate for _ in range(self.n_scales)]
 
-        assert self.n_scales == len(self.irreps) == len(self.irreps_edge_attr) == len(self.num_heads) == len(self.irreps_head) == len(self.fc_neurons) == len(self.radius) == len(self.pool_ratio) == len(self.n_layers) == len(self.pool_method) == len(self.irreps_mlp_mid) == len(self.attn_type) == len(self.alpha_drop) == len(self.proj_drop) == len(self.drop_path_rate)
+        assert self.n_scales == len(self.irreps)
+        assert self.n_scales == len(self.irreps_edge_attr) 
+        assert self.n_scales == len(self.num_heads) 
+        assert self.n_scales == len(self.fc_neurons) 
+        assert self.n_scales == len(self.radius) 
+        assert self.n_scales == len(self.pool_ratio) 
+        assert self.n_scales == len(self.n_layers) 
+        assert self.n_scales == len(self.pool_method) 
+        assert self.n_scales == len(self.irreps_mlp_mid) 
+        assert self.n_scales == len(self.attn_type) 
+        assert self.n_scales == len(self.alpha_drop) 
+        assert self.n_scales == len(self.proj_drop) 
+        assert self.n_scales == len(self.drop_path_rate)
+        self.irreps_head: List[o3.Irreps] = [multiply_irreps(self.irreps[n], 1/self.num_heads[n]) for n in range(self.n_scales)]
+
         for n in range(self.n_scales):
             if self.pool_ratio[n] == 1.0:
                 assert self.pool_method[n] is None
@@ -95,10 +108,10 @@ class EdfUnet(torch.nn.Module):
                                                  num_heads = self.num_heads[n], 
                                                  fc_neurons = self.fc_neurons[n],
                                                  irreps_mlp_mid = self.irreps_mlp_mid[n],
-                                                 attn_type = attn_type[n],
-                                                 alpha_drop = alpha_drop[n],
-                                                 proj_drop = proj_drop[n],
-                                                 drop_path_rate = drop_path_rate[n],
+                                                 attn_type = self.attn_type[n],
+                                                 alpha_drop = self.alpha_drop[n],
+                                                 proj_drop = self.proj_drop[n],
+                                                 drop_path_rate = self.drop_path_rate[n],
                                                  src_bias = False,
                                                  dst_bias = True)
             block['input_layer'] = input_layer
@@ -113,11 +126,11 @@ class EdfUnet(torch.nn.Module):
                                                irreps_head = self.irreps_head[n],
                                                num_heads = self.num_heads[n], 
                                                fc_neurons = self.fc_neurons[n],
-                                               irreps_mlp_mid = irreps_mlp_mid[n],
-                                               attn_type = attn_type[n],
-                                               alpha_drop = alpha_drop[n],
-                                               proj_drop = proj_drop[n],
-                                               drop_path_rate = drop_path_rate[n],
+                                               irreps_mlp_mid = self.irreps_mlp_mid[n],
+                                               attn_type = self.attn_type[n],
+                                               alpha_drop = self.alpha_drop[n],
+                                               proj_drop = self.proj_drop[n],
+                                               drop_path_rate = self.drop_path_rate[n],
                                                src_bias = False,
                                                dst_bias = True)
                 layer_stack.append(layer)
@@ -129,7 +142,10 @@ class EdfUnet(torch.nn.Module):
 
     def forward(self, node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
-                batch: torch.Tensor) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+                batch: torch.Tensor) -> Tuple[List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]], List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]]:
+
+        downstream_outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+        downstream_edges: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = []
 
         for n, block in enumerate(self.down_blocks):
             ##### Pooling #####
@@ -154,6 +170,8 @@ class EdfUnet(torch.nn.Module):
             node_feature = node_feature_dst
             node_coord = node_coord_dst
             batch = batch_dst
+            downstream_outputs.append((node_feature, node_coord, batch))
+            downstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
             
             ##### Radius Graph #####
             radius_graph = block['radius_graph'](node_coord_src = node_coord, 
@@ -175,20 +193,11 @@ class EdfUnet(torch.nn.Module):
                                                 edge_scalars = edge_scalars)
 
 
-            node_feature = node_feature_dst
-            node_coord = node_coord_dst
-            batch = batch_dst
+                node_feature = node_feature_dst
+                node_coord = node_coord_dst
+                batch = batch_dst
+                downstream_outputs.append((node_feature, node_coord, batch))
+                downstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
             
-            
-
-
-
-
-
-        outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = []
-        for layer in self.layers:
-            output = layer(node_feature = node_feature, node_coord = node_coord, batch = batch)
-            outputs.append(output)
-            node_feature, node_coord, batch = output[0], output[1], output[7]
         
-        return outputs
+        return downstream_outputs, downstream_edges
