@@ -8,7 +8,7 @@ from e3nn.util.jit import compile_mode
 from diffusion_edf.block import EquiformerBlock, PoolingBlock, RadiusGraphBlock, sort_irreps_even_first
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
-from diffusion_edf.util import multiply_irreps
+from diffusion_edf.util import multiply_irreps, ParityInversionSh
 
 @compile_mode('script')
 class EdfUnet(torch.nn.Module):  
@@ -26,7 +26,8 @@ class EdfUnet(torch.nn.Module):
         attn_type: Union[str, List[str]] = 'mlp',
         alpha_drop: Union[float, List[float]] = 0.1,
         proj_drop: Union[float, List[float]] = 0.1,
-        drop_path_rate: Union[float, List[float]] = 0.0):
+        drop_path_rate: Union[float, List[float]] = 0.0,
+        n_layers_mid: int = 2):
         
         super().__init__()
         self.irreps: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps]
@@ -37,6 +38,7 @@ class EdfUnet(torch.nn.Module):
         self.pool_ratio: List[float] = pool_ratio
         self.n_layers: List[int] = n_layers
         self.deterministic: bool = deterministic
+        self.n_layers_mid = n_layers_mid
         
         self.n_scales = len(self.irreps)
         if isinstance(pool_method, list):
@@ -86,10 +88,9 @@ class EdfUnet(torch.nn.Module):
                 assert self.pool_method[n] is not None
             assert self.n_layers[n] >= 1
 
+
+        #### Down Block ####
         self.down_blocks = torch.nn.ModuleList()
-        self.up_blocks = torch.nn.ModuleList()
-        self.mid_blocks = torch.nn.ModuleList()
-        
         for n in range(self.n_scales):
             block = torch.nn.ModuleDict()
             if self.pool_method[n] == 'fps':
@@ -99,22 +100,22 @@ class EdfUnet(torch.nn.Module):
             block['radius_graph'] = RadiusGraph(r=self.radius[n], max_num_neighbors=1000)
             block['spherical_harmonics'] = o3.SphericalHarmonics(irreps_out = self.irreps_edge_attr[n], normalize = True, normalization='component')
 
-            input_layer = torch.nn.ModuleDict()
-            input_layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
-            input_layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[max(n-1,0)], 
-                                                 irreps_dst = self.irreps[n], 
-                                                 irreps_edge_attr = self.irreps_edge_attr[n], 
-                                                 irreps_head = self.irreps_head[n],
-                                                 num_heads = self.num_heads[n], 
-                                                 fc_neurons = self.fc_neurons[n],
-                                                 irreps_mlp_mid = self.irreps_mlp_mid[n],
-                                                 attn_type = self.attn_type[n],
-                                                 alpha_drop = self.alpha_drop[n],
-                                                 proj_drop = self.proj_drop[n],
-                                                 drop_path_rate = self.drop_path_rate[n],
-                                                 src_bias = False,
-                                                 dst_bias = True)
-            block['input_layer'] = input_layer
+            pool_layer = torch.nn.ModuleDict()
+            pool_layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
+            pool_layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[max(n-1,0)], 
+                                                irreps_dst = self.irreps[n], 
+                                                irreps_edge_attr = self.irreps_edge_attr[n], 
+                                                irreps_head = self.irreps_head[n],
+                                                num_heads = self.num_heads[n], 
+                                                fc_neurons = self.fc_neurons[n],
+                                                irreps_mlp_mid = self.irreps_mlp_mid[n],
+                                                attn_type = self.attn_type[n],
+                                                alpha_drop = self.alpha_drop[n],
+                                                proj_drop = self.proj_drop[n],
+                                                drop_path_rate = self.drop_path_rate[n],
+                                                src_bias = False,
+                                                dst_bias = True)
+            block['pool_layer'] = pool_layer
 
             layer_stack = torch.nn.ModuleList()
             for _ in range(self.n_layers[n] - 1):
@@ -140,13 +141,83 @@ class EdfUnet(torch.nn.Module):
 
 
 
+        #### Mid Block ####
+        self.mid_block = torch.nn.ModuleList()
+        for i in range(self.n_layers_mid):
+            layer = torch.nn.ModuleDict()
+            layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[-1][0], cutoff=0.99 * self.radius[-1])
+            layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[-1], 
+                                            irreps_dst = self.irreps[-1], 
+                                            irreps_edge_attr = self.irreps_edge_attr[-1], 
+                                            irreps_head = self.irreps_head[-1],
+                                            num_heads = self.num_heads[-1], 
+                                            fc_neurons = self.fc_neurons[-1],
+                                            irreps_mlp_mid = self.irreps_mlp_mid[-1],
+                                            attn_type = self.attn_type[-1],
+                                            alpha_drop = self.alpha_drop[-1],
+                                            proj_drop = self.proj_drop[-1],
+                                            drop_path_rate = self.drop_path_rate[-1],
+                                            src_bias = False,
+                                            dst_bias = True)
+            self.mid_block.append(layer)
+
+
+        #### Up Block ####
+        self.up_blocks = torch.nn.ModuleList()
+        for n in range(self.n_scales-1, -1, -1):
+            block = torch.nn.ModuleDict()
+            block['parity_inversion'] = ParityInversionSh(irreps = self.irreps_edge_attr[n])
+
+            layer_stack = torch.nn.ModuleList()
+            for _ in range(self.n_layers[n] - 1):
+                layer = torch.nn.ModuleDict()
+                layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
+                layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[n], 
+                                               irreps_dst = self.irreps[n], 
+                                               irreps_edge_attr = self.irreps_edge_attr[n], 
+                                               irreps_head = self.irreps_head[n],
+                                               num_heads = self.num_heads[n], 
+                                               fc_neurons = self.fc_neurons[n],
+                                               irreps_mlp_mid = self.irreps_mlp_mid[n],
+                                               attn_type = self.attn_type[n],
+                                               alpha_drop = self.alpha_drop[n],
+                                               proj_drop = self.proj_drop[n],
+                                               drop_path_rate = self.drop_path_rate[n],
+                                               src_bias = False,
+                                               dst_bias = True)
+                layer_stack.append(layer)
+            block['layer_stack'] = layer_stack
+
+            unpool_layer = torch.nn.ModuleDict()
+            unpool_layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
+            unpool_layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[n], 
+                                                  irreps_dst = self.irreps[max(n-1,0)], 
+                                                  irreps_edge_attr = self.irreps_edge_attr[n], 
+                                                  irreps_head = self.irreps_head[n],
+                                                  num_heads = self.num_heads[n], 
+                                                  fc_neurons = self.fc_neurons[n],
+                                                  irreps_mlp_mid = self.irreps_mlp_mid[n],
+                                                  attn_type = self.attn_type[n],
+                                                  alpha_drop = self.alpha_drop[n],
+                                                  proj_drop = self.proj_drop[n],
+                                                  drop_path_rate = self.drop_path_rate[n],
+                                                  src_bias = False,
+                                                  dst_bias = True)
+            block['unpool_layer'] = unpool_layer
+
+
+            self.up_blocks.append(block)
+            
+
+
+
     def forward(self, node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
                 batch: torch.Tensor) -> Tuple[List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]], List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]]:
 
         downstream_outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
         downstream_edges: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = []
-
+        downstream_outputs.append((node_feature, node_coord, batch))
         for n, block in enumerate(self.down_blocks):
             ##### Pooling #####
             pool_graph = block['pool'](node_coord_src = node_coord, 
@@ -157,14 +228,14 @@ class EdfUnet(torch.nn.Module):
             edge_length = edge_vec.norm(dim=1, p=2)
             edge_attr = block['spherical_harmonics'](edge_vec)
 
-            edge_scalars = block['input_layer']['radial'](edge_length)
-            node_feature_dst = block['input_layer']['gnn'](node_input_src = node_feature,
-                                                           node_input_dst = node_feature_dst,
-                                                           batch_dst = batch_dst,
-                                                           edge_src = edge_src,
-                                                           edge_dst = edge_dst,
-                                                           edge_attr = edge_attr,
-                                                           edge_scalars = edge_scalars)
+            edge_scalars = block['pool_layer']['radial'](edge_length)
+            node_feature_dst = block['pool_layer']['gnn'](node_input_src = node_feature,
+                                                          node_input_dst = node_feature_dst,
+                                                          batch_dst = batch_dst,
+                                                          edge_src = edge_src,
+                                                          edge_dst = edge_dst,
+                                                          edge_attr = edge_attr,
+                                                          edge_scalars = edge_scalars)
             
 
             node_feature = node_feature_dst
@@ -198,6 +269,70 @@ class EdfUnet(torch.nn.Module):
                 batch = batch_dst
                 downstream_outputs.append((node_feature, node_coord, batch))
                 downstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
+
+
+        for n, layer in enumerate(self.mid_block):
+            edge_scalars = layer['radial'](edge_length)
+            node_feature_dst = layer['gnn'](node_input_src = node_feature,
+                                            node_input_dst = node_feature_dst,
+                                            batch_dst = batch,
+                                            edge_src = edge_src,
+                                            edge_dst = edge_dst,
+                                            edge_attr = edge_attr,
+                                            edge_scalars = edge_scalars)
+            node_feature = node_feature_dst
+            node_coord = node_coord_dst
+            batch = batch_dst
+
+        node_feature_dst, node_coord_dst, batch_dst = downstream_outputs.pop()
+        node_feature = node_feature + node_feature_dst # Skip connection.
+
+
+
+        upstream_outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+        upstream_edges: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]] = []
+        for n, block in enumerate(self.up_blocks):            
+            ##### Radius Graph #####
+            for i, layer in enumerate(block['layer_stack']):
+                node_feature_dst, node_coord_dst, batch_dst = downstream_outputs.pop()
+                edge_src, edge_dst, edge_length, edge_attr = downstream_edges.pop()
+                edge_src, edge_dst, edge_attr = edge_dst, edge_src, block['parity_inversion'](edge_attr) # Swap source and destination.
+                node_feature_dst = node_feature + node_feature_dst # Skip connection.
+
+                edge_scalars = layer['radial'](edge_length)
+                node_feature_dst = layer['gnn'](node_input_src = node_feature,
+                                                node_input_dst = node_feature_dst,
+                                                batch_dst = batch_dst,
+                                                edge_src = edge_src,
+                                                edge_dst = edge_dst,
+                                                edge_attr = edge_attr,
+                                                edge_scalars = edge_scalars)
+                node_feature = node_feature_dst
+                node_coord = node_coord_dst
+                batch = batch_dst
+                upstream_outputs.append((node_feature, node_coord, batch))
+                upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
+
+            ##### Unpooling #####
+            node_feature_dst, node_coord_dst, batch_dst = downstream_outputs.pop()
+            edge_src, edge_dst, edge_length, edge_attr = downstream_edges.pop()
+            edge_src, edge_dst, edge_attr = edge_dst, edge_src, block['parity_inversion'](edge_attr) # Swap source and destination.
+            # node_feature_dst = node_feature + node_feature_dst # Skip connection.
+
+            edge_scalars = block['unpool_layer']['radial'](edge_length)
+            node_feature_dst = block['unpool_layer']['gnn'](node_input_src = node_feature,
+                                                            node_input_dst = node_feature_dst,
+                                                            batch_dst = batch_dst,
+                                                            edge_src = edge_src,
+                                                            edge_dst = edge_dst,
+                                                            edge_attr = edge_attr,
+                                                            edge_scalars = edge_scalars)
+            
+            node_feature = node_feature_dst
+            node_coord = node_coord_dst
+            batch = batch_dst
+            upstream_outputs.append((node_feature, node_coord, batch))
+            upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
             
         
-        return downstream_outputs, downstream_edges
+        return upstream_outputs, upstream_edges
