@@ -85,7 +85,7 @@ class EquiformerBlock(torch.nn.Module):
         self.fc_neurons: List[int] = fc_neurons
 
         self.irreps_emb: o3.Irreps = self.irreps_dst
-        assert num_heads*self.irreps_head.dim == self.irreps_emb.dim
+        assert num_heads*self.irreps_head.dim == self.irreps_emb.dim, f"{num_heads} X {self.irreps_head} != {self.irreps_emb}"
         if isinstance(irreps_mlp_mid, o3.Irreps):
             self.irreps_mlp_mid: o3.Irreps = o3.Irreps(irreps_mlp_mid)
         elif isinstance(irreps_mlp_mid, int):
@@ -460,7 +460,7 @@ class EdfExtractor(torch.nn.Module):
         n_layers: int,
         cutoffs: List[float],
         offsets: List[float],
-        query_radius: float,
+        query_radius: Optional[float] = None,
         irreps_mlp_mid: Union[o3.Irreps, int] = 3,
         attn_type: str = 'mlp',
         alpha_drop: float = 0.1,
@@ -482,7 +482,7 @@ class EdfExtractor(torch.nn.Module):
         self.num_heads: int = num_heads
         self.fc_neurons: List[int] = fc_neurons
         self.n_layers: int = n_layers
-        self.query_radius: float = query_radius
+        self.query_radius: Optional[float] = query_radius
         assert self.n_layers >= 1
 
         self.pre_connect = torch.nn.ModuleList()
