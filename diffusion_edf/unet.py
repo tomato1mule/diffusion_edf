@@ -1,5 +1,6 @@
 from typing import List, Optional, Union, Tuple, Iterable
 import math
+import warnings
 
 import torch
 from e3nn import o3
@@ -381,6 +382,9 @@ class EDF(torch.nn.Module):
         else:
             self.pool_ratio = [pool_ratio for _ in range(n_scales)]
         self.radius = [2.0 / math.sqrt(self.pool_ratio[n]**n) for n in range(n_scales)]
+        for n in range(1, len(self.radius)):
+            if not self.radius[n-1] < self.radius[n]:
+                warnings.warn(f"radius[{n}] ({self.radius[n]}) is smaller than radius[{n-1}] ({self.radius[n-1]})")
         self.n_layers = [n_layers for _ in range(n_scales)]
 
         output_idx = []
@@ -409,7 +413,7 @@ class EDF(torch.nn.Module):
             attn_type = 'mlp',
             n_layers_mid = 2,
         )
-        min_offset = 0.05 * self.radius[0]
+        min_offset = 0.01 * self.radius[0]
         self.extractor = EdfExtractor(
             irreps_inputs = self.gnn.irreps,
             fc_neurons_inputs = self.gnn.fc_neurons,
