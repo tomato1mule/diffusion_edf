@@ -18,12 +18,14 @@ from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 from diffusion_edf.utils import multiply_irreps, ParityInversionSh
 from diffusion_edf.skip import ProjectIfMismatch
-from diffusion_edf.unet import EdfUnet
+from diffusion_edf.unet import EDF, EdfUnet
+
+
 
 
 
 @compile_mode('script')
-class QueryModel(torch.nn.Module):
+class QueryModel(EDF):
     def __init__(self, 
                  irreps_input: o3.Irreps,
                  irreps_emb_init: o3.Irreps,
@@ -44,85 +46,24 @@ class QueryModel(torch.nn.Module):
                  irreps_mlp_mid: int = 3,
                  deterministic: bool = False,
                  ):
-        super().__init__()
-        self.irreps_input = o3.Irreps(irreps_input)
-        assert dim_mult[0] == 1
-        self.irreps: List[o3.Irreps] = [multiply_irreps(o3.Irreps(irreps_emb_init), dim_mult[n], strict=True) for n in range(n_scales)]
-        self.irreps_emb = self.irreps[-1]
-        self.irreps_sh = o3.Irreps(irreps_sh)
-        self.num_heads = num_heads
-        self.n_scales = n_scales
+        super().__init__(irreps_input=irreps_input,
+                         irreps_emb_init=irreps_emb_init,
+                         irreps_sh=irreps_sh,
+                         fc_neurons_init=fc_neurons_init,
+                         num_heads=num_heads,
+                         n_scales=n_scales,
+                         pool_ratio=pool_ratio,
+                         dim_mult=dim_mult,
+                         n_layers=n_layers,
+                         gnn_radius=gnn_radius,
+                         cutoff_radius=cutoff_radius,
+                         alpha_drop=alpha_drop,
+                         proj_drop=proj_drop,
+                         drop_path_rate=drop_path_rate,
+                         irreps_mlp_mid=irreps_mlp_mid,
+                         deterministic=deterministic
+                         )
         self.query_downsample_ratio = query_downsample_ratio
-        self.deterministic = deterministic
-        self.fc_neurons = [[round(n_neurons * dim_mult[n]) for n_neurons in fc_neurons_init] for n in range(n_scales)]
-        assert len(self.fc_neurons) == self.n_scales
-        if isinstance(pool_ratio, Iterable):
-            self.pool_ratio = pool_ratio
-        else:
-            self.pool_ratio = [pool_ratio for _ in range(n_scales)]
-        self.n_layers = [n_layers for _ in range(n_scales)]
-        if isinstance(gnn_radius, Iterable):
-            self.gnn_radius = gnn_radius
-        else:
-            self.gnn_radius = [gnn_radius / math.sqrt(self.pool_ratio[n]**n) for n in range(n_scales)]
-        for n in range(1, len(self.gnn_radius)):
-            if not self.gnn_radius[n-1] < self.gnn_radius[n]:
-                warnings.warn(f"gnn_radius[{n}] ({self.gnn_radius[n]}) is smaller than radius[{n-1}] ({self.gnn_radius[n-1]})")
-        if isinstance(cutoff_radius, Iterable):
-            self.cutoff_radius = cutoff_radius
-        else:
-            self.cutoff_radius = [cutoff_radius / math.sqrt(self.pool_ratio[n]**n) for n in range(n_scales)]
-        for n in range(1, len(self.cutoff_radius)):
-            if not self.cutoff_radius[n-1] < self.cutoff_radius[n]:
-                warnings.warn(f"cutoff_radius[{n}] ({self.cutoff_radius[n]}) is smaller than radius[{n-1}] ({self.cutoff_radius[n-1]})")
-        
-
-        output_idx = []
-        last_output_idx = 0
-        for n in self.n_layers:
-            last_output_idx += n
-            output_idx.append(last_output_idx-1)
-        self.output_idx: Tuple[int] = tuple(output_idx)
-        
-
-        self.enc = NodeEmbeddingNetwork(irreps_input=self.irreps_input, irreps_node_emb=self.irreps[0])
-        self.gnn = EdfUnet(
-            irreps = self.irreps,
-            irreps_edge_attr = [self.irreps_sh for _ in range(n_scales)],
-            num_heads = [self.num_heads for _ in range(n_scales)],
-            fc_neurons = self.fc_neurons,
-            radius = self.gnn_radius,
-            pool_ratio = self.pool_ratio,
-            n_layers = self.n_layers,
-            deterministic = deterministic,
-            irreps_mlp_mid = irreps_mlp_mid,
-            alpha_drop=alpha_drop,
-            proj_drop=proj_drop,
-            drop_path_rate=drop_path_rate,
-            pool_method = 'fps',
-            attn_type = 'mlp',
-            n_layers_mid = 2,
-        )
-
-
-        min_offset = 0.01 * self.cutoff_radius[0]
-        self.extractor = EdfExtractor(
-            irreps_inputs = self.gnn.irreps,
-            fc_neurons_inputs = self.gnn.fc_neurons,
-            irreps_emb = self.gnn.irreps[-1],
-            irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
-            irreps_head = self.gnn.irreps_head[-1],
-            num_heads = self.gnn.num_heads[-1],
-            fc_neurons = self.gnn.fc_neurons[-1],
-            n_layers = 1,
-            cutoffs = self.cutoff_radius,
-            offsets = [min_offset] + [max(min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
-            irreps_mlp_mid = irreps_mlp_mid,
-            attn_type='mlp',
-            alpha_drop=alpha_drop, 
-            proj_drop=proj_drop,
-            drop_path_rate=drop_path_rate
-        )
 
         self.weight_field = EdfExtractor(
             irreps_inputs = self.gnn.irreps,
@@ -134,7 +75,7 @@ class QueryModel(torch.nn.Module):
             fc_neurons = self.gnn.fc_neurons[-1],
             n_layers = 1,
             cutoffs = self.cutoff_radius,
-            offsets = [min_offset] + [max(min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
+            offsets = [self.min_offset] + [max(self.min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
             irreps_mlp_mid = irreps_mlp_mid,
             attn_type='mlp',
             alpha_drop=alpha_drop, 
@@ -145,16 +86,6 @@ class QueryModel(torch.nn.Module):
         self.weight_linear1 = LinearRS(irreps_in = self.gnn.irreps[-1], irreps_out = self.pre_weight_irreps, bias=True, rescale=True)
         self.weight_layernorm = EquivariantLayerNormV2(irreps = self.pre_weight_irreps)
         self.weight_linear2 = LinearRS(irreps_in = self.pre_weight_irreps, irreps_out = o3.Irreps("1x0e"), bias=True, rescale=True)        
-
-    @torch.jit.export
-    def get_gnn_features(self, node_feature: torch.Tensor, 
-                         node_coord: torch.Tensor, 
-                         batch: torch.Tensor) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
-        node_emb = self.enc(node_feature)
-        outputs, edges = self.gnn(node_feature=node_emb,
-                                  node_coord=node_coord,
-                                  batch=batch)
-        return [outputs[n] for n in self.output_idx]
 
     def _get_query_feature(self, query_points: torch.Tensor,
                            query_batch: torch.Tensor,
@@ -190,11 +121,11 @@ class QueryModel(torch.nn.Module):
 
         return node_coord_dst, batch_dst
     
-    def _rbf(self, x1: torch.Tensor, x2: torch.Tensor, h: float) -> torch.Tensor:
-        return torch.exp(-(x1-x2).square().sum(dim=-1)/h)
+    # def _rbf(self, x1: torch.Tensor, x2: torch.Tensor, h: float) -> torch.Tensor:
+    #     return torch.exp(-(x1-x2).square().sum(dim=-1)/h)
 
-    def _rbf_grad_x1(self, x1: torch.Tensor, x2: torch.Tensor, h: float) -> torch.Tensor:
-        return -2/h * (x1-x2) * self.rbf(x1,x2,h).unsqueeze(-1)
+    # def _rbf_grad_x1(self, x1: torch.Tensor, x2: torch.Tensor, h: float) -> torch.Tensor:
+    #     return -2/h * (x1-x2) * self.rbf(x1,x2,h).unsqueeze(-1)
 
     # def stein_vgd(self, x: torch.Tensor, batch: torch.Tensor, log_P: Callable, iters: int, lr: float):
     #     requires_grad = x.requires_grad
@@ -243,6 +174,5 @@ class QueryModel(torch.nn.Module):
         query_coord, query_batch = self._get_init_query_pos(node_coord=query_coord, batch=query_batch)
         query_weight, query_feature = self._get_query(query_points=query_coord, query_batch=query_batch, gnn_features=gnn_features)
 
-        # query_weight = scatter_softmax(src = query_weight, index=query_batch)
+        query_weight = scatter_softmax(src = query_weight, index=query_batch)
         return query_weight, query_feature, query_coord, query_batch
-

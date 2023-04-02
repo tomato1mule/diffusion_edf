@@ -361,11 +361,13 @@ class EDF(torch.nn.Module):
                  pool_ratio: float,
                  dim_mult: List[Union[float, int]], 
                  n_layers: int,
+                 gnn_radius: Union[float, List[float]],
+                 cutoff_radius: Union[float, List[float]],
                  alpha_drop: float = 0.1,
                  proj_drop: float = 0.1,
                  drop_path_rate: float = 0.0,
                  irreps_mlp_mid: int = 3,
-                 deterministic: bool = False
+                 deterministic: bool = False,
                  ):
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -375,17 +377,29 @@ class EDF(torch.nn.Module):
         self.irreps_sh = o3.Irreps(irreps_sh)
         self.num_heads = num_heads
         self.n_scales = n_scales
+        self.deterministic = deterministic
         self.fc_neurons = [[round(n_neurons * dim_mult[n]) for n_neurons in fc_neurons_init] for n in range(n_scales)]
         assert len(self.fc_neurons) == self.n_scales
         if isinstance(pool_ratio, Iterable):
             self.pool_ratio = pool_ratio
         else:
             self.pool_ratio = [pool_ratio for _ in range(n_scales)]
-        self.radius = [2.0 / math.sqrt(self.pool_ratio[n]**n) for n in range(n_scales)]
-        for n in range(1, len(self.radius)):
-            if not self.radius[n-1] < self.radius[n]:
-                warnings.warn(f"radius[{n}] ({self.radius[n]}) is smaller than radius[{n-1}] ({self.radius[n-1]})")
         self.n_layers = [n_layers for _ in range(n_scales)]
+        if isinstance(gnn_radius, Iterable):
+            self.gnn_radius = gnn_radius
+        else:
+            self.gnn_radius = [gnn_radius / math.sqrt(self.pool_ratio[n]**n) for n in range(n_scales)]
+        for n in range(1, len(self.gnn_radius)):
+            if not self.gnn_radius[n-1] < self.gnn_radius[n]:
+                warnings.warn(f"gnn_radius[{n}] ({self.gnn_radius[n]}) is smaller than radius[{n-1}] ({self.gnn_radius[n-1]})")
+        if isinstance(cutoff_radius, Iterable):
+            self.cutoff_radius = cutoff_radius
+        else:
+            self.cutoff_radius = [cutoff_radius / math.sqrt(self.pool_ratio[n]**n) for n in range(n_scales)]
+        for n in range(1, len(self.cutoff_radius)):
+            if not self.cutoff_radius[n-1] < self.cutoff_radius[n]:
+                warnings.warn(f"cutoff_radius[{n}] ({self.cutoff_radius[n]}) is smaller than radius[{n-1}] ({self.cutoff_radius[n-1]})")
+        
 
         output_idx = []
         last_output_idx = 0
@@ -401,7 +415,7 @@ class EDF(torch.nn.Module):
             irreps_edge_attr = [self.irreps_sh for _ in range(n_scales)],
             num_heads = [self.num_heads for _ in range(n_scales)],
             fc_neurons = self.fc_neurons,
-            radius = self.radius,
+            radius = self.gnn_radius,
             pool_ratio = self.pool_ratio,
             n_layers = self.n_layers,
             deterministic = deterministic,
@@ -413,7 +427,9 @@ class EDF(torch.nn.Module):
             attn_type = 'mlp',
             n_layers_mid = 2,
         )
-        min_offset = 0.01 * self.radius[0]
+
+
+        self.min_offset = 0.01 * self.cutoff_radius[0]
         self.extractor = EdfExtractor(
             irreps_inputs = self.gnn.irreps,
             fc_neurons_inputs = self.gnn.fc_neurons,
@@ -423,8 +439,8 @@ class EDF(torch.nn.Module):
             num_heads = self.gnn.num_heads[-1],
             fc_neurons = self.gnn.fc_neurons[-1],
             n_layers = 1,
-            cutoffs = self.radius,
-            offsets = [min_offset] + [max(min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.radius[:-1], self.radius[1:])],
+            cutoffs = self.cutoff_radius,
+            offsets = [self.min_offset] + [max(self.min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
             irreps_mlp_mid = irreps_mlp_mid,
             attn_type='mlp',
             alpha_drop=alpha_drop, 
