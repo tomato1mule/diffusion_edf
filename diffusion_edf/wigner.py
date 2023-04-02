@@ -157,7 +157,6 @@ def transform_feature_quat(irreps, feature, q, Js):
     return transform_feature_quat_(ls, feature_slices, Js, q)
 
 
-@compile_mode('script')
 class TransformFeatureQuaternion(torch.nn.Module):
     def __init__(self, irreps, device: Union[str, torch.device]):
         super().__init__()

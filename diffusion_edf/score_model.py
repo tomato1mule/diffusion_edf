@@ -152,7 +152,7 @@ class ScoreModel(torch.nn.Module):
         q, X = T[...,:4], T[...,4:] # (Nt,4), (Nt,3)
         query_coord_transformed = quaternion_apply(q.unsqueeze(-2), query_coord) # (Nt, 1, 4) x (Nq, 3) -> (Nt, Nq, 3)
         query_coord_transformed = query_coord_transformed + X.unsqueeze(-2) # (Nt, Nq, 3) + (Nt, 1, 3) -> (Nt, Nq, 3)
-        query_feature_transformed = self.transform_irreps(query_feature, q).contiguous().view(-1) # (Nq, D) x (Nt, 4) -> (Nt * Nq, D)
+        query_feature_transformed = self.transform_irreps(query_feature, q).contiguous().view(N_T*N_Q,-1) # (Nq, D) x (Nt, 4) -> (Nt * Nq, D)
         batch_repeat = batch.expand(N_T,N_Q).contiguous().view(-1)
 
         key_feature: torch.Tensor = self._get_key(query_points=query_coord_transformed.view(N_T * N_Q ,3), query_batch=batch_repeat, gnn_features=key_gnn_features)# (N_T * N_Q, N_D)
@@ -164,9 +164,9 @@ class ScoreModel(torch.nn.Module):
 
         qinv = quaternion_invert(q.unsqueeze(-2)) # (N_T, 1, 4)
         qinv = qinv / qinv.norm(dim=-1, keepdim=True)
-        lin_vel = quaternion_apply(q, lin_vel) # (N_T, N_Q, 3)
-        ang_spin = quaternion_apply(q, ang_spin) # (N_T, N_Q, 3)
-        ang_orbital = torch.cross(query_coord.unsqueeze(-1), lin_vel, dim=-1) # (N_T, N_Q, 3)
+        lin_vel = quaternion_apply(qinv, lin_vel) # (N_T, N_Q, 3)
+        ang_spin = quaternion_apply(qinv, ang_spin) # (N_T, N_Q, 3)
+        ang_orbital = torch.cross(query_coord.unsqueeze(0), lin_vel, dim=-1) # (N_T, N_Q, 3)
 
         lin_vel = torch.einsum('q,tqi->ti', query_weight, lin_vel) # (N_T, 3)
         ang_vel = torch.einsum('q,tqi->ti', query_weight, ang_orbital) + torch.einsum('q,tqi->ti', query_weight, ang_spin) # (N_T, 3)
@@ -176,7 +176,7 @@ class ScoreModel(torch.nn.Module):
     def forward(self, T: torch.Tensor,
                 key_feature: torch.Tensor, key_coord: torch.Tensor, key_batch: torch.Tensor,
                 query_feature: torch.Tensor, query_coord: torch.Tensor, query_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        query = self._get_query()
+        query = self._get_query(node_feature=query_feature, node_coord=query_coord, batch=query_batch)
         key_gnn_features = self._get_gnn_features(node_feature=key_feature, node_coord=key_coord, batch=key_batch)
 
         lin_vel, ang_vel = self.get_score(T=T, query=query, key_gnn_features=key_gnn_features)
