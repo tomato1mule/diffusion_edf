@@ -7,7 +7,7 @@ from e3nn import o3
 from e3nn.util.jit import compile_mode
 
 from diffusion_edf.embedding import NodeEmbeddingNetwork
-from diffusion_edf.block import EquiformerBlock, PoolingBlock, RadiusGraphBlock, sort_irreps_even_first, EdfExtractor
+from diffusion_edf.block import EquiformerBlock, EdfExtractor
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 from diffusion_edf.utils import multiply_irreps, ParityInversionSh
@@ -339,7 +339,7 @@ class EdfUnet(torch.nn.Module):
             batch = batch_dst
             upstream_outputs.append((node_feature, node_coord, batch))
             upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
-            
+        # print([out[0].std().item() for out in upstream_outputs[::-1]])
         
         return upstream_outputs[::-1], upstream_edges[::-1]
     
