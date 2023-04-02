@@ -235,7 +235,7 @@ class QueryModel(torch.nn.Module):
     
     def forward(self, node_feature: torch.Tensor, 
                 node_coord: torch.Tensor, 
-                batch: torch.Tensor):
+                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = self.get_gnn_features(node_feature=node_feature,
                                                                                                     node_coord=node_coord,
                                                                                                     batch=batch)
@@ -244,5 +244,5 @@ class QueryModel(torch.nn.Module):
         query_weight, query_feature = self._get_query(query_points=query_coord, query_batch=query_batch, gnn_features=gnn_features)
 
         # query_weight = scatter_softmax(src = query_weight, index=query_batch)
-        return query_weight, query_feature
+        return query_weight, query_feature, query_coord, query_batch
 
