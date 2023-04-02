@@ -117,7 +117,7 @@ class SeparableFCTP(torch.nn.Module):
     
     
     def forward(self, node_input: torch.Tensor, edge_attr: torch.Tensor, edge_scalars: Optional[torch.Tensor], 
-                batch: Optional[torch.Tensor] = None) -> torch.Tensor:
+                batch: Optional[torch.Tensor] = None) -> torch.Tensor: # Batch does nothing if you use EquivLayernormV2
         '''
             Depthwise TP: `node_input` TP `edge_attr`, with TP parametrized by 
             self.dtp_rad(`edge_scalars`).

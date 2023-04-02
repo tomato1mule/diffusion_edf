@@ -451,7 +451,7 @@ class EDF(torch.nn.Module):
     @torch.jit.export
     def get_gnn_features(self, node_feature: torch.Tensor, 
                          node_coord: torch.Tensor, 
-                         batch: torch.Tensor) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+                         batch: torch.Tensor) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]: # [(node_feature, node_coord, node_batch)]
         node_emb = self.enc(node_feature)
         outputs, edges = self.gnn(node_feature=node_emb,
                                   node_coord=node_coord,
