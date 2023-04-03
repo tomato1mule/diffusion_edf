@@ -99,7 +99,7 @@ class ScoreModel(torch.nn.Module):
         
         self.lin_vel_tp = SeparableFCTP(irreps_node_input = self.key_model.irreps_emb,
                                         irreps_edge_attr = self.query_model.irreps_emb, 
-                                        irreps_node_output = self.irreps_score, 
+                                        irreps_node_output = o3.Irreps("1x0e") + self.irreps_score,  # Append 1x0e to avoid torch jit error. TODO: Remove this
                                         fc_neurons = None, 
                                         use_activation = True, 
                                         #norm_layer = 'layer', 
@@ -108,7 +108,7 @@ class ScoreModel(torch.nn.Module):
         #self.lin_vel_proj = LinearRS(irreps_in = self.irreps_score, irreps_out = o3.Irreps("1x1e"), bias=False, rescale=False).to(device)
         self.ang_vel_tp = SeparableFCTP(irreps_node_input = self.key_model.irreps_emb,
                                         irreps_edge_attr = self.query_model.irreps_emb, 
-                                        irreps_node_output = self.irreps_score, 
+                                        irreps_node_output = o3.Irreps("1x0e") + self.irreps_score,  # Append 1x0e to avoid torch jit error. TODO: Remove this                     
                                         fc_neurons = None, 
                                         use_activation = True, 
                                         #norm_layer = 'layer', 
@@ -151,7 +151,7 @@ class ScoreModel(torch.nn.Module):
         N_D = query_feature.shape[-1]
 
         q, X = T[...,:4], T[...,4:] # (Nt,4), (Nt,3)
-        query_coord_transformed = quaternion_apply(q.unsqueeze(-2), query_coord) # (Nt, 1, 4) x (Nq, 3) -> (Nt, Nq, 3)
+        query_coord_transformed: torch.Tensor = quaternion_apply(q.unsqueeze(-2), query_coord) # (Nt, 1, 4) x (Nq, 3) -> (Nt, Nq, 3)
         query_coord_transformed = query_coord_transformed + X.unsqueeze(-2) # (Nt, Nq, 3) + (Nt, 1, 3) -> (Nt, Nq, 3)
         query_feature_transformed = self.transform_irreps(query_feature, q).contiguous().view(N_T*N_Q, N_D) # (Nq, D) x (Nt, 4) -> (Nt * Nq, D)
         batch_repeat = batch.expand(N_T,N_Q).contiguous().view(-1) # (N_T*N_Q,)
@@ -160,11 +160,14 @@ class ScoreModel(torch.nn.Module):
 
         lin_vel: torch.Tensor = self.lin_vel_tp(query_feature_transformed, key_feature, edge_scalars=None, batch=None) # batch does nothing unless you use batchnorm
         ang_spin: torch.Tensor = self.ang_vel_tp(query_feature_transformed, key_feature, edge_scalars=None, batch=None) # batch does nothing unless you use batchnorm
-        lin_vel = lin_vel.view(N_T, N_Q, self.n_irreps_score, 3).mean(dim=-2)    # (N_T, N_Q, 3)
-        ang_spin = ang_spin.view(N_T, N_Q, self.n_irreps_score, 3).mean(dim=-2) # (N_T, N_Q, 3)
+        
+        lin_vel, ang_spin = lin_vel[..., 1:], ang_spin[..., 1:]                      # Discard the placeholder 1x0e feature to avoid torch jit error. TODO: Remove this
 
-        qinv = quaternion_invert(q.unsqueeze(-2)) # (N_T, 1, 4)
-        qinv = qinv / qinv.norm(dim=-1, keepdim=True)
+        lin_vel = lin_vel.view(N_T, N_Q, self.n_irreps_score, 3).mean(dim=-2)    # (N_T, N_Q, 3), Project multiple nx1e -> 1x1e 
+        ang_spin = ang_spin.view(N_T, N_Q, self.n_irreps_score, 3).mean(dim=-2) # (N_T, N_Q, 3), Project multiple nx1e -> 1x1e 
+
+        qinv: torch.Tensor = quaternion_invert(q.unsqueeze(-2)) # (N_T, 1, 4)
+        qinv = qinv / torch.norm(qinv, dim=-1, keepdim=True)
         lin_vel = quaternion_apply(qinv, lin_vel) # (N_T, N_Q, 3)
         ang_spin = quaternion_apply(qinv, ang_spin) # (N_T, N_Q, 3)
         ang_orbital = torch.cross(query_coord.unsqueeze(0), lin_vel, dim=-1) # (N_T, N_Q, 3)
