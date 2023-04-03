@@ -368,6 +368,7 @@ class EDF(torch.nn.Module):
                  drop_path_rate: float = 0.0,
                  irreps_mlp_mid: int = 3,
                  deterministic: bool = False,
+                 detach_extractor: bool = False,
                  ):
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -399,7 +400,11 @@ class EDF(torch.nn.Module):
         for n in range(1, len(self.cutoff_radius)):
             if not self.cutoff_radius[n-1] < self.cutoff_radius[n]:
                 warnings.warn(f"cutoff_radius[{n}] ({self.cutoff_radius[n]}) is smaller than radius[{n-1}] ({self.cutoff_radius[n-1]})")
-        
+        self.irreps_mlp_mid = irreps_mlp_mid
+        self.attn_type = 'mlp'
+        self.alpha_drop = alpha_drop
+        self.proj_drop = proj_drop
+        self.drop_path_rate = drop_path_rate
 
         output_idx = []
         last_output_idx = 0
@@ -407,7 +412,6 @@ class EDF(torch.nn.Module):
             last_output_idx += n
             output_idx.append(last_output_idx-1)
         self.output_idx: Tuple[int] = tuple(output_idx)
-        
 
         self.enc = NodeEmbeddingNetwork(irreps_input=self.irreps_input, irreps_node_emb=self.irreps[0])
         self.gnn = EdfUnet(
@@ -419,34 +423,57 @@ class EDF(torch.nn.Module):
             pool_ratio = self.pool_ratio,
             n_layers = self.n_layers,
             deterministic = deterministic,
-            irreps_mlp_mid = irreps_mlp_mid,
-            alpha_drop=alpha_drop,
-            proj_drop=proj_drop,
-            drop_path_rate=drop_path_rate,
+            irreps_mlp_mid = self.irreps_mlp_mid,
+            alpha_drop=self.alpha_drop,
+            proj_drop=self.proj_drop,
+            drop_path_rate=self.drop_path_rate,
             pool_method = 'fps',
-            attn_type = 'mlp',
+            attn_type = self.attn_type,
             n_layers_mid = 2,
         )
 
 
         self.min_offset = 0.01 * self.cutoff_radius[0]
-        self.extractor = EdfExtractor(
-            irreps_inputs = self.gnn.irreps,
-            fc_neurons_inputs = self.gnn.fc_neurons,
-            irreps_emb = self.gnn.irreps[-1],
-            irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
-            irreps_head = self.gnn.irreps_head[-1],
-            num_heads = self.gnn.num_heads[-1],
-            fc_neurons = self.gnn.fc_neurons[-1],
-            n_layers = 1,
-            cutoffs = self.cutoff_radius,
-            offsets = [self.min_offset] + [max(self.min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
-            irreps_mlp_mid = irreps_mlp_mid,
-            attn_type='mlp',
-            alpha_drop=alpha_drop, 
-            proj_drop=proj_drop,
-            drop_path_rate=drop_path_rate
-        )
+        self.detach_extractor = detach_extractor
+
+        if self.detach_extractor:
+            self.extractor = None
+        else:
+            self.extractor = EdfExtractor(
+                irreps_inputs = self.gnn.irreps,
+                fc_neurons_inputs = self.gnn.fc_neurons,
+                irreps_emb = self.gnn.irreps[-1],
+                irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
+                irreps_head = self.gnn.irreps_head[-1],
+                num_heads = self.gnn.num_heads[-1],
+                fc_neurons = self.gnn.fc_neurons[-1],
+                n_layers = 1,
+                cutoffs = self.cutoff_radius,
+                offsets = [self.min_offset] + [max(self.min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
+                irreps_mlp_mid = self.irreps_mlp_mid,
+                attn_type=self.attn_type,
+                alpha_drop=self.alpha_drop, 
+                proj_drop=self.proj_drop,
+                drop_path_rate=self.drop_path_rate
+            )
+
+    @torch.jit.ignore
+    def get_extractor(self) -> EdfExtractor:
+        return EdfExtractor(irreps_inputs = self.gnn.irreps,
+                            fc_neurons_inputs = self.gnn.fc_neurons,
+                            irreps_emb = self.gnn.irreps[-1],
+                            irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
+                            irreps_head = self.gnn.irreps_head[-1],
+                            num_heads = self.gnn.num_heads[-1],
+                            fc_neurons = self.gnn.fc_neurons[-1],
+                            n_layers = 1,
+                            cutoffs = self.cutoff_radius,
+                            offsets = [self.min_offset] + [max(self.min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
+                            irreps_mlp_mid = self.irreps_mlp_mid,
+                            attn_type=self.attn_type,
+                            alpha_drop=self.alpha_drop, 
+                            proj_drop=self.proj_drop,
+                            drop_path_rate=self.drop_path_rate)
 
     @torch.jit.export
     def get_gnn_features(self, node_feature: torch.Tensor, 
@@ -462,6 +489,7 @@ class EDF(torch.nn.Module):
                 query_batch: torch.Tensor,
                 gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> torch.Tensor:
         
+        assert self.extractor is not None
         field_val = self.extractor(query_coord = query_points, 
                                    query_batch = query_batch,
                                    node_features = [output[0] for output in gnn_features],
