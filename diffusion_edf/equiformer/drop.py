@@ -30,7 +30,7 @@ def drop_path(x: torch.Tensor, drop_prob: float = 0., training: bool = False) ->
     output = x.div(keep_prob) * random_tensor
     return output
 
-@compile_mode('script')
+#@compile_mode('script')
 class DropPath(nn.Module):
     """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
     """
@@ -47,7 +47,7 @@ class DropPath(nn.Module):
     def extra_repr(self):
         return 'drop_prob={}'.format(self.drop_prob)
     
-@compile_mode('script')
+#@compile_mode('script')
 class GraphDropPath(nn.Module):
     '''
         Consider batch for graph data when dropping paths.
@@ -72,7 +72,7 @@ class GraphDropPath(nn.Module):
         return 'drop_prob={}'.format(self.drop_prob)
     
     
-@compile_mode('script')
+#@compile_mode('script')
 class EquivariantDropout(nn.Module):
     def __init__(self, irreps: o3.Irreps, drop_prob: float):
         super().__init__()
@@ -95,7 +95,7 @@ class EquivariantDropout(nn.Module):
         out = self.mul(x, mask)
         return out
     
-@compile_mode('script')
+#@compile_mode('script')
 class EquivariantScalarsDropout(nn.Module):
     def __init__(self, irreps: o3.Irreps, drop_prob: float):
         super(EquivariantScalarsDropout, self).__init__()

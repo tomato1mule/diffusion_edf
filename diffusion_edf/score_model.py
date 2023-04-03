@@ -28,7 +28,7 @@ from diffusion_edf.wigner import TransformFeatureQuaternion
 
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class ScoreModel(torch.nn.Module):
     def __init__(self, 
                  irreps_input: o3.Irreps,

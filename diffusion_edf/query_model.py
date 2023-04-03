@@ -24,7 +24,7 @@ from diffusion_edf.unet import EDF, EdfUnet
 
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class QueryModel(EDF):
     def __init__(self, 
                  irreps_input: o3.Irreps,

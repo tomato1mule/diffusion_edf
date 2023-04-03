@@ -16,7 +16,7 @@ from e3nn.math import perm
 
 from .fast_activation import Activation, Gate
 
-@compile_mode('script')
+#@compile_mode('script')
 class TensorProductRescale(torch.nn.Module):
     def __init__(self,
         irreps_in1: o3.Irreps, irreps_in2: o3.Irreps, irreps_out: o3.Irreps,
@@ -151,7 +151,7 @@ class TensorProductRescale(torch.nn.Module):
         out = self.forward_tp_rescale_bias(x, y, weight)
         return out
     
-@compile_mode('script')
+#@compile_mode('script')
 class FullyConnectedTensorProductRescale(TensorProductRescale):
     def __init__(self,
         irreps_in1: o3.Irreps, irreps_in2: o3.Irreps, irreps_out: o3.Irreps,
@@ -172,7 +172,7 @@ class FullyConnectedTensorProductRescale(TensorProductRescale):
                          internal_weights=internal_weights, shared_weights=shared_weights,
                          normalization=normalization)
         
-@compile_mode('script')
+#@compile_mode('script')
 class LinearRS(FullyConnectedTensorProductRescale):
     def __init__(self, irreps_in: o3.Irreps, irreps_out: o3.Irreps, bias: bool = True, rescale: bool = True):
         super().__init__(irreps_in, o3.Irreps('1x0e'), irreps_out, 
@@ -237,7 +237,7 @@ def irreps2gate(irreps: o3.Irreps) -> Tuple[o3.Irreps, o3.Irreps, o3.Irreps]:
     irreps_gates = o3.Irreps([(mul, ir) for mul, _ in irreps_gated]).simplify()
     return irreps_scalars, irreps_gates, irreps_gated
 
-@compile_mode('script')
+#@compile_mode('script')
 class FullyConnectedTensorProductRescaleSwishGate(FullyConnectedTensorProductRescale):
     def __init__(self, irreps_in1: o3.Irreps, 
                  irreps_in2: o3.Irreps, 

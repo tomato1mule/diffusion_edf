@@ -18,7 +18,7 @@ def multiply_irreps(irreps: Union[o3.Irreps, str], mult: int, strict: bool = Tru
 
     return output
 
-@compile_mode('script')
+#@compile_mode('script')
 class ParityInversionSh(torch.nn.Module):
     def __init__(self, irreps: o3.Irreps):
         super().__init__()

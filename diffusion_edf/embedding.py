@@ -4,7 +4,7 @@ from e3nn import o3
 
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 
-@compile_mode('script')
+#@compile_mode('script')
 class NodeEmbeddingNetwork(torch.nn.Module):
     def __init__(self, irreps_input: o3.Irreps, irreps_node_emb: o3.Irreps, bias: bool = True):
         

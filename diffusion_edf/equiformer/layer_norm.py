@@ -60,7 +60,7 @@ class EquivariantLayerNorm(torch.nn.Module):
         return '{}({}, eps={})'.format(self.__class__.__name__, 
             self.irreps_in, self.eps)
     
-@compile_mode('script')
+#@compile_mode('script')
 class EquivariantLayerNormV2(nn.Module):
     
     def __init__(self, irreps: Irreps, eps: float = 1e-5, affine: bool = True, normalization: str = 'component'):

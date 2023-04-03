@@ -15,7 +15,7 @@ from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class FeedForwardNetwork(torch.nn.Module):
     '''
         Use two (FCTP + Gate)
@@ -59,7 +59,7 @@ class FeedForwardNetwork(torch.nn.Module):
 
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class EquiformerBlock(torch.nn.Module):  
     def __init__(self,
         irreps_src: o3.Irreps, 
@@ -165,7 +165,7 @@ class EquiformerBlock(torch.nn.Module):
 
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class EdfExtractor(torch.nn.Module):  
     def __init__(self,
         irreps_inputs: List[o3.Irreps], 

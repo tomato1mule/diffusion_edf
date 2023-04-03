@@ -27,7 +27,7 @@ class SmoothLeakyReLU(torch.nn.Module):
         return 'negative_slope={}'.format(self.alpha)
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class Activation(torch.nn.Module):
     r"""Scalar activation function. 
     Unlike e3nn.nn.Activation, this module directly apply activation when irreps is type-0.
@@ -152,7 +152,7 @@ class Activation(torch.nn.Module):
             return torch.zeros_like(features)
         
     
-@compile_mode('script')
+#@compile_mode('script')
 class Gate(torch.nn.Module):
     '''
         1. Use `narrow` to split tensor.

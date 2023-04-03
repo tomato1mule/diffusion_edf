@@ -11,7 +11,7 @@ from diffusion_edf.equiformer.graph_attention_transformer import sort_irreps_eve
 from diffusion_edf.equiformer.drop import EquivariantDropout
 from diffusion_edf.equiformer.fast_activation import Activation, Gate
 
-@compile_mode('script')
+#@compile_mode('script')
 class GraphAttentionMLP(torch.nn.Module):
     def __init__(self,
         irreps_emb: o3.Irreps,

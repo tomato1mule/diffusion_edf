@@ -9,7 +9,7 @@ from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 from diffusion_edf.equiformer.layer_norm import EquivariantLayerNormV2
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class ProjectIfMismatch(torch.nn.Module):
     def __init__(self, irreps_in: o3.Irreps, irreps_out: o3.Irreps):
         super().__init__()

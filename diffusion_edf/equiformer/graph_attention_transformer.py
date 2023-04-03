@@ -56,7 +56,7 @@ def get_mul_0(irreps: o3.Irreps) -> int:
     return mul_0
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class SeparableFCTP(torch.nn.Module):
     '''
         Use separable FCTP for spatial convolution.
@@ -135,7 +135,7 @@ class SeparableFCTP(torch.nn.Module):
         return out
         
 
-@compile_mode('script')
+#@compile_mode('script')
 class Vec2AttnHeads(torch.nn.Module):
     '''
         Reshape vectors of shape [N, irreps_mid] to vectors of shape
@@ -173,7 +173,7 @@ class Vec2AttnHeads(torch.nn.Module):
             self.__class__.__name__, self.irreps_head, self.num_heads)
     
     
-@compile_mode('script')
+#@compile_mode('script')
 class AttnHeads2Vec(torch.nn.Module):
     '''
         Convert vectors of shape [N, num_heads, irreps_head] into
@@ -288,7 +288,7 @@ class AttnHeads2Vec(torch.nn.Module):
 #             self.irreps_1, self.irreps_2)
 
         
-@compile_mode('script')
+#@compile_mode('script')
 class GraphAttentionMLP(torch.nn.Module):
     '''
         1. Message = Alpha * Value
@@ -419,7 +419,7 @@ class GraphAttentionMLP(torch.nn.Module):
         return output_str
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class GraphAttentionLinear(torch.nn.Module):
     '''
         1. Message = Alpha * Value
@@ -541,7 +541,7 @@ class GraphAttentionLinear(torch.nn.Module):
 
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class FeedForwardNetwork(torch.nn.Module):
     '''
         Use two (FCTP + Gate)
@@ -580,7 +580,7 @@ class FeedForwardNetwork(torch.nn.Module):
         return node_output
     
     
-@compile_mode('script')
+#@compile_mode('script')
 class TransBlock(torch.nn.Module):
     '''
         1. Layer Norm 1 -> GraphAttention -> Layer Norm 2 -> FeedForwardNetwork
@@ -716,7 +716,7 @@ class ScaledScatter(torch.nn.Module):
         return 'avg_aggregate_num={}'.format(self.avg_aggregate_num)
     
 
-@compile_mode('script')
+#@compile_mode('script')
 class EdgeDegreeEmbeddingNetwork(torch.nn.Module):
     def __init__(self, irreps_node_embedding: o3.Irreps, irreps_edge_attr: o3.Irreps, fc_neurons: Optional[List[int]], 
                  avg_aggregate_num: float,

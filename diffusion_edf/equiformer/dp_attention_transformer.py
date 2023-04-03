@@ -41,7 +41,7 @@ _AVG_NUM_NODES = 18.03065905448718
 _AVG_DEGREE = 15.57930850982666
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class ScaleFactor(torch.nn.Module):
     def __init__(self, irreps, normalization='component'):
         super().__init__()
@@ -62,7 +62,7 @@ class ScaleFactor(torch.nn.Module):
         return out
         
 
-@compile_mode('script')
+#@compile_mode('script')
 class DotProductAttention(torch.nn.Module):
     def __init__(self,
         irreps_node_input, irreps_node_attr,
@@ -159,7 +159,7 @@ class DotProductAttention(torch.nn.Module):
         return 'rescale_degree={}'.format(self.rescale_degree)
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class DPTransBlock(torch.nn.Module):
     '''
         1. Layer Norm 1 -> DotProductAttention -> Layer Norm 2 -> FeedForwardNetwork
@@ -410,7 +410,7 @@ class DotProductAttentionTransformer(torch.nn.Module):
         return outputs
 
 
-@register_model
+#@register_model
 def dot_product_attention_transformer_l2(irreps_in, radius, num_basis=128, 
     atomref=None, task_mean=None, task_std=None, **kwargs):
     model = DotProductAttentionTransformer(

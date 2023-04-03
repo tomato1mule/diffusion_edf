@@ -13,7 +13,7 @@ from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 from diffusion_edf.utils import multiply_irreps, ParityInversionSh
 from diffusion_edf.skip import ProjectIfMismatch
 
-@compile_mode('script')
+#@compile_mode('script')
 class EdfUnet(torch.nn.Module):  
     def __init__(self,
         irreps: List[o3.Irreps],
@@ -349,7 +349,7 @@ class EdfUnet(torch.nn.Module):
 
 
 
-@compile_mode('script')
+#@compile_mode('script')
 class EDF(torch.nn.Module):
     def __init__(self, 
                  irreps_input: o3.Irreps,
