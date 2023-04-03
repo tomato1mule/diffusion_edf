@@ -148,12 +148,13 @@ class ScoreModel(torch.nn.Module):
 
         N_T = len(T)
         N_Q = len(query_feature)
+        N_D = query_feature.shape[-1]
 
         q, X = T[...,:4], T[...,4:] # (Nt,4), (Nt,3)
         query_coord_transformed = quaternion_apply(q.unsqueeze(-2), query_coord) # (Nt, 1, 4) x (Nq, 3) -> (Nt, Nq, 3)
         query_coord_transformed = query_coord_transformed + X.unsqueeze(-2) # (Nt, Nq, 3) + (Nt, 1, 3) -> (Nt, Nq, 3)
-        query_feature_transformed = self.transform_irreps(query_feature, q).contiguous().view(N_T*N_Q,-1) # (Nq, D) x (Nt, 4) -> (Nt * Nq, D)
-        batch_repeat = batch.expand(N_T,N_Q).contiguous().view(-1)
+        query_feature_transformed = self.transform_irreps(query_feature, q).contiguous().view(N_T*N_Q, N_D) # (Nq, D) x (Nt, 4) -> (Nt * Nq, D)
+        batch_repeat = batch.expand(N_T,N_Q).contiguous().view(-1) # (N_T*N_Q,)
 
         key_feature: torch.Tensor = self._get_key(query_points=query_coord_transformed.view(N_T * N_Q ,3), query_batch=batch_repeat, gnn_features=key_gnn_features)# (N_T * N_Q, N_D)
 
