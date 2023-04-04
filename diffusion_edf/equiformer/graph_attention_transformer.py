@@ -9,7 +9,7 @@ from e3nn import o3
 from e3nn.util.jit import compile_mode
 from e3nn.nn.models.v2106.gate_points_message_passing import tp_path_exists
 
-import torch_geometric
+# import torch_geometric
 import math
 
 from .registry import register_model

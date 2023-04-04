@@ -75,7 +75,9 @@ class EquiformerBlock(torch.nn.Module):
         proj_drop: float = 0.1,
         drop_path_rate: float = 0.0,
         src_bias: bool = False,
-        dst_bias: bool = True):
+        dst_bias: bool = True,
+        debug: bool = False):
+        self.debug = debug
         
         super().__init__()
         self.irreps_src: o3.Irreps = o3.Irreps(irreps_src)
@@ -110,7 +112,8 @@ class EquiformerBlock(torch.nn.Module):
                                         irreps_head = self.irreps_head,
                                         num_heads=self.num_heads, 
                                         alpha_drop=alpha_drop, 
-                                        proj_drop=proj_drop)
+                                        proj_drop=proj_drop,
+                                        debug=self.debug)
         elif self.attn_type == 'linear':
             raise NotImplementedError
         elif self.attn_type == 'dp':

@@ -4,14 +4,12 @@ import torch
 from e3nn.o3._wigner import _Jd
 from e3nn.math._linalg import direct_sum
 from e3nn.util.jit import compile_mode
-from pytorch3d import transforms
+from diffusion_edf.quaternion_utils import matrix_to_euler_angles, quaternion_to_matrix, standardize_quaternion
 
-@torch.jit.script
 def quat_to_angle_fast(q: torch.Tensor) -> torch.Tensor: # >10 times faster than e3nn's quaternion_to_angle function
-    ang = transforms.matrix_to_euler_angles(transforms.quaternion_to_matrix(q), "YXY").T
+    ang = matrix_to_euler_angles(quaternion_to_matrix(q), "YXY").T
     return ang
 
-@torch.jit.script
 def _z_rot_mat(angle: torch.Tensor, l: int) -> torch.Tensor:
     r"""
     Create the matrix representation of a z-axis rotation by the given angle,
@@ -35,7 +33,6 @@ def _z_rot_mat(angle: torch.Tensor, l: int) -> torch.Tensor:
     M[:, inds, inds] = torch.cos(frequencies * angle[:, None])
     return M
 
-@torch.jit.script
 def wigner_D(l: int, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor, J: torch.Tensor) -> torch.Tensor:
     r"""Wigner D matrix representation of :math:`SO(3)`.
     It satisfies the following properties:
@@ -75,7 +72,6 @@ def wigner_D(l: int, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tenso
     Xc = _z_rot_mat(gamma, l)
     return Xa @ J @ Xb @ J @ Xc
 
-@torch.jit.script
 def D_from_angles_(ls: List[int], muls: List[int], Js: List[torch.Tensor], alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor) -> List[torch.Tensor]:
     Ds = []
     for l, mul, J in zip(ls, muls, Js):
@@ -95,7 +91,6 @@ def D_from_angles(irreps, Js, alpha, beta, gamma):
     return direct_sum(*Ds)
     #return torch.block_diag(*Ds)
 
-@torch.jit.script
 def D_from_quaternion_(ls: List[int], muls: List[int], Js: List[torch.Tensor], q: torch.Tensor) -> List[torch.Tensor]:
     angle = quat_to_angle_fast(q)
     alpha, beta, gamma = angle[0], angle[1], angle[2]
@@ -113,7 +108,6 @@ def D_from_quaternion(irreps, Js, q):
     #return torch.block_diag(*Ds)
 
 
-@torch.jit.script
 def transform_feature_slice(feature: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor, l: int, J: torch.Tensor) -> torch.Tensor:
     assert feature.dim() == 2
     feature = feature.reshape(feature.shape[-2], -1, 2*l+1) # (N_query, mul*(2l+1)) -> (N_query, mul, 2l+1)
@@ -122,7 +116,6 @@ def transform_feature_slice(feature: torch.Tensor, alpha: torch.Tensor, beta: to
     feature_transformed = feature_transformed.reshape(feature_transformed.shape[0], feature_transformed.shape[1], -1) # (Nt, N_query, mul*(2l+1))
     return feature_transformed
 
-@torch.jit.script
 def transform_feature_(ls: List[int], feature_slices: List[torch.Tensor], Js: List[torch.Tensor], alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
     feature_transformed = []
     for l, feature_slice, J in zip(ls, feature_slices, Js):
@@ -140,9 +133,8 @@ def transform_feature(irreps, feature, alpha, beta, gamma, Js):
 
     return transform_feature_(ls, feature_slices, Js, alpha, beta, gamma)
 
-@torch.jit.script
 def transform_feature_quat_(ls: List[int], feature_slices: List[torch.Tensor], Js: List[torch.Tensor], q: torch.Tensor) -> torch.Tensor:
-    q = transforms.standardize_quaternion(q / torch.norm(q, dim=-1, keepdim=True))
+    q = standardize_quaternion(q / torch.norm(q, dim=-1, keepdim=True))
     angle = quat_to_angle_fast(q)
     alpha, beta, gamma = angle[0], angle[1], angle[2]
     return transform_feature_(ls=ls, feature_slices=feature_slices, Js=Js, alpha=alpha, beta=beta, gamma=gamma)

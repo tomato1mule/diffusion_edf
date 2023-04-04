@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch_geometric.nn import global_mean_pool, global_max_pool
+# from torch_geometric.nn import global_mean_pool, global_max_pool
 
 from e3nn.o3 import Irreps
 

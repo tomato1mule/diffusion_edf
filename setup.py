@@ -20,12 +20,11 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: Ubuntu 22.04",
     ],
+    packages=['diffusion_edf'],
     python_requires="<3.9",
     install_requires=[
-        'torch==1.13.0',
-        'torchvision==0.14.0',
-        'torch-geometric==2.2.0',
-        'pytorch3d==0.7.2',
+        'torch==1.12.1',
+        'torchvision==0.13.1',
         'e3nn==0.4.4',
         'open3d==0.16.0',
         'pyyaml',        # 6.0

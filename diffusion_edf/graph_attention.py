@@ -3,8 +3,7 @@ from typing import List, Optional, Union, Tuple
 import torch
 from e3nn import o3
 from e3nn.util.jit import compile_mode
-import torch_geometric
-from torch_scatter import scatter
+from torch_scatter import scatter, scatter_softmax, scatter_logsumexp
 
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 from diffusion_edf.equiformer.graph_attention_transformer import sort_irreps_even_first, get_mul_0, Vec2AttnHeads, AttnHeads2Vec, SmoothLeakyReLU, SeparableFCTP
@@ -21,7 +20,9 @@ class GraphAttentionMLP(torch.nn.Module):
         irreps_head: o3.Irreps, 
         num_heads: int, 
         alpha_drop: float = 0.1, 
-        proj_drop: float = 0.1):
+        proj_drop: float = 0.1,
+        debug: bool = False):
+        self.debug = debug
         
         super().__init__()
         self.irreps_emb = o3.Irreps(irreps_emb)
@@ -64,7 +65,7 @@ class GraphAttentionMLP(torch.nn.Module):
         
         self.mul_alpha_head = mul_alpha_head
         self.alpha_dot = torch.nn.Parameter(torch.randn(1, num_heads, mul_alpha_head))
-        torch_geometric.nn.inits.glorot(self.alpha_dot) # Following GATv2
+        torch.nn.init.xavier_uniform_(self.alpha_dot) # Following GATv2
         
         self.alpha_dropout = None
         if alpha_drop != 0.0:
@@ -86,21 +87,27 @@ class GraphAttentionMLP(torch.nn.Module):
       
         weight: torch.Tensor = self.sep_act.dtp_rad(edge_scalars)
         message: torch.Tensor = self.sep_act.dtp(message, edge_attr, weight)
-        alpha: torch.Tensor = self.sep_alpha(message)                        # f_ij^(L=0) part  ||  Linear: irreps_in -> 'mul_alpha x 0e'
-        alpha: torch.Tensor = self.vec2heads_alpha(alpha)                    # reshape (N, Heads*head_dim) -> (N, Heads, head_dim)
+        log_alpha = self.sep_alpha(message)                        # f_ij^(L=0) part  ||  Linear: irreps_in -> 'mul_alpha x 0e'
+        log_alpha = self.vec2heads_alpha(log_alpha)                    # reshape (N, Heads*head_dim) -> (N, Heads, head_dim)
         value: torch.Tensor = self.sep_act.lin(message)                      # f_ij^(L>=0) part (before activation)
         value: torch.Tensor = self.sep_act.gate(value)                       # f_ij^(L>=0) part (after activation)
         value: torch.Tensor = self.sep_value(value, edge_attr=edge_attr, edge_scalars=edge_scalars) # DTP + Linear for f_ij^(L>=0) part
         value: torch.Tensor = self.vec2heads_value(value)                    # reshape (N, Heads*head_dim) -> (N, Heads, head_dim)
-        
         # inner product
-        alpha: torch.Tensor = self.alpha_act(alpha)          # Leaky ReLU
-        alpha: torch.Tensor = torch.einsum('ehk, hk -> eh', alpha, self.alpha_dot.squeeze(0)) # Linear layer: (N_edge, N_head mul_alpha_head) -> (N_edge, N_head)
-        alpha: torch.Tensor = torch_geometric.utils.softmax(alpha, edge_dst, dim=-2)          # Softmax
-        alpha: torch.Tensor = alpha.unsqueeze(-1)                              # (N_edge, N_head)
+        log_alpha = self.alpha_act(log_alpha)          # Leaky ReLU
+        log_alpha = torch.einsum('ehk, hk -> eh', log_alpha, self.alpha_dot.squeeze(0)) # Linear layer: (N_edge, N_head mul_alpha_head) -> (N_edge, N_head)
+        
+        # alpha: torch.Tensor = scatter_softmax(log_alpha, edge_dst, dim=-2, dim_size=n_nodes_dst)          # Softmax
+        if False: # torch.are_deterministic_algorithms_enabled():
+            log_Z = scatter_logsumexp(log_alpha, edge_dst, dim=-2, dim_size = n_nodes_dst) # (NodeNum,1)
+        else:
+            log_Z = scatter_logsumexp(log_alpha, edge_dst, dim=-2, dim_size = n_nodes_dst) # (NodeNum,1)
+        alpha = torch.exp(log_alpha - log_Z[edge_dst])
+
+        alpha: torch.Tensor = alpha.unsqueeze(-1)                              # (N_edge, N_head, 1)
         if self.alpha_dropout is not None:
             alpha = self.alpha_dropout(alpha)
-        attn: torch.Tensor = value * alpha
+        attn: torch.Tensor = value * alpha                                     # (N_edge, N_head, head_dim)
         attn: torch.Tensor = scatter(attn, index=edge_dst, dim=0, dim_size=n_nodes_dst)
         attn: torch.Tensor = self.heads2vec(attn)
             

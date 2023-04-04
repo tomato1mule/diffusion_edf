@@ -6,7 +6,6 @@ import numpy as np
 import torch
 from torch_cluster import fps, radius_graph
 from torch_scatter import scatter_softmax
-from pytorch3d.transforms import quaternion_apply, quaternion_invert
 from e3nn import o3
 from e3nn.util.jit import compile_mode
 
@@ -15,7 +14,7 @@ from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
 
 from diffusion_edf.embedding import NodeEmbeddingNetwork
-from diffusion_edf.block import EquiformerBlock, EdfExtractor
+from diffusion_edf.block import EquiformerBlock
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 from diffusion_edf.utils import multiply_irreps, ParityInversionSh
@@ -23,6 +22,7 @@ from diffusion_edf.skip import ProjectIfMismatch
 from diffusion_edf.unet import EdfUnet, EDF
 from diffusion_edf.query_model import QueryModel
 from diffusion_edf.wigner import TransformFeatureQuaternion
+from diffusion_edf.quaternion_utils import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion, quaternion_invert, normalize_quaternion
 
 
 

@@ -4,7 +4,7 @@ import warnings
 
 import torch
 from e3nn import o3
-from e3nn.util.jit import compile_mode
+from e3nn.util.jit import compile_mode, script
 from einops import rearrange
 
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
@@ -16,7 +16,7 @@ from diffusion_edf.utils import multiply_irreps, ParityInversionSh
 from diffusion_edf.skip import ProjectIfMismatch
 from diffusion_edf.extractor import EdfExtractorLight
 
-#@compile_mode('script')
+
 class EdfUnet(torch.nn.Module):  
     def __init__(self,
         irreps: List[o3.Irreps],
@@ -400,7 +400,6 @@ class EdfUnet(torch.nn.Module):
 
 
 
-#@compile_mode('script')
 class EDF(torch.nn.Module):
     def __init__(self, 
                  irreps_input: o3.Irreps,
@@ -505,7 +504,6 @@ class EDF(torch.nn.Module):
             self.extractor = torch.jit.script(self.extractor)
 
 
-    @torch.jit.ignore
     def get_extractor(self) -> EdfExtractorLight:
         extr = EdfExtractorLight(irreps_inputs = self.gnn.irreps,
                             irreps_emb = self.gnn.irreps[-1],
@@ -523,7 +521,6 @@ class EDF(torch.nn.Module):
                             drop_path_rate=self.drop_path_rate)
         return extr
 
-    @torch.jit.export
     def get_gnn_features(self, node_feature: torch.Tensor, 
                          node_coord: torch.Tensor, 
                          batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: 
