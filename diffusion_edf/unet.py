@@ -9,11 +9,12 @@ from einops import rearrange
 
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 from diffusion_edf.embedding import NodeEmbeddingNetwork
-from diffusion_edf.block import EquiformerBlock, EdfExtractor
+from diffusion_edf.block import EquiformerBlock
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 from diffusion_edf.utils import multiply_irreps, ParityInversionSh
 from diffusion_edf.skip import ProjectIfMismatch
+from diffusion_edf.extractor import EdfExtractorLight
 
 #@compile_mode('script')
 class EdfUnet(torch.nn.Module):  
@@ -484,9 +485,8 @@ class EDF(torch.nn.Module):
         if self.detach_extractor:
             self.extractor = None
         else:
-            self.extractor = EdfExtractor(
+            self.extractor = EdfExtractorLight(
                 irreps_inputs = [self.gnn.irreps[-1] for _ in range(n_scales)],
-                fc_neurons_inputs = self.gnn.fc_neurons,
                 irreps_emb = self.gnn.irreps[-1],
                 irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
                 irreps_head = self.gnn.irreps_head[-1],
@@ -506,9 +506,8 @@ class EDF(torch.nn.Module):
 
 
     @torch.jit.ignore
-    def get_extractor(self) -> EdfExtractor:
-        extr = EdfExtractor(irreps_inputs = self.gnn.irreps,
-                            fc_neurons_inputs = self.gnn.fc_neurons,
+    def get_extractor(self) -> EdfExtractorLight:
+        extr = EdfExtractorLight(irreps_inputs = self.gnn.irreps,
                             irreps_emb = self.gnn.irreps[-1],
                             irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
                             irreps_head = self.gnn.irreps_head[-1],
