@@ -6,6 +6,7 @@ import torch
 from e3nn import o3
 from e3nn.util.jit import compile_mode
 
+from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 from diffusion_edf.embedding import NodeEmbeddingNetwork
 from diffusion_edf.block import EquiformerBlock, EdfExtractor
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
@@ -209,13 +210,24 @@ class EdfUnet(torch.nn.Module):
 
 
             self.up_blocks.append(block)
-            
 
+
+        output_idx = [0, 1]
+        for n_layers in self.n_layers[:-1]:
+            output_idx.append(output_idx[-1] + n_layers)
+        self.output_idx: Tuple[int] = tuple(output_idx)
+
+
+
+        self.project_outputs = torch.nn.ModuleList()
+        for n in range(self.n_scales + 1):
+            self.project_outputs.append(ProjectIfMismatch(irreps_in=self.irreps[max(0,n-1)],
+                                                          irreps_out=self.irreps[-1]))
 
 
     def forward(self, node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
-                batch: torch.Tensor) -> Tuple[List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]], List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]]:
+                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
         ########### Downstream Block #############
         downstream_outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
@@ -339,9 +351,46 @@ class EdfUnet(torch.nn.Module):
             batch = batch_dst
             upstream_outputs.append((node_feature, node_coord, batch))
             upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
-        # print([out[0].std().item() for out in upstream_outputs[::-1]])
+
+        upstream_outputs, upstream_edges = upstream_outputs[::-1], upstream_edges[::-1]
+        upstream_outputs, upstream_edges = [upstream_outputs[n] for n in self.output_idx], [upstream_edges[n] for n in self.output_idx]
         
-        return upstream_outputs[::-1], upstream_edges[::-1]
+        node_features: List[torch.Tensor] = []
+        node_coords: List[torch.Tensor] = []
+        batchs: List[torch.Tensor] = []
+        edge_srcs: List[torch.Tensor] = []
+        edge_dsts: List[torch.Tensor] = []
+        scales: List[torch.Tensor] = []
+
+        N_nodes = 0
+        for scale, projection in enumerate(self.project_outputs):
+            
+            (node_feature, node_coord, batch) = upstream_outputs[scale]
+            (edge_src, edge_dst, _, _) = upstream_edges[scale]
+
+            N_nodes_this_scale = len(node_feature)
+            assert N_nodes_this_scale == len(node_feature) == len(node_coord) == len(batch)
+
+            node_features.append(projection(node_feature))
+            node_coords.append(node_coord)
+            batchs.append(batch)
+            scales.append(torch.empty_like(batch).fill_(scale))
+
+            edge_dst = edge_dst + N_nodes
+            edge_dsts.append(edge_dst)
+            N_nodes = N_nodes + N_nodes_this_scale
+            edge_src = edge_src + N_nodes    
+            edge_srcs.append(edge_src)
+
+
+        node_feature = torch.cat(node_features, dim=-2)
+        node_coord = torch.cat(node_coords, dim=-2)
+        batch = torch.cat(batchs, dim=-1)
+        edge_src = torch.cat(edge_srcs, dim=-1)
+        edge_dst = torch.cat(edge_dsts, dim=-1)
+        scale = torch.cat(scales, dim=-1)
+        
+        return node_feature, node_coord, batch, scale, edge_src, edge_dst
     
 
 
@@ -406,12 +455,6 @@ class EDF(torch.nn.Module):
         self.proj_drop = proj_drop
         self.drop_path_rate = drop_path_rate
 
-        output_idx = []
-        last_output_idx = 0
-        for n in self.n_layers:
-            last_output_idx += n
-            output_idx.append(last_output_idx-1)
-        self.output_idx: Tuple[int] = tuple(output_idx)
 
         self.enc = NodeEmbeddingNetwork(irreps_input=self.irreps_input, irreps_node_emb=self.irreps[0])
         self.gnn = EdfUnet(
@@ -478,12 +521,12 @@ class EDF(torch.nn.Module):
     @torch.jit.export
     def get_gnn_features(self, node_feature: torch.Tensor, 
                          node_coord: torch.Tensor, 
-                         batch: torch.Tensor) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]: # [(node_feature, node_coord, node_batch)]
+                         batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: 
         node_emb = self.enc(node_feature)
-        outputs, edges = self.gnn(node_feature=node_emb,
-                                  node_coord=node_coord,
-                                  batch=batch)
-        return [outputs[n] for n in self.output_idx]
+        node_feature, node_coord, batch, scale, edge_src, edge_dst = self.gnn(node_feature=node_emb,
+                                                                              node_coord=node_coord,
+                                                                              batch=batch)
+        return node_feature, node_coord, batch, scale, edge_src, edge_dst
 
     def forward(self, query_points: torch.Tensor,
                 query_batch: torch.Tensor,
