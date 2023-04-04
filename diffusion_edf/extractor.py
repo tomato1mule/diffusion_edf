@@ -1,4 +1,5 @@
 from typing import List, Optional, Union, Tuple
+import warnings
 import math
 
 import torch
@@ -238,6 +239,8 @@ class EdfExtractorLight(torch.nn.Module):
                                         edge_dst = edge_dsts,
                                         edge_attr = edge_attrs,
                                         edge_scalars = edge_scalars)
+        else:
+            warnings.warn("No query point has neighborhood!")
         
         info = (edge_srcs.detach(), edge_dsts.detach())
         
