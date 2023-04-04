@@ -229,13 +229,15 @@ class EdfExtractorLight(torch.nn.Module):
 
         edge_attrs = self.spherical_harmonics(edge_vecs)
 
-        node_feature_dst = self.gnn(node_input_src = node_feature,
-                                    node_input_dst = torch.zeros(Ns * Nq, self.emb_dim, device=node_feature.device, dtype=node_feature.dtype),
-                                    batch_dst = query_batch_n_scale.view(-1),
-                                    edge_src = edge_srcs,
-                                    edge_dst = edge_dsts,
-                                    edge_attr = edge_attrs,
-                                    edge_scalars = edge_scalars)
+        node_feature_dst = torch.zeros(Ns * Nq, self.emb_dim, device=node_feature.device, dtype=node_feature.dtype)
+        if len(edge_srcs) > 0:
+            node_feature_dst = self.gnn(node_input_src = node_feature,
+                                        node_input_dst = node_feature_dst,
+                                        batch_dst = query_batch_n_scale.view(-1),
+                                        edge_src = edge_srcs,
+                                        edge_dst = edge_dsts,
+                                        edge_attr = edge_attrs,
+                                        edge_scalars = edge_scalars)
         
         info = (edge_srcs.detach(), edge_dsts.detach())
         
