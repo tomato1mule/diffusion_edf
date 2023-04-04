@@ -5,6 +5,7 @@ import warnings
 import torch
 from e3nn import o3
 from e3nn.util.jit import compile_mode
+from einops import rearrange
 
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 from diffusion_edf.embedding import NodeEmbeddingNetwork
@@ -418,6 +419,7 @@ class EDF(torch.nn.Module):
                  irreps_mlp_mid: int = 3,
                  deterministic: bool = False,
                  detach_extractor: bool = False,
+                 compile_head: bool = False,
                  ):
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -483,7 +485,7 @@ class EDF(torch.nn.Module):
             self.extractor = None
         else:
             self.extractor = EdfExtractor(
-                irreps_inputs = self.gnn.irreps,
+                irreps_inputs = [self.gnn.irreps[-1] for _ in range(n_scales)],
                 fc_neurons_inputs = self.gnn.fc_neurons,
                 irreps_emb = self.gnn.irreps[-1],
                 irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
@@ -499,10 +501,13 @@ class EDF(torch.nn.Module):
                 proj_drop=self.proj_drop,
                 drop_path_rate=self.drop_path_rate
             )
+        if compile_head and not self.detach_extractor:
+            self.extractor = torch.jit.script(self.extractor)
+
 
     @torch.jit.ignore
     def get_extractor(self) -> EdfExtractor:
-        return EdfExtractor(irreps_inputs = self.gnn.irreps,
+        extr = EdfExtractor(irreps_inputs = self.gnn.irreps,
                             fc_neurons_inputs = self.gnn.fc_neurons,
                             irreps_emb = self.gnn.irreps[-1],
                             irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
@@ -517,6 +522,7 @@ class EDF(torch.nn.Module):
                             alpha_drop=self.alpha_drop, 
                             proj_drop=self.proj_drop,
                             drop_path_rate=self.drop_path_rate)
+        return extr
 
     @torch.jit.export
     def get_gnn_features(self, node_feature: torch.Tensor, 
@@ -528,15 +534,25 @@ class EDF(torch.nn.Module):
                                                                               batch=batch)
         return node_feature, node_coord, batch, scale, edge_src, edge_dst
 
-    def forward(self, query_points: torch.Tensor,
+    def forward(self, query_coord: torch.Tensor,
                 query_batch: torch.Tensor,
-                gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> torch.Tensor:
+                gnn_outputs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) -> torch.Tensor:
         
+        assert query_coord.ndim == 2 and query_coord.shape[-1] == 3 and query_batch.ndim == 1
+        Nq = len(query_coord)
+        query_coord = query_coord.expand(self.n_scales, Nq, 3) # (Ns, Nq, 3)
+        query_scale = torch.arange(self.n_scales, dtype=query_batch.dtype, device=query_batch.device)
+        query_batch_n_scale = query_batch * query_scale.unsqueeze(-1) + query_scale.unsqueeze(-1) # (Ns, Nq)
+
+        node_feature, node_coord, batch, scale, edge_src, edge_dst = gnn_outputs
+        node_batch_n_scale = batch * scale + scale
+
+
         assert self.extractor is not None
-        field_val = self.extractor(query_coord = query_points, 
-                                   query_batch = query_batch,
-                                   node_features = [output[0] for output in gnn_features],
-                                   node_coords = [output[1] for output in gnn_features],
-                                   node_batches = [output[2] for output in gnn_features])
+        field_val = self.extractor(query_coord = query_coord, 
+                                   query_batch_n_scale = query_batch_n_scale,
+                                   node_feature = node_feature,
+                                   node_coord = node_coord,
+                                   node_batch_n_scale = node_batch_n_scale)
         
         return field_val
