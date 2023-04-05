@@ -23,8 +23,8 @@ setup(
     packages=['diffusion_edf'],
     python_requires="<3.9",
     install_requires=[
-        'torch==1.12.1',
-        'torchvision==0.13.1',
+        'torch',
+        'torchvision',
         'e3nn==0.4.4',
         'open3d==0.16.0',
         'pyyaml',        # 6.0
