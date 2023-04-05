@@ -91,33 +91,38 @@ class QueryModel(EDF):
         self.weight_linear2 = LinearRS(irreps_in = self.pre_weight_irreps, irreps_out = o3.Irreps("1x0e"), bias=True, rescale=True)        
 
     def _extract_weight_logits(self, query_coord: torch.Tensor,
-                               query_batch_n_scale: torch.Tensor,
+                               query_batch: torch.Tensor,
                                node_feature: torch.Tensor,
                                node_coord: torch.Tensor,
-                               node_batch_n_scale: torch.Tensor) -> torch.Tensor:
+                               node_batch: torch.Tensor,
+                               node_scale_slice: List[int],) -> torch.Tensor:
         
         field_val, (edge_src, edge_dst) = self.weight_field(query_coord = query_coord, 
-                                                            query_batch_n_scale = query_batch_n_scale,
+                                                            query_batch = query_batch,
                                                             node_feature = node_feature,
                                                             node_coord = node_coord,
-                                                            node_batch_n_scale = node_batch_n_scale)
+                                                            node_batch = node_batch,
+                                                            node_scale_slice = node_scale_slice)
         field_val = self.weight_linear1(field_val)
         field_val = self.weight_layernorm(field_val)
         field_val = self.weight_linear2(field_val)
         
         return field_val.squeeze(-1)
     
-    def _get_init_query_pos(self, node_coord: torch.Tensor, node_batch_n_scale: torch.Tensor, only_from_top_scale: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _get_init_query_pos(self, node_coord: torch.Tensor, node_batch: torch.Tensor, node_scale_slice: List[int], only_from_top_scale: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
         if only_from_top_scale:
-            top_scale_node_idx = (node_batch_n_scale % self.n_scales == (self.n_scales-1)).nonzero().squeeze(-1)
-            node_coord = torch.index_select(node_coord, dim=-2, index = top_scale_node_idx)
-            batch = torch.index_select(node_batch_n_scale, dim=-1, index = top_scale_node_idx) // self.n_scales
+            slice_start: int = node_scale_slice[self.n_scales]
+            slice_length: int = node_scale_slice[self.n_scales + 1] - slice_start
         else:
-            batch = node_batch_n_scale // self.n_scales
+            slice_start: int = 0
+            slice_length: int = len(node_coord)
 
-        node_dst_idx = fps(src=node_coord, batch=batch, ratio=self.query_downsample_ratio, random_start=not self.deterministic)
+        node_coord = torch.narrow(node_coord, dim=-2, start=slice_start, length=slice_length)
+        node_batch = torch.narrow(node_batch, dim=-1, start=slice_start, length=slice_length)
+
+        node_dst_idx = fps(src=node_coord, batch=node_batch, ratio=self.query_downsample_ratio, random_start=not self.deterministic)
         query_coord = node_coord.index_select(index=node_dst_idx, dim=0)
-        query_batch = batch.index_select(index=node_dst_idx, dim=0)
+        query_batch = node_batch.index_select(index=node_dst_idx, dim=0)
 
         return query_coord, query_batch
     
@@ -158,31 +163,29 @@ class QueryModel(EDF):
                 batch: torch.Tensor,
                 detach_info: bool = True) -> Tuple[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
                                                    Tuple[torch.Tensor, torch.Tensor], 
-                                                   Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+                                                   Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int], torch.Tensor, torch.Tensor]]:
         gnn_outputs = self.get_gnn_outputs(node_feature=node_feature, node_coord=node_coord, batch=batch)
-        node_feature, node_coord, node_batch_n_scale, edge_src, edge_dst = gnn_outputs
+        node_feature, node_coord, node_batch, node_scale_slice, edge_src, edge_dst = gnn_outputs
 
-        query_coord, query_batch = self._get_init_query_pos(node_coord=node_coord, node_batch_n_scale=node_batch_n_scale, only_from_top_scale=True)
-        query_coord_expanded = query_coord.expand(self.n_scales, len(query_coord), 3) # (Ns, Nq, 3)
-        query_scale = torch.arange(self.n_scales, dtype=query_batch.dtype, device=query_batch.device)
-        query_batch_n_scale = query_batch * query_scale.unsqueeze(-1) + query_scale.unsqueeze(-1) # (Ns, Nq)
-
-        query_weight = self._extract_weight_logits(query_coord=query_coord_expanded, query_batch_n_scale=query_batch_n_scale,
-                                                   node_feature=node_feature, node_coord=node_coord, node_batch_n_scale=node_batch_n_scale)
-        print(query_weight.shape, query_coord.shape, query_batch.shape)
+        query_coord, query_batch = self._get_init_query_pos(node_coord=node_coord, node_batch=node_batch, node_scale_slice=node_scale_slice, only_from_top_scale=True)
+        query_weight = self._extract_weight_logits(query_coord=query_coord, query_batch=query_batch,
+                                                   node_feature=node_feature, node_coord=node_coord, 
+                                                   node_batch=node_batch, node_scale_slice=node_scale_slice)
         query_weight = scatter_softmax(src = query_weight, index=query_batch)
-        query_feature, query_info = self.extractor(query_coord = query_coord_expanded, 
-                                                   query_batch_n_scale = query_batch_n_scale,
+        query_feature, query_info = self.extractor(query_coord = query_coord, 
+                                                   query_batch = query_batch,
                                                    node_feature = node_feature,
                                                    node_coord = node_coord,
-                                                   node_batch_n_scale = node_batch_n_scale)
+                                                   node_batch = node_batch,
+                                                   node_scale_slice=node_scale_slice)
         
         (edge_src_query, edge_dst_query) = query_info
-        query = (query_weight, query_feature, query_coord_expanded, query_batch_n_scale)
+        query = (query_weight, query_feature, query_coord, query_batch)
         if detach_info:
             gnn_outputs = (node_feature.detach(), 
                            node_coord.detach(), 
-                           node_batch_n_scale.detach(), 
+                           node_batch.detach(),
+                           node_scale_slice,
                            edge_src.detach(), 
                            edge_dst.detach())
             query_info = (edge_src_query.detach(), edge_dst_query.detach())
