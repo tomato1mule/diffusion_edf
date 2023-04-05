@@ -4,7 +4,7 @@ import torch
 from e3nn.o3._wigner import _Jd
 from e3nn.math._linalg import direct_sum
 from e3nn.util.jit import compile_mode
-from diffusion_edf.quaternion_utils import matrix_to_euler_angles, quaternion_to_matrix, standardize_quaternion
+from diffusion_edf.transforms import matrix_to_euler_angles, quaternion_to_matrix, standardize_quaternion
 
 def quat_to_angle_fast(q: torch.Tensor) -> torch.Tensor: # >10 times faster than e3nn's quaternion_to_angle function
     ang = matrix_to_euler_angles(quaternion_to_matrix(q), "YXY").T

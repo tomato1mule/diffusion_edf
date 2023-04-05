@@ -24,7 +24,7 @@ from diffusion_edf.skip import ProjectIfMismatch
 from diffusion_edf.unet import EdfUnet, EDF
 from diffusion_edf.query_model import QueryModel
 from diffusion_edf.wigner import TransformFeatureQuaternion
-from diffusion_edf.quaternion_utils import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion, quaternion_invert, normalize_quaternion
+from diffusion_edf.transforms import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion, quaternion_invert, normalize_quaternion
 from diffusion_edf.extractor import EdfExtractorLight
 
 

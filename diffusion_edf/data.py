@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 
 import torch
 from torchvision.transforms import Compose
-from diffusion_edf.quaternion_utils import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion, quaternion_invert, normalize_quaternion
+from diffusion_edf.transforms import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion, quaternion_invert, normalize_quaternion
 
 
 

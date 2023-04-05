@@ -10,7 +10,7 @@ import torch_scatter
 import torch_cluster
 
 
-from diffusion_edf.quaternion_utils import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion
+from diffusion_edf.transforms import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion
 from diffusion_edf.data import PointCloud, SE3
 
 
