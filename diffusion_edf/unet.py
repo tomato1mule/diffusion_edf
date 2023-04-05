@@ -7,7 +7,10 @@ from e3nn import o3
 from e3nn.util.jit import compile_mode, script
 from einops import rearrange
 
+
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
+
+from diffusion_edf import EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE, QUERY_TYPE, EDF_INFO_TYPE
 from diffusion_edf.embedding import NodeEmbeddingNetwork
 from diffusion_edf.block import EquiformerBlock
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
@@ -15,6 +18,8 @@ from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 from diffusion_edf.utils import multiply_irreps, ParityInversionSh
 from diffusion_edf.skip import ProjectIfMismatch
 from diffusion_edf.extractor import EdfExtractorLight
+
+
 
 
 class EdfUnet(torch.nn.Module):  
@@ -229,7 +234,7 @@ class EdfUnet(torch.nn.Module):
 
     def forward(self, node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
-                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int], torch.Tensor, torch.Tensor]:
+                batch: torch.Tensor) -> GNN_OUTPUT_TYPE:
 
         ########### Downstream Block #############
         downstream_outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
@@ -523,7 +528,7 @@ class EDF(torch.nn.Module):
 
     def get_gnn_outputs(self, node_feature: torch.Tensor, 
                         node_coord: torch.Tensor, 
-                        batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int], torch.Tensor, torch.Tensor]: 
+                        batch: torch.Tensor) -> GNN_OUTPUT_TYPE: 
         node_emb = self.enc(node_feature)
         node_feature, node_coord, batch, scale_slice, edge_src, edge_dst = self.gnn(node_feature=node_emb,
                                                                                     node_coord=node_coord,
@@ -555,19 +560,32 @@ class EDF(torch.nn.Module):
                 query_batch: torch.Tensor,
                 node_feature: torch.Tensor, 
                 node_coord: torch.Tensor, 
-                batch: torch.Tensor) -> Tuple[torch.Tensor, 
-                                              Tuple[torch.Tensor, torch.Tensor], 
-                                              Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int], torch.Tensor, torch.Tensor]]:
-        
+                batch: torch.Tensor,
+                info_mode: str = 'NONE') -> Tuple[torch.Tensor, Optional[EDF_INFO_TYPE]]:      
         gnn_outputs = self.get_gnn_outputs(node_feature=node_feature, node_coord=node_coord, batch=batch)
         node_feature, node_coord, batch, scale_slice, edge_src, edge_dst = gnn_outputs
 
-        field_val, field_info = self.extractor(query_coord = query_coord, 
-                                               query_batch = query_batch,
-                                               node_feature = node_feature,
-                                               node_coord = node_coord,
-                                               node_batch = batch,
-                                               node_scale_slice = scale_slice)
-        # (edge_src_field, edge_dst_field) = field_info
+        field_val, extractor_info = self.extractor(query_coord = query_coord, 
+                                                   query_batch = query_batch,
+                                                   node_feature = node_feature,
+                                                   node_coord = node_coord,
+                                                   node_batch = batch,
+                                                   node_scale_slice = scale_slice)
         
-        return field_val, field_info, gnn_outputs
+        if info_mode == 'NONE':
+            edf_info = None
+        elif info_mode == 'NO_GRAD' or info_mode == 'REQUIRES_GRAD':
+            (edge_src_field, edge_dst_field) = extractor_info
+            if info_mode == 'NO_GRAD':
+                gnn_outputs = (node_feature.detach(), 
+                            node_coord.detach(), 
+                            batch.detach(),
+                            scale_slice,
+                            edge_src.detach(), 
+                            edge_dst.detach())
+                extractor_info = (edge_src_field.detach(), edge_dst_field.detach())
+            edf_info = (extractor_info, gnn_outputs)
+        else:
+            raise ValueError(f"Unknown info_mode: {info_mode}")
+        
+        return field_val, edf_info

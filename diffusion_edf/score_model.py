@@ -13,6 +13,7 @@ from diffusion_edf.equiformer.layer_norm import EquivariantLayerNormV2
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
 
+from diffusion_edf import EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE, QUERY_TYPE, EDF_INFO_TYPE
 from diffusion_edf.embedding import NodeEmbeddingNetwork
 from diffusion_edf.block import EquiformerBlock
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
@@ -23,12 +24,13 @@ from diffusion_edf.unet import EdfUnet, EDF
 from diffusion_edf.query_model import QueryModel
 from diffusion_edf.wigner import TransformFeatureQuaternion
 from diffusion_edf.quaternion_utils import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion, quaternion_invert, normalize_quaternion
+from diffusion_edf.extractor import EdfExtractorLight
 
 
 
 
 class ScoreModelHead(torch.nn.Module):
-    def __init__(self, key_extractor: EdfExtractor,
+    def __init__(self, key_extractor: EdfExtractorLight,
                  irreps_emb_key: o3.Irreps,
                  irreps_emb_query: o3.Irreps,
                  device: Union[str, torch.device],):
@@ -66,25 +68,27 @@ class ScoreModelHead(torch.nn.Module):
 
         self.transform_key_irreps = TransformFeatureQuaternion(irreps = o3.Irreps(self.irreps_emb_key), device=device)
 
-    @torch.jit.export
-    def _get_key(self, query_points: torch.Tensor,
-                 query_batch: torch.Tensor,
-                 gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> torch.Tensor:
+    def _extract_key_feature(self, query_coord: torch.Tensor,
+                             query_batch: torch.Tensor,
+                             node_feature: torch.Tensor,
+                             node_coord: torch.Tensor,
+                             node_batch: torch.Tensor,
+                             node_scale_slice: List[int],) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
 
-        field_val = self.key_extractor(query_coord = query_points, 
-                                       query_batch = query_batch,
-                                       node_features = [output[0] for output in gnn_features],
-                                       node_coords = [output[1] for output in gnn_features],
-                                       node_batches = [output[2] for output in gnn_features])
+        field_val, extractor_info = self.key_extractor(query_coord = query_coord, 
+                                                       query_batch = query_batch,
+                                                       node_feature = node_feature,
+                                                       node_coord = node_coord,
+                                                       node_batch = node_batch,
+                                                       node_scale_slice = node_scale_slice)
         
-        return field_val
+        return field_val, extractor_info
 
-    @torch.jit.export
     def get_score(self, T: torch.Tensor,
-                  query: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], 
-                  key_gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor]:
-        query_weight, query_feature, query_coord, batch = query # Shape: (N_query,), (N_query, D), (N_query, 3), (N_query,) 
-        assert query_weight.ndim + 1 == query_feature.ndim == query_coord.ndim == batch.ndim + 1 == 2 
+                  query: QUERY_TYPE, 
+                  key_gnn_outputs: GNN_OUTPUT_TYPE) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
+        query_weight, query_feature, query_coord, query_batch = query # Shape: (N_query,), (N_query, D), (N_query, 3), (N_query,) 
+        assert query_weight.ndim + 1 == query_feature.ndim == query_coord.ndim == query_batch.ndim + 1 == 2 
         assert T.ndim == 2 and T.shape[-1] == 7
 
         N_T = len(T)
@@ -95,9 +99,15 @@ class ScoreModelHead(torch.nn.Module):
         query_coord_transformed: torch.Tensor = quaternion_apply(q.unsqueeze(-2), query_coord) # (Nt, 1, 4) x (Nq, 3) -> (Nt, Nq, 3)
         query_coord_transformed = query_coord_transformed + X.unsqueeze(-2) # (Nt, Nq, 3) + (Nt, 1, 3) -> (Nt, Nq, 3)
         query_feature_transformed = self.transform_key_irreps(query_feature, q).contiguous().view(N_T*N_Q, N_D) # (Nq, D) x (Nt, 4) -> (Nt * Nq, D)
-        batch_repeat = batch.expand(N_T,N_Q).contiguous().view(-1) # (N_T*N_Q,)
+        query_batch_repeat = query_batch.expand(N_T,N_Q).contiguous().view(-1) # (N_T*N_Q,)
 
-        key_feature: torch.Tensor = self._get_key(query_points=query_coord_transformed.view(N_T * N_Q ,3), query_batch=batch_repeat, gnn_features=key_gnn_features)# (N_T * N_Q, N_D)
+        node_feature, node_coord, node_batch, node_scale_slice, edge_src, edge_dst = key_gnn_outputs
+        key_feature, key_info = self._extract_key_feature(query_coord=query_coord_transformed.view(N_T * N_Q ,3), 
+                                                          query_batch=query_batch_repeat, 
+                                                          node_feature=node_feature,
+                                                          node_coord=node_coord,
+                                                          node_batch=node_batch,
+                                                          node_scale_slice=node_scale_slice) # key_feature shape: (N_T * N_Q, N_D)
 
         lin_vel: torch.Tensor = self.lin_vel_tp(query_feature_transformed, key_feature, edge_scalars=None, batch=None) # batch does nothing unless you use batchnorm
         ang_spin: torch.Tensor = self.ang_vel_tp(query_feature_transformed, key_feature, edge_scalars=None, batch=None) # batch does nothing unless you use batchnorm
@@ -108,7 +118,6 @@ class ScoreModelHead(torch.nn.Module):
         ang_spin = ang_spin.view(N_T, N_Q, self.n_irreps_score, 3).mean(dim=-2) # (N_T, N_Q, 3), Project multiple nx1e -> 1x1e 
 
         qinv: torch.Tensor = quaternion_invert(q.unsqueeze(-2)) # (N_T, 1, 4)
-        qinv = qinv / torch.norm(qinv, dim=-1, keepdim=True)
         lin_vel = quaternion_apply(qinv, lin_vel) # (N_T, N_Q, 3)
         ang_spin = quaternion_apply(qinv, ang_spin) # (N_T, N_Q, 3)
         ang_orbital = torch.cross(query_coord.unsqueeze(0), lin_vel, dim=-1) # (N_T, N_Q, 3)
@@ -116,13 +125,14 @@ class ScoreModelHead(torch.nn.Module):
         lin_vel = torch.einsum('q,tqi->ti', query_weight, lin_vel) # (N_T, 3)
         ang_vel = torch.einsum('q,tqi->ti', query_weight, ang_orbital) + torch.einsum('q,tqi->ti', query_weight, ang_spin) # (N_T, 3)
 
-        return lin_vel, ang_vel
+        return torch.cat([ang_vel, lin_vel], dim=-1), key_info
     
     def forward(self, T: torch.Tensor,
-                query: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], 
-                key_gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor]:
+                query: QUERY_TYPE, 
+                key_gnn_outputs: GNN_OUTPUT_TYPE) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
         
-        return self.get_score(T=T, query=query, key_gnn_features=key_gnn_features)
+        score, key_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
+        return score, key_info
 
 
 
@@ -186,7 +196,8 @@ class ScoreModel(torch.nn.Module):
                                       irreps_mlp_mid=irreps_mlp_mid,
                                       weight_feature_dim=weight_feature_dim,
                                       query_downsample_ratio=query_downsample_ratio,
-                                      deterministic=deterministic)
+                                      deterministic=deterministic,
+                                      compile_head=compile_head)
         
         self.key_head = ScoreModelHead(key_extractor = self.key_model.get_extractor(),
                                        irreps_emb_key=self.key_model.irreps_emb,
@@ -197,27 +208,41 @@ class ScoreModel(torch.nn.Module):
 
     def _get_query(self, node_feature: torch.Tensor, 
                    node_coord: torch.Tensor, 
-                   batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:        
-        query_weight, query_feature, query_coord, query_batch = self.query_model(node_feature=node_feature, node_coord=node_coord, batch=batch)
+                   batch: torch.Tensor,
+                   info_mode: str = 'NONE') -> Tuple[QUERY_TYPE, Optional[EDF_INFO_TYPE]]:        
+        query, query_info = self.query_model(node_feature=node_feature, node_coord=node_coord, batch=batch, info_mode=info_mode)
 
-        return query_weight, query_feature, query_coord, query_batch # Shape: (N_query,), (N_query, D), (N_query, 3), (N_query,) 
-    
-    def _get_gnn_features(self, node_feature: torch.Tensor, 
-                          node_coord: torch.Tensor, 
-                          batch: torch.Tensor) -> List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
-        return self.key_model.get_gnn_features(node_feature=node_feature, node_coord=node_coord, batch=batch)  # [(node_feature, node_coord, node_batch)]
+        return query, query_info # query Shape: (N_query,), (N_query, D), (N_query, 3), (N_query,) 
     
     def get_score(self, T: torch.Tensor,
-                  query: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], 
-                  key_gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor]:
-        return self.key_head.get_score(T=T, query=query, key_gnn_features=key_gnn_features)
+                  query: QUERY_TYPE, 
+                  key_gnn_outputs: GNN_OUTPUT_TYPE) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
+        score, key_extractor_info = self.key_head.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
+        return score, key_extractor_info
 
     def forward(self, T: torch.Tensor,
                 key_feature: torch.Tensor, key_coord: torch.Tensor, key_batch: torch.Tensor,
-                query_feature: torch.Tensor, query_coord: torch.Tensor, query_batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        query = self._get_query(node_feature=query_feature, node_coord=query_coord, batch=query_batch)
-        key_gnn_features = self._get_gnn_features(node_feature=key_feature, node_coord=key_coord, batch=key_batch)
+                query_feature: torch.Tensor, query_coord: torch.Tensor, query_batch: torch.Tensor,
+                info_mode: str = 'NONE') -> Tuple[QUERY_TYPE, Optional[EDF_INFO_TYPE], Optional[EDF_INFO_TYPE]]:      
+        query, query_info = self._get_query(node_feature=query_feature, node_coord=query_coord, batch=query_batch, info_mode=info_mode)
+        key_gnn_outputs = self.key_model.get_gnn_outputs(node_feature=key_feature, node_coord=key_coord, batch=key_batch) 
+        score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
 
-        lin_vel, ang_vel = self.get_score(T=T, query=query, key_gnn_features=key_gnn_features)
+        if info_mode == 'NONE':
+            key_info = None
+        elif info_mode == 'NO_GRAD' or info_mode == 'REQUIRES_GRAD':
+            (edge_src_field, edge_dst_field) = key_extractor_info
+            (node_feature, node_coord, batch, scale_slice, edge_src, edge_dst) = key_gnn_outputs
+            if info_mode == 'NO_GRAD':
+                gnn_outputs = (node_feature.detach(), 
+                               node_coord.detach(), 
+                               batch.detach(),
+                               scale_slice,
+                               edge_src.detach(), 
+                               edge_dst.detach())
+                extractor_info = (edge_src_field.detach(), edge_dst_field.detach())
+            key_info = (extractor_info, gnn_outputs)
+        else:
+            raise ValueError(f"Unknown info_mode: {info_mode}")
 
-        return lin_vel, ang_vel
+        return score, query_info, key_info

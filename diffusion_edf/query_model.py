@@ -12,6 +12,7 @@ from e3nn.util.jit import compile_mode
 from diffusion_edf.equiformer.layer_norm import EquivariantLayerNormV2
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 
+from diffusion_edf import EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE, QUERY_TYPE
 from diffusion_edf.embedding import NodeEmbeddingNetwork
 from diffusion_edf.extractor import EdfExtractorLight
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
@@ -161,9 +162,7 @@ class QueryModel(EDF):
     def forward(self, node_feature: torch.Tensor, 
                 node_coord: torch.Tensor, 
                 batch: torch.Tensor,
-                detach_info: bool = True) -> Tuple[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
-                                                   Tuple[torch.Tensor, torch.Tensor], 
-                                                   Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int], torch.Tensor, torch.Tensor]]:
+                info_mode: str = 'NONE') -> Tuple[QUERY_TYPE, Optional[Tuple[EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE]]]:
         gnn_outputs = self.get_gnn_outputs(node_feature=node_feature, node_coord=node_coord, batch=batch)
         node_feature, node_coord, node_batch, node_scale_slice, edge_src, edge_dst = gnn_outputs
 
@@ -172,23 +171,28 @@ class QueryModel(EDF):
                                                    node_feature=node_feature, node_coord=node_coord, 
                                                    node_batch=node_batch, node_scale_slice=node_scale_slice)
         query_weight = scatter_softmax(src = query_weight, index=query_batch)
-        query_feature, query_info = self.extractor(query_coord = query_coord, 
-                                                   query_batch = query_batch,
-                                                   node_feature = node_feature,
-                                                   node_coord = node_coord,
-                                                   node_batch = node_batch,
-                                                   node_scale_slice=node_scale_slice)
-        
-        (edge_src_query, edge_dst_query) = query_info
+        query_feature, extractor_info = self.extractor(query_coord = query_coord, 
+                                                       query_batch = query_batch,
+                                                       node_feature = node_feature,
+                                                       node_coord = node_coord,
+                                                       node_batch = node_batch,
+                                                       node_scale_slice=node_scale_slice)
         query = (query_weight, query_feature, query_coord, query_batch)
-        if detach_info:
-            gnn_outputs = (node_feature.detach(), 
-                           node_coord.detach(), 
-                           node_batch.detach(),
-                           node_scale_slice,
-                           edge_src.detach(), 
-                           edge_dst.detach())
-            query_info = (edge_src_query.detach(), edge_dst_query.detach())
-        
 
-        return query, query_info, gnn_outputs
+        if info_mode == 'NONE':
+            query_info = None
+        elif info_mode == 'NO_GRAD' or info_mode == 'REQUIRES_GRAD':
+            (edge_src_query, edge_dst_query) = extractor_info
+            if info_mode == 'NO_GRAD':
+                gnn_outputs = (node_feature.detach(), 
+                            node_coord.detach(), 
+                            node_batch.detach(),
+                            node_scale_slice,
+                            edge_src.detach(), 
+                            edge_dst.detach())
+                extractor_info = (edge_src_query.detach(), edge_dst_query.detach())
+            query_info: Tuple[EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE] = (extractor_info, gnn_outputs)
+        else:
+            raise ValueError(f"Unknown info_mode: {info_mode}")
+
+        return query, query_info
