@@ -204,23 +204,30 @@ class EdfExtractorLight(torch.nn.Module):
                 query_batch: torch.Tensor,
                 node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
-                node_batch_n_scale: torch.Tensor) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        Ns, Nq, D = query_coord_scale.shape
-        assert query_batch_n_scale.shape == (Ns, Nq) and D == 3
+                node_batch: torch.Tensor,
+                node_scale_slice: List[int],) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        Nq, D = query_coord.shape
+        assert query_batch.shape == (Nq, ) and D == 3
 
-        edge_srcs = torch.empty(0, device=query_coord_scale.device, dtype=torch.long)
-        edge_dsts = torch.empty(0, device=query_coord_scale.device, dtype=torch.long)
-        edge_vecs = torch.empty(0, 3, device=query_coord_scale.device, dtype=query_coord_scale.dtype)
-        edge_scalars  = torch.empty(0, device=query_coord_scale.device, dtype=query_coord_scale.dtype)
+        edge_srcs = torch.empty(0, device=query_coord.device, dtype=torch.long)
+        edge_dsts = torch.empty(0, device=query_coord.device, dtype=torch.long)
+        edge_vecs = torch.empty(0, 3, device=query_coord.device, dtype=query_coord.dtype)
+        edge_scalars  = torch.empty(0, device=query_coord.device, dtype=query_coord.dtype)
         for n, (connect, radial) in enumerate(zip(self.pre_connect, self.pre_radial)):
-            edge_src, edge_dst = connect(node_coord_src = node_coord, 
-                                         batch_src = node_batch_n_scale,
-                                         node_coord_dst = query_coord[n],
-                                         batch_dst = query_batch_n_scale[n])
-            edge_vec = node_coord.index_select(0, edge_src) - query_coord[n].index_select(0, edge_dst)
+            slice_start: int = node_scale_slice[n]
+            slice_length: int = node_scale_slice[n+1] - slice_start
+            node_coord_this_scale = torch.narrow(node_coord, dim=-2, start=slice_start, length=slice_length)
+            node_batch_this_scale = torch.narrow(node_batch, dim=-1, start=slice_start, length=slice_length)
+
+            edge_src, edge_dst = connect(node_coord_src = node_coord_this_scale, 
+                                         batch_src = node_batch_this_scale,
+                                         node_coord_dst = query_coord,
+                                         batch_dst = query_batch)
+            edge_vec = node_coord_this_scale.index_select(0, edge_src) - query_coord.index_select(0, edge_dst)
             edge_length = edge_vec.norm(dim=1, p=2)
             in_range_idx = (edge_length > self.offsets[n]).nonzero().squeeze(-1)
-            edge_src, edge_dst, edge_vec, edge_length = edge_src[in_range_idx], edge_dst[in_range_idx] + (n*Nq), edge_vec[in_range_idx], edge_length[in_range_idx]
+            edge_src, edge_dst, edge_vec, edge_length = edge_src[in_range_idx], edge_dst[in_range_idx], edge_vec[in_range_idx], edge_length[in_range_idx]
+            edge_src = edge_src + slice_start
             edge_scalar = radial(edge_length)
 
             edge_srcs = torch.cat([edge_srcs, edge_src], dim=-1)
@@ -230,11 +237,11 @@ class EdfExtractorLight(torch.nn.Module):
 
         edge_attrs = self.spherical_harmonics(edge_vecs)
 
-        node_feature_dst = torch.zeros(Ns * Nq, self.emb_dim, device=node_feature.device, dtype=node_feature.dtype)
+        node_feature_dst = torch.zeros(Nq, self.emb_dim, device=node_feature.device, dtype=node_feature.dtype)
         if len(edge_srcs) > 0:
             node_feature_dst = self.gnn(node_input_src = node_feature,
                                         node_input_dst = node_feature_dst,
-                                        batch_dst = query_batch_n_scale.view(-1),
+                                        batch_dst = query_batch,
                                         edge_src = edge_srcs,
                                         edge_dst = edge_dsts,
                                         edge_attr = edge_attrs,
@@ -244,4 +251,4 @@ class EdfExtractorLight(torch.nn.Module):
         
         info = (edge_srcs.detach(), edge_dsts.detach())
         
-        return node_feature_dst, info
+        return node_feature_dst, info  # Shape: (Nq, D),  ((N_edges,), (N_edges,))

@@ -229,7 +229,7 @@ class EdfUnet(torch.nn.Module):
 
     def forward(self, node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
-                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int], torch.Tensor, torch.Tensor]:
 
         ########### Downstream Block #############
         downstream_outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
@@ -362,7 +362,7 @@ class EdfUnet(torch.nn.Module):
         batchs: List[torch.Tensor] = []
         edge_srcs: List[torch.Tensor] = []
         edge_dsts: List[torch.Tensor] = []
-        scales: List[torch.Tensor] = []
+        scale_slice: List[int] = [0,]
 
         N_nodes = 0
         for scale, projection in enumerate(self.project_outputs):
@@ -376,7 +376,7 @@ class EdfUnet(torch.nn.Module):
             node_features.append(projection(node_feature))
             node_coords.append(node_coord)
             batchs.append(batch)
-            scales.append(torch.empty_like(batch).fill_(scale))
+            scale_slice.append(len(node_coord) + scale_slice[-1])
 
             edge_dst = edge_dst + N_nodes
             edge_dsts.append(edge_dst)
@@ -390,9 +390,8 @@ class EdfUnet(torch.nn.Module):
         batch = torch.cat(batchs, dim=-1)
         edge_src = torch.cat(edge_srcs, dim=-1)
         edge_dst = torch.cat(edge_dsts, dim=-1)
-        scale = torch.cat(scales, dim=-1)
         
-        return node_feature, node_coord, batch, scale, edge_src, edge_dst
+        return node_feature, node_coord, batch, scale_slice, edge_src, edge_dst
     
 
 
@@ -524,13 +523,12 @@ class EDF(torch.nn.Module):
 
     def get_gnn_outputs(self, node_feature: torch.Tensor, 
                         node_coord: torch.Tensor, 
-                        batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: 
+                        batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int], torch.Tensor, torch.Tensor]: 
         node_emb = self.enc(node_feature)
-        node_feature, node_coord, batch, scale, edge_src, edge_dst = self.gnn(node_feature=node_emb,
-                                                                              node_coord=node_coord,
-                                                                              batch=batch)
-        node_batch_n_scale = batch * scale + scale
-        return node_feature, node_coord, node_batch_n_scale, edge_src, edge_dst
+        node_feature, node_coord, batch, scale_slice, edge_src, edge_dst = self.gnn(node_feature=node_emb,
+                                                                                    node_coord=node_coord,
+                                                                                    batch=batch)
+        return node_feature, node_coord, batch, scale_slice, edge_src, edge_dst
     
     # def _reshape_extractor_inputs(self, query_coord: torch.Tensor,
     #                               query_batch: torch.Tensor,
@@ -547,22 +545,29 @@ class EDF(torch.nn.Module):
 
     #     return query_coord, query_batch_n_scale, node_feature, node_coord, node_batch_n_scale
     
+    # def get_scale_node(self, node_coord, node_batch_n_scale, n):
+    #     this_scale_node_idx = (node_batch_n_scale % self.n_scales == n).nonzero().squeeze(-1)
+    #     node_coord_this_scale = torch.index_select(node_coord, dim=-2, index = this_scale_node_idx)
+    #     batch_this_scale = torch.index_select(node_batch_n_scale, dim=-1, index = this_scale_node_idx) // self.n_scales
+            
+
     def forward(self, query_coord: torch.Tensor,
-                query_batch_n_scale: torch.Tensor,
+                query_batch: torch.Tensor,
                 node_feature: torch.Tensor, 
                 node_coord: torch.Tensor, 
                 batch: torch.Tensor) -> Tuple[torch.Tensor, 
                                               Tuple[torch.Tensor, torch.Tensor], 
-                                              Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+                                              Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int], torch.Tensor, torch.Tensor]]:
         
         gnn_outputs = self.get_gnn_outputs(node_feature=node_feature, node_coord=node_coord, batch=batch)
-        node_feature, node_coord, node_batch_n_scale, edge_src, edge_dst = gnn_outputs
+        node_feature, node_coord, batch, scale_slice, edge_src, edge_dst = gnn_outputs
 
         field_val, field_info = self.extractor(query_coord = query_coord, 
-                                               query_batch_n_scale = query_batch_n_scale,
+                                               query_batch = query_batch,
                                                node_feature = node_feature,
                                                node_coord = node_coord,
-                                               node_batch_n_scale = node_batch_n_scale)
+                                               node_batch = batch,
+                                               node_scale_slice = scale_slice)
         # (edge_src_field, edge_dst_field) = field_info
         
         return field_val, field_info, gnn_outputs
