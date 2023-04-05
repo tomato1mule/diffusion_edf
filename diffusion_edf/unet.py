@@ -521,34 +521,47 @@ class EDF(torch.nn.Module):
                             drop_path_rate=self.drop_path_rate)
         return extr
 
-    def get_gnn_features(self, node_feature: torch.Tensor, 
-                         node_coord: torch.Tensor, 
-                         batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: 
+    def get_gnn_outputs(self, node_feature: torch.Tensor, 
+                        node_coord: torch.Tensor, 
+                        batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: 
         node_emb = self.enc(node_feature)
         node_feature, node_coord, batch, scale, edge_src, edge_dst = self.gnn(node_feature=node_emb,
                                                                               node_coord=node_coord,
                                                                               batch=batch)
-        return node_feature, node_coord, batch, scale, edge_src, edge_dst
-
-    def forward(self, query_coord: torch.Tensor,
-                query_batch: torch.Tensor,
-                gnn_outputs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) -> torch.Tensor:
-        
-        assert query_coord.ndim == 2 and query_coord.shape[-1] == 3 and query_batch.ndim == 1
-        Nq = len(query_coord)
-        query_coord = query_coord.expand(self.n_scales, Nq, 3) # (Ns, Nq, 3)
-        query_scale = torch.arange(self.n_scales, dtype=query_batch.dtype, device=query_batch.device)
-        query_batch_n_scale = query_batch * query_scale.unsqueeze(-1) + query_scale.unsqueeze(-1) # (Ns, Nq)
-
-        node_feature, node_coord, batch, scale, edge_src, edge_dst = gnn_outputs
         node_batch_n_scale = batch * scale + scale
-
-
-        assert self.extractor is not None
-        field_val = self.extractor(query_coord = query_coord, 
-                                   query_batch_n_scale = query_batch_n_scale,
-                                   node_feature = node_feature,
-                                   node_coord = node_coord,
-                                   node_batch_n_scale = node_batch_n_scale)
+        return node_feature, node_coord, node_batch_n_scale, edge_src, edge_dst
+    
+    # def _reshape_extractor_inputs(self, query_coord: torch.Tensor,
+    #                               query_batch: torch.Tensor,
+    #                               gnn_outputs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         
-        return field_val
+    #     assert query_coord.ndim == 2 and query_coord.shape[-1] == 3 and query_batch.ndim == 1
+    #     Nq = len(query_coord)
+    #     query_coord = query_coord.expand(self.n_scales, Nq, 3) # (Ns, Nq, 3)
+    #     query_scale = torch.arange(self.n_scales, dtype=query_batch.dtype, device=query_batch.device)
+    #     query_batch_n_scale = query_batch * query_scale.unsqueeze(-1) + query_scale.unsqueeze(-1) # (Ns, Nq)
+
+    #     node_feature, node_coord, batch, scale, edge_src, edge_dst = gnn_outputs
+    #     node_batch_n_scale = batch * scale + scale
+
+    #     return query_coord, query_batch_n_scale, node_feature, node_coord, node_batch_n_scale
+    
+    def forward(self, query_coord: torch.Tensor,
+                query_batch_n_scale: torch.Tensor,
+                node_feature: torch.Tensor, 
+                node_coord: torch.Tensor, 
+                batch: torch.Tensor) -> Tuple[torch.Tensor, 
+                                              Tuple[torch.Tensor, torch.Tensor], 
+                                              Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+        
+        gnn_outputs = self.get_gnn_outputs(node_feature=node_feature, node_coord=node_coord, batch=batch)
+        node_feature, node_coord, node_batch_n_scale, edge_src, edge_dst = gnn_outputs
+
+        field_val, field_info = self.extractor(query_coord = query_coord, 
+                                               query_batch_n_scale = query_batch_n_scale,
+                                               node_feature = node_feature,
+                                               node_coord = node_coord,
+                                               node_batch_n_scale = node_batch_n_scale)
+        (edge_src_field, edge_dst_field) = field_info
+        
+        return field_val, field_info, gnn_outputs
