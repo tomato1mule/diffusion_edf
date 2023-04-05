@@ -13,7 +13,7 @@ from diffusion_edf.equiformer.layer_norm import EquivariantLayerNormV2
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 
 from diffusion_edf.embedding import NodeEmbeddingNetwork
-from diffusion_edf.block import EquiformerBlock, EdfExtractor
+from diffusion_edf.extractor import EdfExtractorLight
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 from diffusion_edf.utils import multiply_irreps, ParityInversionSh
@@ -45,6 +45,8 @@ class QueryModel(EDF):
                  drop_path_rate: float = 0.0,
                  irreps_mlp_mid: int = 3,
                  deterministic: bool = False,
+                 compile_head: bool = False,
+                 attn_type: str = 'mlp',
                  ):
         super().__init__(irreps_input=irreps_input,
                          irreps_emb_init=irreps_emb_init,
@@ -61,13 +63,14 @@ class QueryModel(EDF):
                          proj_drop=proj_drop,
                          drop_path_rate=drop_path_rate,
                          irreps_mlp_mid=irreps_mlp_mid,
-                         deterministic=deterministic
+                         deterministic=deterministic,
+                         compile_head=compile_head,
+                         attn_type=attn_type
                          )
         self.query_downsample_ratio = query_downsample_ratio
 
-        self.weight_field = EdfExtractor(
+        self.weight_field = EdfExtractorLight(
             irreps_inputs = self.gnn.irreps,
-            fc_neurons_inputs = self.gnn.fc_neurons,
             irreps_emb = self.gnn.irreps[-1],
             irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
             irreps_head = self.gnn.irreps_head[-1],
@@ -77,7 +80,7 @@ class QueryModel(EDF):
             cutoffs = self.cutoff_radius,
             offsets = [self.min_offset] + [max(self.min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
             irreps_mlp_mid = irreps_mlp_mid,
-            attn_type='mlp',
+            attn_type=attn_type,
             alpha_drop=alpha_drop, 
             proj_drop=proj_drop,
             drop_path_rate=drop_path_rate
@@ -87,39 +90,36 @@ class QueryModel(EDF):
         self.weight_layernorm = EquivariantLayerNormV2(irreps = self.pre_weight_irreps)
         self.weight_linear2 = LinearRS(irreps_in = self.pre_weight_irreps, irreps_out = o3.Irreps("1x0e"), bias=True, rescale=True)        
 
-    def _get_query_feature(self, query_points: torch.Tensor,
-                           query_batch: torch.Tensor,
-                           gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> torch.Tensor:
+    def _extract_weight_logits(self, query_coord: torch.Tensor,
+                               query_batch_n_scale: torch.Tensor,
+                               node_feature: torch.Tensor,
+                               node_coord: torch.Tensor,
+                               node_batch_n_scale: torch.Tensor) -> torch.Tensor:
         
-        field_val = self.extractor(query_coord = query_points, 
-                                   query_batch = query_batch,
-                                   node_features = [output[0] for output in gnn_features],
-                                   node_coords = [output[1] for output in gnn_features],
-                                   node_batches = [output[2] for output in gnn_features])
-        
-        return field_val
-    
-    def _get_log_weight(self, query_points: torch.Tensor,
-                        query_batch: torch.Tensor,
-                        gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> torch.Tensor:
-        
-        field_val = self.weight_field(query_coord = query_points, 
-                                      query_batch = query_batch,
-                                      node_features = [output[0] for output in gnn_features],
-                                      node_coords = [output[1] for output in gnn_features],
-                                      node_batches = [output[2] for output in gnn_features])
+        field_val, (edge_src, edge_dst) = self.weight_field(query_coord = query_coord, 
+                                                            query_batch_n_scale = query_batch_n_scale,
+                                                            node_feature = node_feature,
+                                                            node_coord = node_coord,
+                                                            node_batch_n_scale = node_batch_n_scale)
         field_val = self.weight_linear1(field_val)
         field_val = self.weight_layernorm(field_val)
-        log_weight = self.weight_linear2(field_val)
+        field_val = self.weight_linear2(field_val)
         
-        return log_weight
+        return field_val.squeeze(-1)
     
-    def _get_init_query_pos(self, node_coord: torch.Tensor, batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        node_dst_idx = fps(src=node_coord, batch=batch, ratio=self.query_downsample_ratio, random_start=not self.deterministic)
-        node_coord_dst = node_coord.index_select(index=node_dst_idx, dim=0)
-        batch_dst = batch.index_select(index=node_dst_idx, dim=0)
+    def _get_init_query_pos(self, node_coord: torch.Tensor, node_batch_n_scale: torch.Tensor, only_from_top_scale: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+        if only_from_top_scale:
+            top_scale_node_idx = (node_batch_n_scale % self.n_scales == (self.n_scales-1)).nonzero().squeeze(-1)
+            node_coord = torch.index_select(node_coord, dim=-2, index = top_scale_node_idx)
+            batch = torch.index_select(node_batch_n_scale, dim=-1, index = top_scale_node_idx) // self.n_scales
+        else:
+            batch = node_batch_n_scale // self.n_scales
 
-        return node_coord_dst, batch_dst
+        node_dst_idx = fps(src=node_coord, batch=batch, ratio=self.query_downsample_ratio, random_start=not self.deterministic)
+        query_coord = node_coord.index_select(index=node_dst_idx, dim=0)
+        query_batch = batch.index_select(index=node_dst_idx, dim=0)
+
+        return query_coord, query_batch
     
     # def _rbf(self, x1: torch.Tensor, x2: torch.Tensor, h: float) -> torch.Tensor:
     #     return torch.exp(-(x1-x2).square().sum(dim=-1)/h)
@@ -152,27 +152,40 @@ class QueryModel(EDF):
     #             x = x + lr*phi
 
     #     return x
-
-    @torch.jit.export
-    def _get_query(self, query_points: torch.Tensor,
-                   query_batch: torch.Tensor,
-                   gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Tuple[torch.Tensor, torch.Tensor]:
-        
-        log_weight = self._get_log_weight(query_points=query_points, query_batch=query_batch, gnn_features=gnn_features).squeeze(-1)
-        query_feature = self._get_query_feature(query_points=query_points, query_batch=query_batch, gnn_features=gnn_features)
-        # weight = scatter_softmax(src = log_weight, index=query_batch)
-        
-        return log_weight, query_feature
     
     def forward(self, node_feature: torch.Tensor, 
                 node_coord: torch.Tensor, 
-                batch: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        gnn_features: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = self.get_gnn_features(node_feature=node_feature,
-                                                                                                    node_coord=node_coord,
-                                                                                                    batch=batch)
-        _, query_coord, query_batch = gnn_features[-1]
-        query_coord, query_batch = self._get_init_query_pos(node_coord=query_coord, batch=query_batch)
-        query_weight, query_feature = self._get_query(query_points=query_coord, query_batch=query_batch, gnn_features=gnn_features)
+                batch: torch.Tensor,
+                detach_info: bool = True) -> Tuple[Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+                                                   Tuple[torch.Tensor, torch.Tensor], 
+                                                   Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:
+        gnn_outputs = self.get_gnn_outputs(node_feature=node_feature, node_coord=node_coord, batch=batch)
+        node_feature, node_coord, node_batch_n_scale, edge_src, edge_dst = gnn_outputs
 
+        query_coord, query_batch = self._get_init_query_pos(node_coord=node_coord, node_batch_n_scale=node_batch_n_scale, only_from_top_scale=True)
+        query_coord_expanded = query_coord.expand(self.n_scales, len(query_coord), 3) # (Ns, Nq, 3)
+        query_scale = torch.arange(self.n_scales, dtype=query_batch.dtype, device=query_batch.device)
+        query_batch_n_scale = query_batch * query_scale.unsqueeze(-1) + query_scale.unsqueeze(-1) # (Ns, Nq)
+
+        query_weight = self._extract_weight_logits(query_coord=query_coord_expanded, query_batch_n_scale=query_batch_n_scale,
+                                                   node_feature=node_feature, node_coord=node_coord, node_batch_n_scale=node_batch_n_scale)
+        print(query_weight.shape, query_coord.shape, query_batch.shape)
         query_weight = scatter_softmax(src = query_weight, index=query_batch)
-        return query_weight, query_feature, query_coord, query_batch
+        query_feature, query_info = self.extractor(query_coord = query_coord_expanded, 
+                                                   query_batch_n_scale = query_batch_n_scale,
+                                                   node_feature = node_feature,
+                                                   node_coord = node_coord,
+                                                   node_batch_n_scale = node_batch_n_scale)
+        
+        (edge_src_query, edge_dst_query) = query_info
+        query = (query_weight, query_feature, query_coord_expanded, query_batch_n_scale)
+        if detach_info:
+            gnn_outputs = (node_feature.detach(), 
+                           node_coord.detach(), 
+                           node_batch_n_scale.detach(), 
+                           edge_src.detach(), 
+                           edge_dst.detach())
+            query_info = (edge_src_query.detach(), edge_dst_query.detach())
+        
+
+        return query, query_info, gnn_outputs

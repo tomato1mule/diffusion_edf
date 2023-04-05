@@ -420,6 +420,7 @@ class EDF(torch.nn.Module):
                  deterministic: bool = False,
                  detach_extractor: bool = False,
                  compile_head: bool = False,
+                 attn_type: str = 'mlp',
                  ):
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -452,7 +453,7 @@ class EDF(torch.nn.Module):
             if not self.cutoff_radius[n-1] < self.cutoff_radius[n]:
                 warnings.warn(f"cutoff_radius[{n}] ({self.cutoff_radius[n]}) is smaller than radius[{n-1}] ({self.cutoff_radius[n-1]})")
         self.irreps_mlp_mid = irreps_mlp_mid
-        self.attn_type = 'mlp'
+        self.attn_type = attn_type
         self.alpha_drop = alpha_drop
         self.proj_drop = proj_drop
         self.drop_path_rate = drop_path_rate
@@ -562,6 +563,6 @@ class EDF(torch.nn.Module):
                                                node_feature = node_feature,
                                                node_coord = node_coord,
                                                node_batch_n_scale = node_batch_n_scale)
-        (edge_src_field, edge_dst_field) = field_info
+        # (edge_src_field, edge_dst_field) = field_info
         
         return field_val, field_info, gnn_outputs

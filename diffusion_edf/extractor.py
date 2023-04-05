@@ -201,17 +201,17 @@ class EdfExtractorLight(torch.nn.Module):
         self.num_basis: List[int] = [f.num_basis for f in self.pre_radial]
 
     def forward(self, query_coord: torch.Tensor,
-                query_batch_n_scale: torch.Tensor,
+                query_batch: torch.Tensor,
                 node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
                 node_batch_n_scale: torch.Tensor) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-        Ns, Nq, _ = query_coord.shape
-        assert query_batch_n_scale.shape == (Ns, Nq)
+        Ns, Nq, D = query_coord_scale.shape
+        assert query_batch_n_scale.shape == (Ns, Nq) and D == 3
 
-        edge_srcs = torch.empty(0, device=query_coord.device, dtype=torch.long)
-        edge_dsts = torch.empty(0, device=query_coord.device, dtype=torch.long)
-        edge_vecs = torch.empty(0, 3, device=query_coord.device, dtype=query_coord.dtype)
-        edge_scalars  = torch.empty(0, device=query_coord.device, dtype=query_coord.dtype)
+        edge_srcs = torch.empty(0, device=query_coord_scale.device, dtype=torch.long)
+        edge_dsts = torch.empty(0, device=query_coord_scale.device, dtype=torch.long)
+        edge_vecs = torch.empty(0, 3, device=query_coord_scale.device, dtype=query_coord_scale.dtype)
+        edge_scalars  = torch.empty(0, device=query_coord_scale.device, dtype=query_coord_scale.dtype)
         for n, (connect, radial) in enumerate(zip(self.pre_connect, self.pre_radial)):
             edge_src, edge_dst = connect(node_coord_src = node_coord, 
                                          batch_src = node_batch_n_scale,
