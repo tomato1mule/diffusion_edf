@@ -2,6 +2,7 @@ from typing import List, Optional, Union, Tuple, Iterable, Callable
 import math
 import warnings
 import numpy as np
+from tqdm import tqdm
 
 import torch
 from torch_cluster import fps, radius_graph
@@ -223,10 +224,23 @@ class ScoreModel(torch.nn.Module):
     def forward(self, T: torch.Tensor,
                 key_feature: torch.Tensor, key_coord: torch.Tensor, key_batch: torch.Tensor,
                 query_feature: torch.Tensor, query_coord: torch.Tensor, query_batch: torch.Tensor,
-                info_mode: str = 'NONE') -> Tuple[QUERY_TYPE, Optional[EDF_INFO_TYPE], Optional[EDF_INFO_TYPE]]:      
+                info_mode: str = 'NONE', iters: int = 1) -> Tuple[QUERY_TYPE, Optional[EDF_INFO_TYPE], Optional[EDF_INFO_TYPE]]:      
         query, query_info = self._get_query(node_feature=query_feature, node_coord=query_coord, batch=query_batch, info_mode=info_mode)
         key_gnn_outputs = self.key_model.get_gnn_outputs(node_feature=key_feature, node_coord=key_coord, batch=key_batch) 
-        score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
+
+
+        ######## EXAMPLE ##########
+        if iters == 1:
+            score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
+        else:
+            with torch.no_grad():
+                for _ in tqdm(range(iters)):
+                    score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
+        #############################################
+
+
+
+
 
         if info_mode == 'NONE':
             key_info = None
