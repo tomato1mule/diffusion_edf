@@ -550,7 +550,7 @@ def se3_exp_map(log_transform: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
     transform[:, :3, 3] = T
     transform[:, 3, 3] = 1.0
 
-    return transform.permute(0, 2, 1)
+    return transform
 
 
 DEFAULT_ACOS_BOUND: float = 1.0 - 1e-4
@@ -798,16 +798,16 @@ def se3_log_map(
     if dim1 != 4 or dim2 != 4:
         raise ValueError("Input tensor shape has to be (N, 4, 4).")
 
-    if not torch.allclose(transform[:, :3, 3], torch.zeros_like(transform[:, :3, 3])):
-        raise ValueError("All elements of `transform[:, :3, 3]` should be 0.")
+    if not torch.allclose(transform[:, 3, :3], torch.zeros_like(transform[:, 3, :3])):
+        raise ValueError("All elements of `transform[:, 3, :3]` should be 0.")
 
     # log_rot is just so3_log_map of the upper left 3x3 block
-    R = transform[:, :3, :3].permute(0, 2, 1)
+    R = transform[:, :3, :3]
     log_rotation = so3_log_map(R, eps=eps, cos_bound=cos_bound)
 
     # log_translation is V^-1 @ T
-    T = transform[:, 3, :3]
+    T = transform[:, :3, 3]
     V = _se3_V_matrix(*_get_se3_V_input(log_rotation), eps=eps)
-    log_translation = torch.linalg.solve(V, T[:, :, None])[:, :, 0]
+    log_translation = torch.linalg.solve(V, T[:, :])[:, :]
 
     return torch.cat((log_translation, log_rotation), dim=1)
