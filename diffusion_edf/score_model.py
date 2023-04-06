@@ -87,7 +87,8 @@ class ScoreModelHead(torch.nn.Module):
 
     def get_score(self, T: torch.Tensor,
                   query: QUERY_TYPE, 
-                  key_gnn_outputs: GNN_OUTPUT_TYPE) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
+                  key_gnn_outputs: GNN_OUTPUT_TYPE,
+                  angular_first: bool = True) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
         query_weight, query_feature, query_coord, query_batch = query # Shape: (N_query,), (N_query, D), (N_query, 3), (N_query,) 
         assert query_weight.ndim + 1 == query_feature.ndim == query_coord.ndim == query_batch.ndim + 1 == 2 
         assert T.ndim == 2 and T.shape[-1] == 7
@@ -126,13 +127,19 @@ class ScoreModelHead(torch.nn.Module):
         lin_vel = torch.einsum('q,tqi->ti', query_weight, lin_vel) # (N_T, 3)
         ang_vel = torch.einsum('q,tqi->ti', query_weight, ang_orbital) + torch.einsum('q,tqi->ti', query_weight, ang_spin) # (N_T, 3)
 
-        return torch.cat([ang_vel, lin_vel], dim=-1), key_info
+        if angular_first:
+            score = torch.cat([ang_vel, lin_vel], dim=-1)
+        else:
+            score = torch.cat([lin_vel, ang_vel], dim=-1)
+
+        return score, key_info
     
     def forward(self, T: torch.Tensor,
                 query: QUERY_TYPE, 
-                key_gnn_outputs: GNN_OUTPUT_TYPE) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
+                key_gnn_outputs: GNN_OUTPUT_TYPE,
+                angular_first: bool = True) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
         
-        score, key_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
+        score, key_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, angular_first=angular_first)
         return score, key_info
 
 
@@ -217,25 +224,26 @@ class ScoreModel(torch.nn.Module):
     
     def get_score(self, T: torch.Tensor,
                   query: QUERY_TYPE, 
-                  key_gnn_outputs: GNN_OUTPUT_TYPE) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
-        score, key_extractor_info = self.key_head.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
+                  key_gnn_outputs: GNN_OUTPUT_TYPE,
+                  angular_first: bool = True) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
+        score, key_extractor_info = self.key_head.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, angular_first=angular_first)
         return score, key_extractor_info
 
     def forward(self, T: torch.Tensor,
                 key_feature: torch.Tensor, key_coord: torch.Tensor, key_batch: torch.Tensor,
                 query_feature: torch.Tensor, query_coord: torch.Tensor, query_batch: torch.Tensor,
-                info_mode: str = 'NONE', iters: int = 1) -> Tuple[QUERY_TYPE, Optional[EDF_INFO_TYPE], Optional[EDF_INFO_TYPE]]:      
+                info_mode: str = 'NONE', iters: int = 1, angular_first: bool = True) -> Tuple[QUERY_TYPE, Optional[EDF_INFO_TYPE], Optional[EDF_INFO_TYPE]]:      
         query, query_info = self._get_query(node_feature=query_feature, node_coord=query_coord, batch=query_batch, info_mode=info_mode)
         key_gnn_outputs = self.key_model.get_gnn_outputs(node_feature=key_feature, node_coord=key_coord, batch=key_batch) 
 
 
         ######## EXAMPLE ##########
         if iters == 1:
-            score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
+            score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, angular_first=angular_first)
         else:
             with torch.no_grad():
                 for _ in tqdm(range(iters)):
-                    score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs)
+                    score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, angular_first=angular_first)
         #############################################
 
 

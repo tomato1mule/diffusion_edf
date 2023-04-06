@@ -1,6 +1,7 @@
 # Custom
 demo/*
 !demo/test_demo
+runs/
 
 
 # Byte-compiled / optimized / DLL files
