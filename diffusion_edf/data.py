@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 
 import torch
 from torchvision.transforms import Compose
+from diffusion_edf import GNN_OUTPUT_TYPE, EDF_INFO_TYPE, EXTRACTOR_INFO_TYPE, QUERY_TYPE
 from diffusion_edf.transforms import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion, quaternion_invert, normalize_quaternion
 
 
@@ -562,8 +563,37 @@ class DemoSeqDataset(torch.utils.data.Dataset):
 
 
 
-    
-
+class OutputLog():
+    def __init__(self, T: Optional[torch.Tensor],
+                 score: Optional[torch.Tensor], 
+                 query: Optional[QUERY_TYPE], 
+                 query_info: Optional[EDF_INFO_TYPE], 
+                 key_info: Optional[EDF_INFO_TYPE]):
         
+        self.T = T
+        self.score = score
+        if query is not None:
+            self.query_weight, self.query_feature, self.query_coord, self.query_batch = query
+        if query_info is not None:
+            (self.ext_edge_src_query, self.ext_edge_dst_query), (self.node_feature_query, self.node_coord_query, self.node_batch_query, self.node_scale_slice_query, self.node_edge_src_query, self.node_edge_dst_query) = query_info
+        if key_info is not None:
+            (self.ext_edge_src_key, self.ext_edge_dst_key), (self.node_feature_key, self.node_coord_key, self.node_batch_key, self.node_scale_slice_key, self.node_edge_src_key, self.node_edge_dst_key) = key_info
+
+        for k,v in self.__dict__.items():
+            if isinstance(v, torch.Tensor):
+                self.__setattr__(k, v.detach().cpu())
+
+    def save(self, path: str):
+        gzip_save(data=self.__dict__, path=path)
+
+    @staticmethod
+    def load(path: str, strict:bool = False) -> OutputLog:
+        state_dict: Dict = gzip_load(path=path)
+        output_log = OutputLog(None, None, None, None, None)
+        for k,v in state_dict.items():
+            output_log.__setattr__(k, v)
+        return output_log
+
+    
 
     

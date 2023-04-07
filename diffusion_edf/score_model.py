@@ -232,7 +232,7 @@ class ScoreModel(torch.nn.Module):
     def forward(self, T: torch.Tensor,
                 key_feature: torch.Tensor, key_coord: torch.Tensor, key_batch: torch.Tensor,
                 query_feature: torch.Tensor, query_coord: torch.Tensor, query_batch: torch.Tensor,
-                info_mode: str = 'NONE', iters: int = 1, angular_first: bool = True) -> Tuple[QUERY_TYPE, Optional[EDF_INFO_TYPE], Optional[EDF_INFO_TYPE]]:      
+                info_mode: str = 'NONE', iters: int = 1, angular_first: bool = True) -> Tuple[QUERY_TYPE, Optional[QUERY_TYPE], Optional[EDF_INFO_TYPE], Optional[EDF_INFO_TYPE]]:      
         query, query_info = self._get_query(node_feature=query_feature, node_coord=query_coord, batch=query_batch, info_mode=info_mode)
         key_gnn_outputs = self.key_model.get_gnn_outputs(node_feature=key_feature, node_coord=key_coord, batch=key_batch) 
 
@@ -251,11 +251,14 @@ class ScoreModel(torch.nn.Module):
 
 
         if info_mode == 'NONE':
+            query = None
+            query_info = None
             key_info = None
         elif info_mode == 'NO_GRAD' or info_mode == 'REQUIRES_GRAD':
             (edge_src_field, edge_dst_field) = key_extractor_info
             (node_feature, node_coord, batch, scale_slice, edge_src, edge_dst) = key_gnn_outputs
             if info_mode == 'NO_GRAD':
+                (query_weight, query_feature, query_coord, query_batch) = query
                 gnn_outputs = (node_feature.detach(), 
                                node_coord.detach(), 
                                batch.detach(),
@@ -263,8 +266,9 @@ class ScoreModel(torch.nn.Module):
                                edge_src.detach(), 
                                edge_dst.detach())
                 extractor_info = (edge_src_field.detach(), edge_dst_field.detach())
+                query = (query_weight.detach(), query_feature.detach(), query_coord.detach(), query_batch.detach())
             key_info = (extractor_info, gnn_outputs)
         else:
             raise ValueError(f"Unknown info_mode: {info_mode}")
 
-        return score, query_info, key_info
+        return score, query, query_info, key_info
