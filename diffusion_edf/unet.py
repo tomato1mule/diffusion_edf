@@ -224,6 +224,11 @@ class EdfUnet(torch.nn.Module):
             output_idx.append(output_idx[-1] + n_layers)
         self.output_idx: Tuple[int] = tuple(output_idx)
 
+        output_edge_idx = [0]
+        for n_layers in self.n_layers[:-1]:
+            output_edge_idx.append(output_edge_idx[-1] + n_layers)
+        self.output_edge_idx: Tuple[int] = tuple(output_edge_idx)
+
 
 
         self.project_outputs = torch.nn.ModuleList()
@@ -360,7 +365,7 @@ class EdfUnet(torch.nn.Module):
             upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
 
         upstream_outputs, upstream_edges = upstream_outputs[::-1], upstream_edges[::-1]
-        upstream_outputs, upstream_edges = [upstream_outputs[n] for n in self.output_idx], [upstream_edges[n] for n in self.output_idx]
+        upstream_outputs, upstream_edges = [upstream_outputs[n] for n in self.output_idx], [upstream_edges[n] for n in self.output_edge_idx]
         
         node_features: List[torch.Tensor] = []
         node_coords: List[torch.Tensor] = []
@@ -371,9 +376,7 @@ class EdfUnet(torch.nn.Module):
 
         N_nodes = 0
         for scale, projection in enumerate(self.project_outputs):
-            
             (node_feature, node_coord, batch) = upstream_outputs[scale]
-            (edge_src, edge_dst, _, _) = upstream_edges[scale]
 
             N_nodes_this_scale = len(node_feature)
             assert N_nodes_this_scale == len(node_feature) == len(node_coord) == len(batch)
@@ -383,11 +386,17 @@ class EdfUnet(torch.nn.Module):
             batchs.append(batch)
             scale_slice.append(len(node_coord) + scale_slice[-1])
 
-            edge_dst = edge_dst + N_nodes
-            edge_dsts.append(edge_dst)
-            N_nodes = N_nodes + N_nodes_this_scale
-            edge_src = edge_src + N_nodes    
-            edge_srcs.append(edge_src)
+
+            if scale >= self.n_scales: # Last layer is self-connecting
+                assert scale == self.n_scales # shouldn't be higher than self.n_scales
+            else:
+                (edge_src, edge_dst, _, _) = upstream_edges[scale]
+                # print((edge_src.min().item(), edge_src.max().item()), (edge_dst.min().item(), edge_dst.max().item()))
+                edge_dst = edge_dst + N_nodes
+                edge_dsts.append(edge_dst)
+                N_nodes = N_nodes + N_nodes_this_scale
+                edge_src = edge_src + N_nodes    
+                edge_srcs.append(edge_src)
 
 
         node_feature = torch.cat(node_features, dim=-2)

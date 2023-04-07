@@ -286,7 +286,12 @@ class PointCloud():
         return PointCloud(points=points, colors=colors)
 
     @staticmethod
-    def points_to_plotly(pcd: Union[PointCloud, torch.Tensor], point_size: float = 1.0, name: Optional[str] = None, opacity: Union[float, torch.Tensor] = 1.0, colors: Optional[Iterable] = None, custom_data: Optional[Dict] = None) -> go.Scatter3d:
+    def points_to_plotly(pcd: Union[PointCloud, torch.Tensor], 
+                         point_size: float = 1.0, 
+                         name: Optional[str] = None, 
+                         opacity: Union[float, torch.Tensor] = 1.0, 
+                         colors: Optional[Iterable] = None, 
+                         custom_data: Optional[Dict] = None) -> go.Scatter3d:
         if colors is not None:
             colors = torch.tensor(colors)
         if isinstance(pcd, PointCloud):
