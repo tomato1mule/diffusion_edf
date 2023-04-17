@@ -27,6 +27,7 @@ setup(
         'torchvision',
         'e3nn==0.4.4',
         'open3d==0.16.0',
+        'xitorch==0.5.1',
         'pyyaml',        # 6.0
         'tqdm',          # 4.64.1
         'jupyter',       # 1.0.0
