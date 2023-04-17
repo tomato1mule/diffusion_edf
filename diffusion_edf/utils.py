@@ -69,7 +69,7 @@ class SinusoidalPositionEmbeddings(torch.nn.Module):
     
 
 
-def sample_reference_points(src_points: torch.Tensor, dst_points: torch.Tensor, r: float, n_samples: int = 1) -> torch.Tensor:
+def sample_reference_points(src_points: torch.Tensor, dst_points: torch.Tensor, r: float, n_samples: int = 1) -> Tuple[torch.Tensor, torch.Tensor]:
     edge_dst, edge_src = radius(x=src_points, y=dst_points, r=r)
     n_points = len(dst_points)
     n_neighbor = scatter_sum(src=torch.ones_like(edge_dst), index=edge_dst, dim_size=n_points)
@@ -78,5 +78,5 @@ def sample_reference_points(src_points: torch.Tensor, dst_points: torch.Tensor, 
         raise ValueError("There is no connected edges. Increase the clustering radius.")
     p_choice = n_neighbor / total_count
 
-    sampled_idx = torch.multinomial(p_choice, num_samples=1)
-    return dst_points.index_select(0, sampled_idx)
+    sampled_idx = torch.multinomial(p_choice, num_samples=n_samples)
+    return dst_points.index_select(0, sampled_idx), n_neighbor
