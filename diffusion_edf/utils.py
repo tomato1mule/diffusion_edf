@@ -4,6 +4,8 @@ import math
 import torch
 from e3nn import o3
 from e3nn.util.jit import compile_mode
+from torch_cluster import radius
+from torch_scatter import scatter_sum
 
 from diffusion_edf.equiformer.graph_attention_transformer import sort_irreps_even_first
 
@@ -66,3 +68,15 @@ class SinusoidalPositionEmbeddings(torch.nn.Module):
         return embeddings
     
 
+
+def sample_reference_points(src_points: torch.Tensor, dst_points: torch.Tensor, r: float, n_samples: int = 1) -> torch.Tensor:
+    edge_dst, edge_src = radius(x=src_points, y=dst_points, r=r)
+    n_points = len(dst_points)
+    n_neighbor = scatter_sum(src=torch.ones_like(edge_dst), index=edge_dst, dim_size=n_points)
+    total_count = n_neighbor.sum()
+    if total_count <= 0:
+        raise ValueError("There is no connected edges. Increase the clustering radius.")
+    p_choice = n_neighbor / total_count
+
+    sampled_idx = torch.multinomial(p_choice, num_samples=1)
+    return dst_points.index_select(0, sampled_idx)
