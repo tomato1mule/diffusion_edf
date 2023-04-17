@@ -55,6 +55,8 @@ class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
         self.soft_cutoff: bool = soft_cutoff
         self.cutoff_thr_ratio: float = cutoff_thr_ratio
         assert cutoff_thr_ratio <= 0.95
+
+        self.normalizer = math.sqrt(self.num_basis)
         
 
     def forward(self, dist: torch.Tensor) -> torch.Tensor:
@@ -70,8 +72,8 @@ class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
 
         if self.soft_cutoff is True:
             x = x * soft_square_cutoff(dist, thr=self.cutoff_thr_ratio)
-
-        return x
+        
+        return x * self.normalizer
     
     
     # def extra_repr(self):

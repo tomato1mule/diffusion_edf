@@ -44,22 +44,25 @@ class ParityInversionSh(torch.nn.Module):
         return x * self.sign
     
 
-class PositionalEncoding(torch.nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+# Borrowed from https://github.com/lucidrains/denoising-diffusion-pytorch
+class SinusoidalPositionEmbeddings(torch.nn.Module):
+    def __init__(self, dim: int, max_t: float = 1., n: float = 10000.):
         super().__init__()
-        self.dropout = torch.nn.Dropout(p=dropout)
+        self.dim = dim
+        self.n = n
+        self.max_t = max_t
 
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, 1, d_model)
-        pe[:, 0, 0::2] = torch.sin(position * div_term)
-        pe[:, 0, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe)
+    def forward(self, time: torch.Tensor):
+        assert time.ndim == 1, f"{time.shape}"
+        time = time / self.max_t * self.n # time: 0~10000
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: Tensor, shape [seq_len, batch_size, embedding_dim]
-        """
-        x = x + self.pe[:x.size(0)]
-        return self.dropout(x)
+        device = time.device
+        half_dim = self.dim // 2
+        embeddings = math.log(self.n) / (half_dim - 1) # Period: 2pi~10000*2pi
+        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings) # shape: (self.dim/2, )
+        embeddings = time[:, None] * embeddings[None, :]                            # shape: (nBatch, self.dim/2) 
+        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)        # shape: (nBatch, self.dim)
+
+        return embeddings
+    
+

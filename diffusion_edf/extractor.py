@@ -16,6 +16,7 @@ from diffusion_edf.graph_attention import GraphAttentionMLP
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 from diffusion_edf.block import EquiformerBlock
+from diffusion_edf.utils import SinusoidalPositionEmbeddings
 
 
 #@compile_mode('script')
@@ -172,16 +173,21 @@ class EdfExtractorLight(torch.nn.Module):
         self.pre_connect = torch.nn.ModuleList()
         self.pre_radial = torch.nn.ModuleList()
         self.pre_layers = torch.nn.ModuleList()
+        self.num_basis: List[int] = []
         for n in range(self.n_scales):
             self.pre_connect.append(
                 RadiusConnect(r=self.cutoffs[n], offset=None, max_num_neighbors= 1000) # TODO: offset=None -> self.offsets[n]
             )
             self.pre_radial.append(
-                GaussianRadialBasisLayerFiniteCutoff(num_basis=fc_neurons[0], 
-                                                     cutoff=self.cutoffs[n], 
-                                                     offset=self.offsets[n],
-                                                     soft_cutoff=True)
+                torch.nn.Sequential(
+                    GaussianRadialBasisLayerFiniteCutoff(num_basis=fc_neurons[0], 
+                                                        cutoff=self.cutoffs[n], 
+                                                        offset=self.offsets[n],
+                                                        soft_cutoff=True),
+                    torch.nn.Linear(fc_neurons[0], fc_neurons[0])
+                )
             )
+            self.num_basis.append(fc_neurons[0])
         self.gnn = EquiformerBlock(irreps_src = self.irreps_inputs[n], 
                                    irreps_dst = self.irreps_emb, 
                                    irreps_edge_attr = self.irreps_edge_attr, 
@@ -196,18 +202,21 @@ class EdfExtractorLight(torch.nn.Module):
                                    src_bias = False,
                                    dst_bias = True, debug=True)
 
-        self.spherical_harmonics = o3.SphericalHarmonics(irreps_out = self.irreps_edge_attr, normalize = True, normalization='component')    
+        self.spherical_harmonics = o3.SphericalHarmonics(irreps_out = self.irreps_edge_attr, normalize = True, normalization='component')
         self.register_buffer('zero_features', torch.zeros(1, self.emb_dim), persistent=False)
-        self.num_basis: List[int] = [f.num_basis for f in self.pre_radial]
+        
 
     def forward(self, query_coord: torch.Tensor,
                 query_batch: torch.Tensor,
                 node_feature: torch.Tensor,
                 node_coord: torch.Tensor,
                 node_batch: torch.Tensor,
-                node_scale_slice: List[int],) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+                node_scale_slice: List[int],
+                time_emb: Optional[List[torch.Tensor]] = None,) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         Nq, D = query_coord.shape
         assert query_batch.shape == (Nq, ) and D == 3
+        if time_emb is not None:
+            assert len(time_emb) == self.n_scales # time_emb[i]: Shape (nBatch, fc_neurons[0])
 
         edge_srcs = torch.empty(0, device=query_coord.device, dtype=torch.long)
         edge_dsts = torch.empty(0, device=query_coord.device, dtype=torch.long)
@@ -229,7 +238,14 @@ class EdfExtractorLight(torch.nn.Module):
             edge_src, edge_dst, edge_vec, edge_length = edge_src[in_range_idx], edge_dst[in_range_idx], edge_vec[in_range_idx], edge_length[in_range_idx]
             edge_src = edge_src + slice_start
             edge_scalar = radial(edge_length)
-
+            if time_emb is not None:
+                time_emb_ = time_emb[n] # nBatch, nDim
+                time_emb_ = time_emb_.index_select(0, query_batch) # Nq, nDim
+                time_emb_ = time_emb_.index_select(0, edge_dst)    # nEdge, nDim
+                edge_scalar = edge_scalar + time_emb_
+            else:
+                time_emb_ = None
+            
             edge_srcs = torch.cat([edge_srcs, edge_src], dim=-1)
             edge_dsts = torch.cat([edge_dsts, edge_dst], dim=-1)
             edge_vecs = torch.cat([edge_vecs, edge_vec], dim=-2)
