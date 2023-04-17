@@ -145,7 +145,7 @@ class IgSO3Dist(nn.Module):
             logP= -0.25 * angle.square() / eps - 1.5*math.log(4*eps*math.pi) # gaussian
             log_haar = torch.log(
                 4*math.pi*angle.square()
-            )
+            )  # d^3x = r^2 sin(thete) dr d(theta) d(phi) => d^3x = {omg^2 d(omg)} x {d(SolidAngle)} = {4*pi*omg^2 d(omg)} x {d(NormalizedSolidAngle)}, where \int d(SolidAngle) = 4pi => d(SolidAngle) = 4pi * d(NormalizedSolidAngle)
             return logP+log_haar
         else:
             logP = torch.log(self.isotropic_gaussian_so3(angle, eps=eps))
