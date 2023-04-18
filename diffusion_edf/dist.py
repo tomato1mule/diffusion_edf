@@ -5,6 +5,8 @@ import datetime
 import os
 import random
 import math
+import warnings
+
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
@@ -38,13 +40,118 @@ class QuaternionUniformDist(nn.Module):
         q_new = transforms.quaternion_multiply(q.view(-1,4), q_new)
         return q_new.view(*(q.shape))
 
-    def log_factor(self, q2: torch.Tensor, q1: torch.Tensor) -> torch.Tensor: # log Q(q2 | q1)
-        assert q2.shape == q2.shape
-        return torch.zeros(q1.shape[:-1], device = q2.device, dtype=q2.dtype)
 
-    def log_factor_diff(self,  q2: torch.Tensor, q1: torch.Tensor) -> torch.Tensor: # log[ Q(q1 | q2) / Q(q2 | q1) ]
-        assert q2.shape == q2.shape
-        return torch.zeros(q1.shape[:-1], device = q2.device)
+@torch.jit.script
+def haar_measure_angle(omg: torch.Tensor) -> torch.Tensor:
+    assert (omg <= torch.pi).all() and (omg >= 0.).all()
+    return (1-torch.cos(omg)) / torch.pi
+
+@torch.jit.script
+def haar_measure(q: torch.Tensor) -> torch.Tensor:
+    versor = q[..., :0] # cos(omg/2)
+    cos_omg = 2 * torch.square(versor) - 1.
+    assert (cos_omg <= 1.).all() and (cos_omg >= -1.).all()
+
+    return (1-cos_omg) / torch.pi
+
+@torch.jit.script
+def isotropic_gaussian_so3_small_angle(omg: torch.Tensor, eps: Union[float, torch.Tensor]) -> torch.Tensor:
+    assert (omg <= torch.pi).all() and (omg >= 0.).all()
+    if not isinstance(eps, torch.Tensor):
+        eps = torch.tensor(eps, device=omg.device, dtype=omg.dtype)
+
+    if eps.dtype is torch.float64:
+        small_number = 1e-20
+        if eps.item() < 1e-10:
+            warnings.warn("Too small eps: {eps} is provided.")
+    else:
+        small_number = 1e-9
+        if eps.item() < 1e-5:
+            warnings.warn("Too small eps: {eps} is provided. Consider using double precision")
+
+    small_num = small_number / 2 
+    small_dnm = (1-torch.exp(-1. * torch.pi**2 / eps)*(2  - 4 * (torch.pi**2) / eps   )) * small_number
+
+    return 0.5 * torch.sqrt(torch.pi) * (eps ** -1.5) * torch.exp((eps - (omg**2 / eps))/4) / (torch.sin(omg/2) + small_num)            \
+        * ( small_dnm + omg - ((omg - 2*torch.pi)*torch.exp(torch.pi * (omg - torch.pi) / eps) + (omg + 2*torch.pi)*torch.exp( -torch.pi * (omg+torch.pi) / eps) ))     
+
+
+def determine_lmax(eps: float) -> int:
+    assert eps > 0.
+    thr = 10.                                                       # lmax ~= 100 is enough to guarantee exp[-lmax(lmax+1)eps] < exp(-10). for eps = 1e-3                                                                    
+    lmax = max(math.ceil(math.sqrt(thr / eps)) , 5)                 # Even for eps = 1e-7, only lmax ~= 10000 is required, which can be calculated almost immediately.
+                                                                    # lmax(lmax+1) > lmax^2 >= thr/eps    ---->    exp[-lmax(lmax+1)eps] < exp(-thr).
+    return lmax
+
+
+@torch.jit.script
+def isotropic_gaussian_so3_angle(omg: torch.Tensor, eps: Union[float, torch.Tensor], lmax: Optional[int] = None) -> torch.Tensor:
+    assert (omg <= torch.pi).all() and (omg >= 0.).all()
+    if lmax is None:
+        if isinstance(eps, torch.Tensor):
+            lmax = determine_lmax(eps=eps.item())
+        else:
+            lmax = determine_lmax(eps=eps)
+        
+    if not isinstance(eps, torch.Tensor):
+        eps = torch.tensor(eps, device=omg.device, dtype=omg.dtype)
+    
+    if eps.dtype is torch.float64:
+        small_number = 1e-20
+        if eps.item() < 1e-10:
+            warnings.warn("Too small eps: {eps} is provided.")
+    else:
+        small_number = 1e-9
+        if eps.item() < 1e-5:
+            warnings.warn("Too small eps: {eps} is provided. Consider using double precision")
+    
+    l = torch.arange(lmax+1, device=omg.device, dtype=torch.long)
+    omg = omg[...,None]
+    sum = (2*l+1)    *    torch.exp(-l*(l+1) * eps)    *    (  torch.sin((l+0.5)*omg) + (l+0.5)*small_number  )    /    (  torch.sin(omg/2) + 0.5*small_number  )      
+
+    return sum.sum(dim=-1)
+
+@torch.jit.script
+def isotropic_gaussian_so3(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
+    versor = q[..., 0] # cos(omg/2)
+    omg = torch.acos(versor) * 2
+    assert (omg <= torch.pi).all() and (omg >= 0.).all()
+
+    return isotropic_gaussian_so3_angle(omg=omg, eps=eps, lmax=lmax)
+
+@torch.jit.script
+def isotropic_gaussian_so3_lie_deriv(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
+    versor = q[..., 0] # cos(omg/2)
+    omg = torch.acos(versor) * 2
+    assert (omg <= torch.pi).all() and (omg >= 0.).all()
+
+    if lmax is None:
+        if isinstance(eps, torch.Tensor):
+            lmax = determine_lmax(eps=eps.item())
+        else:
+            lmax = determine_lmax(eps=eps)
+        
+    if not isinstance(eps, torch.Tensor):
+        eps = torch.tensor(eps, device=omg.device, dtype=omg.dtype)
+
+    if eps.dtype is torch.float64:
+        small_number = 1e-20
+        if eps.item() < 1e-10:
+            warnings.warn("Too small eps: {eps} is provided.")
+    else:
+        small_number = 1e-9
+        if eps.item() < 1e-5:
+            warnings.warn("Too small eps: {eps} is provided. Consider using double precision")
+    
+    l = torch.arange(lmax+1, device=q.device, dtype=torch.long) # shape: (lmax+1,)
+    omg = omg[...,None] # shape: (..., 1)
+
+    lie_deriv_cos_omg = -2 * versor[...,None] * q[...,1:] # shape: (..., 3)
+
+    char_deriv = (((l+1) * torch.sin((l)*omg)) - ((l) * torch.sin((l+1)*omg)) + small_number*l*(l+1)*(2*l+1)) / ((1-torch.cos(omg))*torch.sin(omg) + 3*small_number) # shape: (..., lmax_+1)
+    sum = ((2*l+1)    *    torch.exp(-l*(l+1) * eps)    *    char_deriv).unsqueeze(-1) * lie_deriv_cos_omg.unsqueeze(-2)   # shape: (..., lmax_+1, 3)
+
+    return sum.sum(dim=-2)
 
 
 
@@ -54,70 +161,17 @@ class IgSO3Dist(nn.Module):
         self.is_symmetric = True
         self.small_eps_criteria = 0.05
     
-    def haar_measure(self, omg: torch.Tensor) -> torch.Tensor:
-        return (1-torch.cos(omg)) / torch.pi
-    
-    def isotropic_gaussian_so3_small(self, omg: Union[float, torch.Tensor], eps: Union[float, torch.Tensor]) -> torch.Tensor:
-        if not isinstance(eps, torch.Tensor):
-            eps = torch.tensor(eps)
-        if not isinstance(omg, torch.Tensor):
-            omg = torch.tensor(omg)
-
-        small_number = 1e-9
-        small_num = small_number / 2 
-        small_dnm = (1-torch.exp(-1. * math.pi**2 / eps)*(2  - 4 * (math.pi**2) / eps   )) * small_number
-
-        return 0.5 * math.sqrt(math.pi) * (eps ** -1.5) * torch.exp((eps - (omg**2 / eps))/4) / (torch.sin(omg/2) + small_num)            \
-            * ( small_dnm + omg - ((omg - 2*math.pi)*torch.exp(math.pi * (omg - math.pi) / eps) + (omg + 2*math.pi)*torch.exp( -math.pi * (omg+math.pi) / eps) ))      
-    
-    # def _isotropic_gaussian_so3(self, omg: Union[float, torch.Tensor], eps: float, lmax = None) -> torch.Tensor:
-    #     if lmax is None:
-    #         if isinstance(eps, float):
-    #             lmax = max(int( 5. / math.sqrt(eps)) , 5)
-    #         else:
-    #             lmax = max(int( 5. / torch.sqrt(eps).item()) , 5)
-    #     if not isinstance(eps, torch.Tensor):
-    #         eps = torch.tensor(eps)
-    #     if not isinstance(omg, torch.Tensor):
-    #         omg = torch.tensor(omg)
-    #     assert (omg < math.pi).all() and (omg >= 0.).all()
-
-    #     small_number = 1e-9
-    #     sum = torch.zeros_like(omg)
-    #     for l in range(lmax + 1):
-    #         sum = sum +         (2*l+1)    *    torch.exp(-l*(l+1) * eps)    *    (  torch.sin((l+0.5)*omg) + (l+0.5)*small_number  )    /    (  torch.sin(omg/2) + 0.5*small_number  )
-
-    #     return sum
-    
-    def _isotropic_gaussian_so3(self, omg: Union[float, torch.Tensor], eps: float, lmax = None) -> torch.Tensor:
-        if lmax is None:
-            if isinstance(eps, float):
-                lmax = max(int( 5. / math.sqrt(eps)) , 5)
-            else:
-                lmax = max(int( 5. / torch.sqrt(eps).item()) , 5)
-        if not isinstance(eps, torch.Tensor):
-            eps = torch.tensor(eps)
-        if not isinstance(omg, torch.Tensor):
-            omg = torch.tensor(omg)
-        assert (omg < math.pi).all() and (omg >= 0.).all()
-
-        small_number = 1e-9
-        l = torch.arange(lmax+1)
-        omg = omg[...,None]
-        sum = (2*l+1)    *    torch.exp(-l*(l+1) * eps)    *    (  torch.sin((l+0.5)*omg) + (l+0.5)*small_number  )    /    (  torch.sin(omg/2) + 0.5*small_number  )      
-
-        return sum.sum(dim=-1)
-    
-    def isotropic_gaussian_so3(self, omg: Union[float, torch.Tensor], eps: float, lmax = None) -> torch.Tensor:
-        if eps <= 1.:
-            assert lmax is None
-            return self.isotropic_gaussian_so3_small(omg, eps)
-        else:
-            return self._isotropic_gaussian_so3(omg=omg, eps=eps, lmax=lmax)
+    def isotropic_gaussian_so3_angle(self, omg: Union[float, torch.Tensor], eps: float, lmax = None) -> torch.Tensor:
+        # if eps <= 1.:
+        #     assert lmax is None
+        #     return isotropic_gaussian_so3_small(omg, eps)
+        # else:
+        #     return isotropic_gaussian_so3(omg=omg, eps=eps, lmax=lmax)
+        return isotropic_gaussian_so3_angle(omg=omg, eps=eps, lmax=lmax)
 
     def _get_inv_cdf(self, eps: float, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None):
         X = torch.linspace(0, math.pi, 300, device=device, dtype=dtype)
-        Y = self.isotropic_gaussian_so3(X, eps=eps) * self.haar_measure(X)
+        Y = self.isotropic_gaussian_so3_angle(X, eps=eps) * haar_measure_angle(X)
 
         cdf = torch.cumsum(Y, dim=-1)
         cdf = cdf / cdf.max()
@@ -143,14 +197,12 @@ class IgSO3Dist(nn.Module):
         angle: torch.Tensor = torch.norm(transforms.quaternion_to_axis_angle(transforms.standardize_quaternion(q)), dim=-1)
         if eps <= self.small_eps_criteria:
             logP= -0.25 * angle.square() / eps - 1.5*math.log(4*eps*math.pi) # gaussian
-            log_haar = torch.log(
-                4*math.pi*angle.square()
-            )  # d^3x = r^2 sin(thete) dr d(theta) d(phi) => d^3x = {omg^2 d(omg)} x {d(SolidAngle)} = {4*pi*omg^2 d(omg)} x {d(NormalizedSolidAngle)}, where \int d(SolidAngle) = 4pi => d(SolidAngle) = 4pi * d(NormalizedSolidAngle)
-            return logP+log_haar
+            logP = logP + torch.log(4*math.pi*angle.square()) # d^3x = r^2 sin(thete) dr d(theta) d(phi) => d^3x = {omg^2 d(omg)} x {d(SolidAngle)} = {4*pi*omg^2 d(omg)} x {d(NormalizedSolidAngle)}, where \int d(SolidAngle) = 4pi => d(SolidAngle) = 4pi * d(NormalizedSolidAngle)
+            logP = logP - torch.log(haar_measure_angle(angle))
+            return logP
         else:
-            logP = torch.log(self.isotropic_gaussian_so3(angle, eps=eps))
-            log_haar = torch.log(self.haar_measure(angle))
-            return logP + log_haar
+            logP = torch.log(self.isotropic_gaussian_so3_angle(angle, eps=eps))
+            return logP
 
 
 
