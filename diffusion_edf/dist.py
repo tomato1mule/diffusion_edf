@@ -55,7 +55,7 @@ def haar_measure(q: torch.Tensor) -> torch.Tensor:
     return (1-cos_omg) / torch.pi
 
 @torch.jit.script
-def isotropic_gaussian_so3_small_angle(omg: torch.Tensor, eps: Union[float, torch.Tensor]) -> torch.Tensor:
+def igso3_small_angle(omg: torch.Tensor, eps: Union[float, torch.Tensor]) -> torch.Tensor:
     assert (omg <= torch.pi).all() and (omg >= 0.).all()
     if not isinstance(eps, torch.Tensor):
         eps = torch.tensor(eps, device=omg.device, dtype=omg.dtype)
@@ -85,7 +85,7 @@ def determine_lmax(eps: float) -> int:
 
 
 @torch.jit.script
-def isotropic_gaussian_so3_angle(omg: torch.Tensor, eps: Union[float, torch.Tensor], lmax: Optional[int] = None) -> torch.Tensor:
+def igso3_angle(omg: torch.Tensor, eps: Union[float, torch.Tensor], lmax: Optional[int] = None) -> torch.Tensor:
     assert (omg <= torch.pi).all() and (omg >= 0.).all()
     if lmax is None:
         if isinstance(eps, torch.Tensor):
@@ -109,18 +109,18 @@ def isotropic_gaussian_so3_angle(omg: torch.Tensor, eps: Union[float, torch.Tens
     omg = omg[...,None]
     sum = (2*l+1)    *    torch.exp(-l*(l+1) * eps)    *    (  torch.sin((l+0.5)*omg) + (l+0.5)*small_number  )    /    (  torch.sin(omg/2) + 0.5*small_number  )      
 
-    return sum.sum(dim=-1)
+    return torch.clamp(sum.sum(dim=-1), min = 0.)
 
 @torch.jit.script
-def isotropic_gaussian_so3(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
+def igso3(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
     versor = q[..., 0] # cos(omg/2)
     omg = torch.acos(versor) * 2
     assert (omg <= torch.pi).all() and (omg >= 0.).all()
 
-    return isotropic_gaussian_so3_angle(omg=omg, eps=eps, lmax=lmax)
+    return igso3_angle(omg=omg, eps=eps, lmax=lmax)
 
 @torch.jit.script
-def isotropic_gaussian_so3_lie_deriv(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
+def igso3_lie_deriv(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
     versor = q[..., 0] # cos(omg/2)
     omg = torch.acos(versor) * 2
     assert (omg <= torch.pi).all() and (omg >= 0.).all()
@@ -154,67 +154,91 @@ def isotropic_gaussian_so3_lie_deriv(q: torch.Tensor, eps: float, lmax: Optional
     return sum.sum(dim=-2)
 
 @torch.jit.script
-def isotropic_gaussian_so3_score(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
-    deriv = isotropic_gaussian_so3_lie_deriv(q=q, eps=eps, lmax=lmax)
-    prob = isotropic_gaussian_so3(q=q, eps=eps, lmax=lmax)
+def igso3_score(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
+    deriv = igso3_lie_deriv(q=q, eps=eps, lmax=lmax)
+    prob = igso3(q=q, eps=eps, lmax=lmax).unsqueeze(-1)
 
     if q.dtype is torch.float64:
         small_number = 1e-30
     else:
         small_number = 1e-10
 
-    return deriv / (prob.unsqueeze(-1) + small_number)
+    return (deriv / (prob + small_number)) * (prob > 0.)
+
+
+def get_inv_cdf(eps: float, N:int = 1000, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> Interp1D:
+    N=1000
+    omg_max_prob = 2*math.sqrt(eps)
+    omg_range = min(omg_max_prob * 4, math.pi)
+    # omg_max_prob_idx = ((omg_max_prob) * N / omg_range)
+
+    X = torch.linspace(0, omg_range, N, device=device, dtype=dtype)
+    Y = igso3_angle(X, eps=eps) * haar_measure_angle(X)
+
+    cdf = torch.cumsum(Y, dim=-1)
+    cdf = cdf / cdf.max()
+    return Interp1D(cdf, X, 'linear') # https://gist.github.com/amarvutha/c2a3ea9d42d238551c694480019a6ce1
+
+def _sample_igso3(inv_cdf: Interp1D, N: int, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+    angle = inv_cdf(torch.rand(N, device=device, dtype=dtype)).unsqueeze(-1)
+    axis = F.normalize(torch.randn(N,3, device=device, dtype=dtype), dim=-1)
+
+    return transforms.axis_angle_to_quaternion(axis * angle)
+
+def sample_igso3(eps: float, N: int = 1, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+    inv_cdf = get_inv_cdf(eps=eps, device=device, dtype=dtype)
+    return _sample_igso3(inv_cdf=inv_cdf, N=N, device=device, dtype=dtype)
 
 
 
-class IgSO3Dist(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.is_symmetric = True
-        self.small_eps_criteria = 0.05
+# class IgSO3Dist(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         self.is_symmetric = True
+#         self.small_eps_criteria = 0.05
     
-    def isotropic_gaussian_so3_angle(self, omg: Union[float, torch.Tensor], eps: float, lmax = None) -> torch.Tensor:
-        # if eps <= 1.:
-        #     assert lmax is None
-        #     return isotropic_gaussian_so3_small(omg, eps)
-        # else:
-        #     return isotropic_gaussian_so3(omg=omg, eps=eps, lmax=lmax)
-        return isotropic_gaussian_so3_angle(omg=omg, eps=eps, lmax=lmax)
+#     def isotropic_gaussian_so3_angle(self, omg: Union[float, torch.Tensor], eps: float, lmax = None) -> torch.Tensor:
+#         # if eps <= 1.:
+#         #     assert lmax is None
+#         #     return isotropic_gaussian_so3_small(omg, eps)
+#         # else:
+#         #     return isotropic_gaussian_so3(omg=omg, eps=eps, lmax=lmax)
+#         return isotropic_gaussian_so3_angle(omg=omg, eps=eps, lmax=lmax)
 
-    def _get_inv_cdf(self, eps: float, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None):
-        X = torch.linspace(0, math.pi, 300, device=device, dtype=dtype)
-        Y = self.isotropic_gaussian_so3_angle(X, eps=eps) * haar_measure_angle(X)
+#     def _get_inv_cdf(self, eps: float, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None):
+#         X = torch.linspace(0, math.pi, 300, device=device, dtype=dtype)
+#         Y = self.isotropic_gaussian_so3_angle(X, eps=eps) * haar_measure_angle(X)
 
-        cdf = torch.cumsum(Y, dim=-1)
-        cdf = cdf / cdf.max()
-        return Interp1D(cdf, X, 'linear') # https://gist.github.com/amarvutha/c2a3ea9d42d238551c694480019a6ce1
+#         cdf = torch.cumsum(Y, dim=-1)
+#         cdf = cdf / cdf.max()
+#         return Interp1D(cdf, X, 'linear') # https://gist.github.com/amarvutha/c2a3ea9d42d238551c694480019a6ce1
     
-    def _sample(self, N, eps, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
-        inverse_cdf = self._get_inv_cdf(eps=eps, device=device, dtype=dtype)
-        angle = inverse_cdf(torch.rand(N, device=device, dtype=dtype)).unsqueeze(-1)
-        axis = F.normalize(torch.randn(N,3, device=device, dtype=dtype), dim=-1)
+#     def _sample(self, N, eps, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+#         inverse_cdf = self._get_inv_cdf(eps=eps, device=device, dtype=dtype)
+#         angle = inverse_cdf(torch.rand(N, device=device, dtype=dtype)).unsqueeze(-1)
+#         axis = F.normalize(torch.randn(N,3, device=device, dtype=dtype), dim=-1)
 
-        return transforms.axis_angle_to_quaternion(axis * angle)
+#         return transforms.axis_angle_to_quaternion(axis * angle)
     
-    def _sample_approx(self, N, eps, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
-        return transforms.axis_angle_to_quaternion(torch.randn(N,3, device=device, dtype=dtype) * math.sqrt(2*eps))
+#     def _sample_approx(self, N, eps, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+#         return transforms.axis_angle_to_quaternion(torch.randn(N,3, device=device, dtype=dtype) * math.sqrt(2*eps))
 
-    def sample(self, eps: float, N: int = 1, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
-        if eps <= self.small_eps_criteria:
-            return self._sample_approx(N=N, eps=eps, device=device, dtype=dtype)
-        else:
-            return self._sample(N=N, eps=eps, device=device, dtype=dtype)
+#     def sample(self, eps: float, N: int = 1, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+#         if eps <= self.small_eps_criteria:
+#             return self._sample_approx(N=N, eps=eps, device=device, dtype=dtype)
+#         else:
+#             return self._sample(N=N, eps=eps, device=device, dtype=dtype)
     
-    def log_likelihood(self, q: torch.Tensor, eps: float):
-        angle: torch.Tensor = torch.norm(transforms.quaternion_to_axis_angle(transforms.standardize_quaternion(q)), dim=-1)
-        if eps <= self.small_eps_criteria:
-            logP= -0.25 * angle.square() / eps - 1.5*math.log(4*eps*math.pi) # gaussian
-            logP = logP + torch.log(4*math.pi*angle.square()) # d^3x = r^2 sin(thete) dr d(theta) d(phi) => d^3x = {omg^2 d(omg)} x {d(SolidAngle)} = {4*pi*omg^2 d(omg)} x {d(NormalizedSolidAngle)}, where \int d(SolidAngle) = 4pi => d(SolidAngle) = 4pi * d(NormalizedSolidAngle)
-            logP = logP - torch.log(haar_measure_angle(angle))
-            return logP
-        else:
-            logP = torch.log(self.isotropic_gaussian_so3_angle(angle, eps=eps))
-            return logP
+#     def log_likelihood(self, q: torch.Tensor, eps: float):
+#         angle: torch.Tensor = torch.norm(transforms.quaternion_to_axis_angle(transforms.standardize_quaternion(q)), dim=-1)
+#         if eps <= self.small_eps_criteria:
+#             logP= -0.25 * angle.square() / eps - 1.5*math.log(4*eps*math.pi) # gaussian
+#             logP = logP + torch.log(4*math.pi*angle.square()) # d^3x = r^2 sin(thete) dr d(theta) d(phi) => d^3x = {omg^2 d(omg)} x {d(SolidAngle)} = {4*pi*omg^2 d(omg)} x {d(NormalizedSolidAngle)}, where \int d(SolidAngle) = 4pi => d(SolidAngle) = 4pi * d(NormalizedSolidAngle)
+#             logP = logP - torch.log(haar_measure_angle(angle))
+#             return logP
+#         else:
+#             logP = torch.log(self.isotropic_gaussian_so3_angle(angle, eps=eps))
+#             return logP
 
 
 
