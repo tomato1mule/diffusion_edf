@@ -153,6 +153,18 @@ def isotropic_gaussian_so3_lie_deriv(q: torch.Tensor, eps: float, lmax: Optional
 
     return sum.sum(dim=-2)
 
+@torch.jit.script
+def isotropic_gaussian_so3_score(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
+    deriv = isotropic_gaussian_so3_lie_deriv(q=q, eps=eps, lmax=lmax)
+    prob = isotropic_gaussian_so3(q=q, eps=eps, lmax=lmax)
+
+    if q.dtype is torch.float64:
+        small_number = 1e-30
+    else:
+        small_number = 1e-10
+
+    return deriv / (prob.unsqueeze(-1) + small_number)
+
 
 
 class IgSO3Dist(nn.Module):
