@@ -179,14 +179,21 @@ def sample_igso3(eps: Union[float, torch.Tensor], N: int = 1, dtype: Optional[to
 def r3_isotropic_gaussian_score(x: torch.Tensor, std: Union[float, torch.Tensor]):
     if not isinstance(std, torch.Tensor):
         std = torch.tensor(std, device=x.device, dtype=x.dtype)
-    return -x / std
+    return -x / torch.square(std)
+
+@torch.jit.script
+def r3_log_isotropic_gaussian(x: torch.Tensor, std: Union[float, torch.Tensor]):
+    if not isinstance(std, torch.Tensor):
+        std = torch.tensor(std, device=x.device, dtype=x.dtype)
+    
+    return -0.5 * torch.square(x).sum(dim=-1) / torch.square(std) - 1.5*math.log(2*torch.square(std)*torch.pi) # gaussian
 
 @torch.jit.script
 def r3_isotropic_gaussian(x: torch.Tensor, std: Union[float, torch.Tensor]):
     if not isinstance(std, torch.Tensor):
         std = torch.tensor(std, device=x.device, dtype=x.dtype)
     
-    return torch.exp(-0.5 * torch.square(x).sum(dim=-1) / torch.square(std) - 1.5*math.log(2*std*torch.pi)) # gaussian
+    return torch.exp(r3_log_isotropic_gaussian(x=x, std=std)) # gaussian
 
 @torch.jit.script
 def se3_isotropic_gaussian_score(T: torch.Tensor, eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], angular_first: bool = True) -> torch.Tensor:
@@ -195,6 +202,7 @@ def se3_isotropic_gaussian_score(T: torch.Tensor, eps: Union[float, torch.Tensor
 
     ang_score = igso3_score(q=q, eps=eps)
     lin_score = r3_isotropic_gaussian_score(x=x, std=std)
+    lin_score = transforms.quaternion_apply(transforms.quaternion_invert(q), lin_score)
     if angular_first:
         score = torch.cat([ang_score, lin_score], dim=-1)
     else:
@@ -203,7 +211,7 @@ def se3_isotropic_gaussian_score(T: torch.Tensor, eps: Union[float, torch.Tensor
     return score
 
 @torch.jit.script
-def adjoint_se3_score(score: torch.Tensor, T_ref: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
+def adjoint_se3_score(T_ref: torch.Tensor, score: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
     assert score.shape[:-1] == T_ref.shape[:-1]
 
     if angular_first:
@@ -224,7 +232,7 @@ def adjoint_se3_score(score: torch.Tensor, T_ref: torch.Tensor, angular_first: b
     return score
 
 @torch.jit.script
-def adjoint_isotropic_se3_score(score: torch.Tensor, x_ref: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
+def adjoint_isotropic_se3_score(x_ref: torch.Tensor, score: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
     assert score.shape[:-1] == x_ref.shape[:-1]
 
     if angular_first:
@@ -244,7 +252,7 @@ def adjoint_isotropic_se3_score(score: torch.Tensor, x_ref: torch.Tensor, angula
     return score
 
 @torch.jit.script
-def adjoint_inv_tr_se3_score(score: torch.Tensor, T_ref: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
+def adjoint_inv_tr_se3_score(T_ref: torch.Tensor, score: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
     assert score.shape[:-1] == T_ref.shape[:-1]
 
     if angular_first:
@@ -265,7 +273,7 @@ def adjoint_inv_tr_se3_score(score: torch.Tensor, T_ref: torch.Tensor, angular_f
     return score
 
 @torch.jit.script
-def adjoint_inv_tr_isotropic_se3_score(score: torch.Tensor, x_ref: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
+def adjoint_inv_tr_isotropic_se3_score(x_ref: torch.Tensor, score: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
     assert score.shape[:-1] == x_ref.shape[:-1]
 
     if angular_first:
@@ -304,9 +312,11 @@ def diffuse_isotropic_se3(T0: torch.Tensor, eps: Union[float, torch.Tensor], std
             x_ref = x_ref.type(dtype=torch.float64)
 
     delta_T = sample_isotropic_se3_gaussian(eps=eps, std=std, N=N*len(T0), dtype=T0.dtype, device=T0.device)
-    score = se3_isotropic_gaussian_score(T=delta_T, eps=eps, std=std, angular_first=angular_first)
+    score_ref = se3_isotropic_gaussian_score(T=delta_T, eps=eps, std=std, angular_first=angular_first)
     if x_ref is not None:
-        score = adjoint_inv_tr_isotropic_se3_score(score=score, x_ref=x_ref, angular_first=angular_first)
+        score = adjoint_inv_tr_isotropic_se3_score(x_ref=x_ref, score=score_ref, angular_first=angular_first)
+    else:
+        score = score_ref
 
     delta_T = delta_T.view(N,*T0.shape)
     score = score.view(N,*T0.shape[:-1], 6)
@@ -319,7 +329,7 @@ def diffuse_isotropic_se3(T0: torch.Tensor, eps: Union[float, torch.Tensor], std
     else:
         T = transforms.multiply_se3(T0.expand(N,*T0.shape), delta_T)
 
-    return T.type(dtype=input_dtype), delta_T, score.type(dtype=input_dtype)
+    return T.type(dtype=input_dtype), delta_T.type(dtype=input_dtype), score.type(dtype=input_dtype), score_ref.type(dtype=input_dtype)
     
     
 

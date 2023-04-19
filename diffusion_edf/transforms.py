@@ -895,3 +895,16 @@ def multiply_se3(T1: torch.Tensor, T2: torch.Tensor, pre_normalize: bool = False
         q = normalize_quaternion(q)
     
     return torch.cat([q,x], dim=-1)
+
+@torch.jit.script
+def se3_invert(T: torch.Tensor) -> torch.Tensor:
+    qinv = quaternion_invert(T[...,:4])
+    return torch.cat([qinv, quaternion_apply(qinv, -T[..., 4:])], dim=-1)
+
+@torch.jit.script
+def quaternion_identity(n: int, device: Optional[torch.device] = None, dtype: Optional[torch.dtype] = None) -> torch.Tensor:
+    return torch.tensor((1., 0., 0., 0.), device=device, dtype=dtype).repeat((n,1))
+
+@torch.jit.script
+def se3_from_r3(x: torch.Tensor) -> torch.Tensor:
+    return torch.cat([torch.ones_like(x[...,0:1]), torch.zeros_like(x[...,:3]), x], dim=-1)
