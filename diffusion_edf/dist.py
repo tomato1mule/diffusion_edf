@@ -24,23 +24,6 @@ from xitorch.interpolate import Interp1D
 
 
 
-
-class QuaternionUniformDist(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.is_symmetric = True
-
-    def sample(self, N=1, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
-        q = transforms.random_quaternions(N, device = device, dtype=dtype)
-        return q
-
-    def propose(self, q: torch.Tensor) -> torch.Tensor:
-        N = len(q.view(-1,4))
-        q_new = self.sample(N=N, dtype=q.dtype, device=q.device)
-        q_new = transforms.quaternion_multiply(q.view(-1,4), q_new)
-        return q_new.view(*(q.shape))
-
-
 @torch.jit.script
 def haar_measure_angle(omg: torch.Tensor) -> torch.Tensor:
     assert (omg <= torch.pi).all() and (omg >= 0.).all()
@@ -112,7 +95,7 @@ def igso3_angle(omg: torch.Tensor, eps: Union[float, torch.Tensor], lmax: Option
     return torch.clamp(sum.sum(dim=-1), min = 0.)
 
 @torch.jit.script
-def igso3(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
+def igso3(q: torch.Tensor, eps: Union[float, torch.Tensor], lmax: Optional[int] = None) -> torch.Tensor:
     versor = q[..., 0] # cos(omg/2)
     omg = torch.acos(versor) * 2
     assert (omg <= torch.pi).all() and (omg >= 0.).all()
@@ -120,7 +103,7 @@ def igso3(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tens
     return igso3_angle(omg=omg, eps=eps, lmax=lmax)
 
 @torch.jit.script
-def igso3_lie_deriv(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
+def igso3_lie_deriv(q: torch.Tensor, eps: Union[float, torch.Tensor], lmax: Optional[int] = None) -> torch.Tensor:
     versor = q[..., 0] # cos(omg/2)
     omg = torch.acos(versor) * 2
     assert (omg <= torch.pi).all() and (omg >= 0.).all()
@@ -154,7 +137,7 @@ def igso3_lie_deriv(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> 
     return sum.sum(dim=-2)
 
 @torch.jit.script
-def igso3_score(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torch.Tensor:
+def igso3_score(q: torch.Tensor, eps: Union[float, torch.Tensor], lmax: Optional[int] = None) -> torch.Tensor:
     deriv = igso3_lie_deriv(q=q, eps=eps, lmax=lmax)
     prob = igso3(q=q, eps=eps, lmax=lmax).unsqueeze(-1)
 
@@ -166,7 +149,10 @@ def igso3_score(q: torch.Tensor, eps: float, lmax: Optional[int] = None) -> torc
     return (deriv / (prob + small_number)) * (prob > 0.)
 
 
-def get_inv_cdf(eps: float, N:int = 1000, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> Interp1D:
+def get_inv_cdf(eps: Union[float, torch.Tensor], N:int = 1000, dtype: Optional[torch.dtype] = torch.float64, device: Optional[Union[str, torch.device]] = None) -> Interp1D:
+    if not isinstance(eps, torch.Tensor):
+        eps = torch.tensor(eps, device=device, dtype=dtype)
+
     N=1000
     omg_max_prob = 2*math.sqrt(eps)
     omg_range = min(omg_max_prob * 4, math.pi)
@@ -179,15 +165,165 @@ def get_inv_cdf(eps: float, N:int = 1000, dtype: Optional[torch.dtype] = None, d
     cdf = cdf / cdf.max()
     return Interp1D(cdf, X, 'linear') # https://gist.github.com/amarvutha/c2a3ea9d42d238551c694480019a6ce1
 
-def _sample_igso3(inv_cdf: Interp1D, N: int, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+def _sample_igso3(inv_cdf: Interp1D, N: int, dtype: Optional[torch.dtype] = torch.float64, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
     angle = inv_cdf(torch.rand(N, device=device, dtype=dtype)).unsqueeze(-1)
     axis = F.normalize(torch.randn(N,3, device=device, dtype=dtype), dim=-1)
 
     return transforms.axis_angle_to_quaternion(axis * angle)
 
-def sample_igso3(eps: float, N: int = 1, dtype: Optional[torch.dtype] = None, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+def sample_igso3(eps: Union[float, torch.Tensor], N: int = 1, dtype: Optional[torch.dtype] = torch.float64, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
     inv_cdf = get_inv_cdf(eps=eps, device=device, dtype=dtype)
     return _sample_igso3(inv_cdf=inv_cdf, N=N, device=device, dtype=dtype)
+
+@torch.jit.script
+def r3_isotropic_gaussian_score(x: torch.Tensor, std: Union[float, torch.Tensor]):
+    if not isinstance(std, torch.Tensor):
+        std = torch.tensor(std, device=x.device, dtype=x.dtype)
+    return -x / std
+
+@torch.jit.script
+def r3_isotropic_gaussian(x: torch.Tensor, std: Union[float, torch.Tensor]):
+    if not isinstance(std, torch.Tensor):
+        std = torch.tensor(std, device=x.device, dtype=x.dtype)
+    
+    return torch.exp(-0.5 * torch.square(x).sum(dim=-1) / torch.square(std) - 1.5*math.log(2*std*torch.pi)) # gaussian
+
+@torch.jit.script
+def se3_isotropic_gaussian_score(T: torch.Tensor, eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], angular_first: bool = True) -> torch.Tensor:
+    q = T[..., :4]
+    x = T[..., 4:]
+
+    ang_score = igso3_score(q=q, eps=eps)
+    lin_score = r3_isotropic_gaussian_score(x=x, std=std)
+    if angular_first:
+        score = torch.cat([ang_score, lin_score], dim=-1)
+    else:
+        score = torch.cat([lin_score, ang_score], dim=-1)
+    
+    return score
+
+@torch.jit.script
+def adjoint_se3_score(score: torch.Tensor, T_ref: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
+    assert score.shape[:-1] == T_ref.shape[:-1]
+
+    if angular_first:
+        ang_score = score[..., :3]
+        lin_score = score[..., 3:]
+    else:
+        ang_score = score[..., 3:]
+        lin_score = score[..., :3]
+    
+    ang_score = transforms.quaternion_apply(T_ref[..., :4], ang_score)
+    lin_score = torch.cross(T_ref[...,4:], ang_score, dim=-1) + transforms.quaternion_apply(T_ref[..., :4], lin_score)
+
+    if angular_first:
+        score = torch.cat([ang_score, lin_score], dim=-1)
+    else:
+        score = torch.cat([lin_score, ang_score], dim=-1)
+
+    return score
+
+@torch.jit.script
+def adjoint_isotropic_se3_score(score: torch.Tensor, x_ref: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
+    assert score.shape[:-1] == x_ref.shape[:-1]
+
+    if angular_first:
+        ang_score = score[..., :3]
+        lin_score = score[..., 3:]
+    else:
+        ang_score = score[..., 3:]
+        lin_score = score[..., :3]
+    
+    lin_score = torch.cross(x_ref, ang_score, dim=-1) + lin_score
+
+    if angular_first:
+        score = torch.cat([ang_score, lin_score], dim=-1)
+    else:
+        score = torch.cat([lin_score, ang_score], dim=-1)
+
+    return score
+
+@torch.jit.script
+def adjoint_inv_tr_se3_score(score: torch.Tensor, T_ref: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
+    assert score.shape[:-1] == T_ref.shape[:-1]
+
+    if angular_first:
+        ang_score = score[..., :3]
+        lin_score = score[..., 3:]
+    else:
+        ang_score = score[..., 3:]
+        lin_score = score[..., :3]
+    
+    lin_score = transforms.quaternion_apply(T_ref[..., :4], lin_score)
+    ang_score = transforms.quaternion_apply(T_ref[..., :4], ang_score) + torch.cross(T_ref[...,4:], lin_score, dim=-1)
+
+    if angular_first:
+        score = torch.cat([ang_score, lin_score], dim=-1)
+    else:
+        score = torch.cat([lin_score, ang_score], dim=-1)
+
+    return score
+
+@torch.jit.script
+def adjoint_inv_tr_isotropic_se3_score(score: torch.Tensor, x_ref: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
+    assert score.shape[:-1] == x_ref.shape[:-1]
+
+    if angular_first:
+        ang_score = score[..., :3]
+        lin_score = score[..., 3:]
+    else:
+        ang_score = score[..., 3:]
+        lin_score = score[..., :3]
+    
+    ang_score = ang_score + torch.cross(x_ref, lin_score, dim=-1)
+
+    if angular_first:
+        score = torch.cat([ang_score, lin_score], dim=-1)
+    else:
+        score = torch.cat([lin_score, ang_score], dim=-1)
+
+    return score
+
+def sample_isotropic_se3_gaussian(eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], N: int = 1, dtype: Optional[torch.dtype] = torch.float64, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+    x = torch.randn(N, 3, device=device, dtype=dtype) * std
+    q = sample_igso3(eps=eps, N=N, dtype=dtype, device=device)
+    return torch.cat([q,x], dim=-1)
+
+
+def diffuse_isotropic_se3(T0: torch.Tensor, eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], 
+                          x_ref: Optional[torch.Tensor] = None, N: int = 1, angular_first: bool = True, double_precision: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert T0.ndim == 2 and T0.shape[-1] == 7
+    input_dtype = T0.dtype
+    if double_precision:
+        T0 = T0.type(dtype=torch.float64)
+        if isinstance(eps, torch.Tensor):
+            eps = eps.type(dtype=torch.float64)
+        if isinstance(std, torch.Tensor):
+            std = std.type(dtype=torch.float64)
+        if isinstance(x_ref, torch.Tensor):
+            x_ref = x_ref.type(dtype=torch.float64)
+
+    T = sample_isotropic_se3_gaussian(eps=eps, std=std, N=N*len(T0), dtype=T0.dtype, device=T0.device)
+    score = se3_isotropic_gaussian_score(T=T, eps=eps, std=std, angular_first=angular_first)
+    if x_ref is not None:
+        score = adjoint_inv_tr_isotropic_se3_score(score=score, x_ref=x_ref, angular_first=angular_first)
+
+    T = T.view(N,*T0.shape)
+    score = score.view(N,*T0.shape[:-1], 6)
+
+    if x_ref is not None:
+        T = torch.cat([T[...,:4],
+                       T[...,4:] + x_ref - transforms.quaternion_apply(T[...,:4], x_ref)
+                       ], dim=-1)
+
+    T = transforms.multiply_se3(T0.expand(N,*T0.shape), T)
+
+    return T.type(dtype=input_dtype), score.type(dtype=input_dtype)
+    
+    
+
+    
+
 
 
 
@@ -239,169 +375,6 @@ def sample_igso3(eps: float, N: int = 1, dtype: Optional[torch.dtype] = None, de
 #         else:
 #             logP = torch.log(self.isotropic_gaussian_so3_angle(angle, eps=eps))
 #             return logP
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-class GaussianDistR3(nn.Module):
-    def __init__(self, std):
-        super().__init__()
-        self.std = std
-        self.register_buffer('dummy', torch.tensor([0]), persistent=False)
-        self.is_symmetric = True
-        self.is_isotropic = True
-
-    def sample(self, N=1):
-        return self.std * torch.randn(N,3, device=self.dummy.device)
-
-    def propose(self, X):
-        X_new = X.reshape(-1,3)
-        N = len(X_new)
-        return (X_new + self.sample(N)).reshape(*(X.shape))
-
-    def log_gaussian_factor(self, X):
-        return -0.5/(self.std**2) * (X**2).sum(-1)
-
-    def log_factor(self, X2, X1 = None): # log Q(x2 | x1)
-        if X1 is None:
-            X_diff = X2
-        else:
-            assert X1.shape == X2.shape
-            X_diff = X2 - X1
-
-        return self.log_gaussian_factor(X_diff)
-
-    def log_factor_diff(self, X2, X1): # log[ Q(x1 | x2) / Q(x2 | x1) ]
-        assert X2.shape == X1.shape
-        return torch.zeros(X2.shape[:-1], device=X2.device)
-
-
-
-
-
-
-
-
-
-
-
-class UniformDistR3(nn.Module):
-    def __init__(self, ranges):
-        super().__init__()
-        self.register_buffer('ranges', ranges, persistent=False) # (3,2)
-        self.is_symmetric = True
-        self.is_isotropic = False
-
-    def sample(self, N=1):
-        return torch.rand(N,3, device=self.ranges.device) * (self.ranges[:,1] - self.ranges[:,0]) + self.ranges[:,0]
-
-    def propose(self, X):
-        N = len(X)
-        X_new = self.sample(N)
-        return X_new.reshape(*(X.shape))
-
-    def log_factor(self, X2, X1): #Q(X2|X1)
-        assert X2.shape == X1.shape
-        in_range = (self.ranges[:,1] >= X2) * (X2 >= self.ranges[:,0])
-        
-        return (~in_range).any(dim=-1) * -30
-
-    def log_factor_diff(self, X2, X1): # log[ Q(x1 | x2) / Q(x2 | x1) ]
-        assert X2.shape == X1.shape
-        return torch.zeros(X2.shape[:-1], device=X2.device)
-
-
-
-
-
-
-
-
-
-
-
-class DistSE3(nn.Module):
-    def __init__(self, decoupled = False):
-        super().__init__()
-        self.dist_X = None
-        self.dist_R = None
-        self.decoupled = decoupled
-
-    def sample(self, N=1):
-        q = self.dist_R.sample(N=N)
-        x = self.dist_X.sample(N=N)
-        x = transforms.quaternion_apply(q, x)    # TODO: this does not work well with UniformDist so needs to be fixed
-        return torch.cat([q, x], dim=-1)
-
-    def propose(self, T):                                               
-        q_old, X_old = T[...,:4], T[...,4:]                             
-        q_new = self.dist_R.propose(q_old)                              
-        X_prop = self.dist_X.propose(torch.zeros_like(X_old))           
-        if self.decoupled:
-            X_new = X_old + X_prop
-        else:
-            X_new = transforms.quaternion_apply(q_old, X_prop) + X_old
-        
-        return torch.cat([q_new, X_new], dim=-1)
-
-    def log_factor(self, T2, T1):                                                                                   
-        q2, X2 = T2[...,:4], T2[...,4:]                      
-        q1, X1 = T1[...,:4], T1[...,4:]                                       
-        
-        log_factor_q = self.dist_R.log_factor(q2, q1)
-        if self.decoupled:
-            X_prop = X2-X1
-        else:
-            X_prop = transforms.quaternion_apply(transforms.quaternion_invert(q1), X2-X1) # X2 and X1 are represented in space frame, but DeltaX is sampled from gaussian in (old) body frame(=q1) so X2-X1 should be transported to q1 body frame
-        log_factor_X = self.dist_X.log_factor(X_prop, torch.zeros_like(X_prop))
-
-        return log_factor_q + log_factor_X
-
-    def log_factor_diff(self, T2, T1): # log Q(T1 | T2) / logQ(T2 | T1)                   # (Note that numerator is T1 | T2, not T2 | T1 since we're doing MCMC)
-        q2, X2 = T2[...,:4], T2[...,4:]
-        q1, X1 = T1[...,:4], T1[...,4:]
-        
-        log_factor_q_diff = self.dist_R.log_factor_diff(q2, q1)
-
-        if self.dist_X.is_isotropic is True or self.decoupled:
-            log_factor_X_diff = self.dist_X.log_factor_diff(X2, X1)
-        else:
-            X_prop_21 = transforms.quaternion_apply(transforms.quaternion_invert(q1), X2-X1)
-            X_prop_12 = transforms.quaternion_apply(transforms.quaternion_invert(q2), X1-X2)
-            log_factor_X_21 = self.dist_X.log_factor(X_prop_21, torch.zeros_like(X_prop_21))
-            log_factor_X_12 = self.dist_X.log_factor(X_prop_12, torch.zeros_like(X_prop_12))
-            log_factor_X_diff = log_factor_X_12 - log_factor_X_21
-
-        return log_factor_q_diff + log_factor_X_diff
-
-
-
-
-
-
-
-class GaussianDistSE3(DistSE3):
-    def __init__(self, std_theta, std_X, decoupled = False):
-        super().__init__(decoupled=decoupled)
-        self.dist_R = IgSO3Dist(std=std_theta)
-        self.dist_X = GaussianDistR3(std=std_X)
-
-
-class UniformDistSE3(DistSE3):
-    def __init__(self, ranges_X, decoupled = False):
-        super().__init__(decoupled=decoupled)
-        self.dist_R = QuaternionUniformDist()
-        self.dist_X = UniformDistR3(ranges = ranges_X)
 
 
 

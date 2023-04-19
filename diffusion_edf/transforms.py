@@ -222,7 +222,7 @@ def quaternion_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     ab = quaternion_raw_multiply(a, b)
     return standardize_quaternion(ab)
 
-
+@torch.jit.script
 def normalize_quaternion(q: torch.Tensor) -> torch.Tensor:
     return q / torch.norm(q, dim=-1, keepdim=True)
 
@@ -325,7 +325,7 @@ def _copysign(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 def random_quaternions(
-    n: int, dtype: Optional[torch.dtype] = None, device: Optional[Device] = None
+    n: int, *ns, dtype: Optional[torch.dtype] = None, device: Optional[Device] = None
 ) -> torch.Tensor:
     """
     Generate random quaternions representing rotations,
@@ -340,8 +340,9 @@ def random_quaternions(
     """
     if isinstance(device, str):
         device = torch.device(device)
-    o = torch.randn((n, 4), dtype=dtype, device=device)
-    s = (o * o).sum(1)
+    shape = [n] + [i for i in ns] + [4]
+    o = torch.randn(shape, dtype=dtype, device=device)
+    s = (o * o).sum(dim=-1)
     o = o / _copysign(torch.sqrt(s), o[:, 0])[:, None]
     return o
 
@@ -869,3 +870,28 @@ def axis_angle_to_quaternion(axis_angle: torch.Tensor) -> torch.Tensor:
         [torch.cos(half_angles), axis_angle * sin_half_angles_over_angles], dim=-1
     )
     return quaternions
+
+
+@torch.jit.script
+def multiply_se3(T1: torch.Tensor, T2: torch.Tensor, pre_normalize: bool = False, post_normalize: bool = True) -> torch.Tensor:
+    if len(T1) == 1 or len(T2) == 1:
+        assert T1.shape[1:] == T2.shape[1:], f"Shape mismatch: T1: {T1.shape} || T2: {T2.shape}"
+    elif T1.ndim + 1 == T2.ndim:
+        assert T1.shape[:] == T2.shape[1:], f"Shape mismatch: T1: {T1.shape} || T2: {T2.shape}"
+    elif T1.ndim == T2.ndim + 1:
+        assert T1.shape[1:] == T2.shape[:], f"Shape mismatch: T1: {T1.shape} || T2: {T2.shape}"
+    else:
+        assert T1.shape == T2.shape, f"Shape mismatch: T1: {T1.shape} || T2: {T2.shape}"
+
+    q1, x1 = T1[...,:4], T1[...,4:]
+    q2, x2 = T2[...,:4], T2[...,4:]
+    if pre_normalize:
+        q1 = normalize_quaternion(q1)
+        q2 = normalize_quaternion(q2)
+        
+    x = quaternion_apply(q1, x2) + x1
+    q = quaternion_multiply(q1, q2)
+    if post_normalize:
+        q = normalize_quaternion(q)
+    
+    return torch.cat([q,x], dim=-1)
