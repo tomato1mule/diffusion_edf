@@ -291,7 +291,7 @@ def sample_isotropic_se3_gaussian(eps: Union[float, torch.Tensor], std: Union[fl
 
 
 def diffuse_isotropic_se3(T0: torch.Tensor, eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], 
-                          x_ref: Optional[torch.Tensor] = None, N: int = 1, angular_first: bool = True, double_precision: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
+                          x_ref: Optional[torch.Tensor] = None, N: int = 1, angular_first: bool = True, double_precision: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     assert T0.ndim == 2 and T0.shape[-1] == 7
     input_dtype = T0.dtype
     if double_precision:
@@ -303,22 +303,23 @@ def diffuse_isotropic_se3(T0: torch.Tensor, eps: Union[float, torch.Tensor], std
         if isinstance(x_ref, torch.Tensor):
             x_ref = x_ref.type(dtype=torch.float64)
 
-    T = sample_isotropic_se3_gaussian(eps=eps, std=std, N=N*len(T0), dtype=T0.dtype, device=T0.device)
-    score = se3_isotropic_gaussian_score(T=T, eps=eps, std=std, angular_first=angular_first)
+    delta_T = sample_isotropic_se3_gaussian(eps=eps, std=std, N=N*len(T0), dtype=T0.dtype, device=T0.device)
+    score = se3_isotropic_gaussian_score(T=delta_T, eps=eps, std=std, angular_first=angular_first)
     if x_ref is not None:
         score = adjoint_inv_tr_isotropic_se3_score(score=score, x_ref=x_ref, angular_first=angular_first)
 
-    T = T.view(N,*T0.shape)
+    delta_T = delta_T.view(N,*T0.shape)
     score = score.view(N,*T0.shape[:-1], 6)
 
     if x_ref is not None:
-        T = torch.cat([T[...,:4],
-                       T[...,4:] + x_ref - transforms.quaternion_apply(T[...,:4], x_ref)
+        T = torch.cat([delta_T[...,:4],
+                       delta_T[...,4:] + x_ref - transforms.quaternion_apply(delta_T[...,:4], x_ref)
                        ], dim=-1)
+        transforms.multiply_se3(T0.expand(N,*T0.shape), T)
+    else:
+        T = transforms.multiply_se3(T0.expand(N,*T0.shape), delta_T)
 
-    T = transforms.multiply_se3(T0.expand(N,*T0.shape), T)
-
-    return T.type(dtype=input_dtype), score.type(dtype=input_dtype)
+    return T.type(dtype=input_dtype), delta_T, score.type(dtype=input_dtype)
     
     
 
