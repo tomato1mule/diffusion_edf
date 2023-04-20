@@ -233,6 +233,9 @@ class ScoreModel(torch.nn.Module):
         if compile_head:
             self.key_head = torch.jit.script(self.key_head)
 
+        self.register_buffer('q_indices', torch.tensor([[1,2,3], [0,3,2], [3,0,1], [2,1,0]], dtype=torch.long), persistent=False)
+        self.register_buffer('q_factor', torch.tensor([[-0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, 0.5]]), persistent=False)
+
     def _get_query(self, node_feature: torch.Tensor, 
                    node_coord: torch.Tensor, 
                    batch: torch.Tensor,

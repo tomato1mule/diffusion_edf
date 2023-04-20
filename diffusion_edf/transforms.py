@@ -483,8 +483,8 @@ def se3_exp_map(log_transform: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
     See e.g. [1], Sec 9.4.2. for more detailed description.
     A SE(3) matrix has the following form:
         ```
-        [ R 0 ]
-        [ T 1 ] ,
+        [ R T ]
+        [ 0 1 ] ,
         ```
     where `R` is a 3x3 rotation matrix and `T` is a 3-D translation vector.
     SE(3) matrices are commonly used to represent rigid motions or camera extrinsics.
@@ -494,8 +494,8 @@ def se3_exp_map(log_transform: torch.Tensor, eps: float = 1e-4) -> torch.Tensor:
     The conversion from the 6D representation to a 4x4 SE(3) matrix `transform`
     is done as follows:
         ```
-        transform = exp( [ hat(log_rotation) 0 ]
-                         [   log_translation 1 ] ) ,
+        transform = exp( [ hat(log_rotation) log_translation ]
+                         [   0                        1      ] ) ,
         ```
     where `exp` is the matrix exponential and `hat` is the Hat operator [2].
     Note that for any `log_transform` with `0 <= ||log_rotation|| < 2pi`
