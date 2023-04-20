@@ -299,7 +299,7 @@ def sample_isotropic_se3_gaussian(eps: Union[float, torch.Tensor], std: Union[fl
 
 
 def diffuse_isotropic_se3(T0: torch.Tensor, eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], 
-                          x_ref: Optional[torch.Tensor] = None, N: int = 1, angular_first: bool = True, double_precision: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                          x_ref: Optional[torch.Tensor] = None, N: int = 1, angular_first: bool = True, double_precision: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     assert T0.ndim == 2 and T0.shape[-1] == 7
     input_dtype = T0.dtype
     if double_precision:

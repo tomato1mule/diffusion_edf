@@ -337,8 +337,28 @@ class PointCloud():
 
         return go.Scatter3d(**plotly_kwargs)
     
+    @staticmethod
+    def show_pcd(pcd: Union[PointCloud, torch.Tensor], 
+                 point_size: float = 1.0, 
+                 name: Optional[str] = None, 
+                 opacity: Union[float, torch.Tensor] = 1.0, 
+                 colors: Optional[Iterable] = None, 
+                 custom_data: Optional[Dict] = None,
+                 width = 1600,
+                 height = 1200,
+                 ) -> go.Figure:
+        
+        data = PointCloud.points_to_plotly(pcd=pcd, point_size=point_size, name=name, opacity=opacity, colors=colors, custom_data=custom_data)
+        fig = go.Figure(data=[data], layout=dict(width=width, height=height))
+        return fig
+    
     def plotly(self, point_size: float = 1.0, name: Optional[str] = None, opacity: Union[float, torch.Tensor] = 1.0, colors: Optional[torch.Tensor] = None, custom_data: Optional[dict] = None) -> go.Scatter3d:
         return PointCloud.points_to_plotly(pcd=self, point_size=point_size, name=name, opacity=opacity, colors=colors, custom_data=custom_data)
+    
+    def show(self, point_size: float = 1.0, name: Optional[str] = None, opacity: Union[float, torch.Tensor] = 1.0, colors: Optional[torch.Tensor] = None, custom_data: Optional[dict] = None, width = 1600, height=1200):
+        return PointCloud.show_pcd(pcd=self, point_size=point_size, name=name, opacity=opacity, colors=colors, custom_data=custom_data, width=width, height=height)
+    
+
 
         
 
