@@ -170,7 +170,8 @@ class QueryModel(EDF):
         query_weight = self._extract_weight_logits(query_coord=query_coord, query_batch=query_batch,
                                                    node_feature=node_feature, node_coord=node_coord, 
                                                    node_batch=node_batch, node_scale_slice=node_scale_slice)
-        query_weight = scatter_softmax(src = query_weight, index=query_batch)
+        #query_weight = scatter_softmax(src = query_weight, index=query_batch)
+        query_weight = torch.sigmoid(query_weight)
         query_feature, extractor_info = self.extractor(query_coord = query_coord, 
                                                        query_batch = query_batch,
                                                        node_feature = node_feature,

@@ -129,7 +129,6 @@ class ScoreModelHead(torch.nn.Module):
         ang_spin = quaternion_apply(qinv, ang_spin) # (N_T, N_Q, 3)
         ang_orbital = torch.cross(query_coord.unsqueeze(0), lin_vel, dim=-1) # (N_T, N_Q, 3)
 
-        query_weight = torch.ones_like(query_weight)
         lin_vel = torch.einsum('q,tqi->ti', query_weight, lin_vel) # (N_T, 3)
         ang_vel = torch.einsum('q,tqi->ti', query_weight, ang_orbital) + torch.einsum('q,tqi->ti', query_weight, ang_spin) # (N_T, 3)
 
