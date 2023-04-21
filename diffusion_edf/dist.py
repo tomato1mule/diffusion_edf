@@ -19,6 +19,7 @@ from torch.nn import functional as F
 
 from torch_cluster import radius_graph, radius
 from torch_scatter import scatter, scatter_logsumexp, scatter_log_softmax
+from diffusion_edf import SE3_SCORE_TYPE
 from diffusion_edf import transforms
 from xitorch.interpolate import Interp1D
 
@@ -149,7 +150,10 @@ def igso3_score(q: torch.Tensor, eps: Union[float, torch.Tensor], lmax: Optional
     return (deriv / (prob + small_number)) * (prob > 0.)
 
 
-def get_inv_cdf(eps: Union[float, torch.Tensor], N:int = 1000, dtype: Optional[torch.dtype] = torch.float64, device: Optional[Union[str, torch.device]] = None) -> Interp1D:
+def get_inv_cdf(eps: Union[float, torch.Tensor], 
+                N:int = 1000, 
+                dtype: Optional[torch.dtype] = torch.float64, 
+                device: Optional[Union[str, torch.device]] = None) -> Interp1D:
     if not isinstance(eps, torch.Tensor):
         eps = torch.tensor(eps, device=device, dtype=dtype)
 
@@ -165,132 +169,92 @@ def get_inv_cdf(eps: Union[float, torch.Tensor], N:int = 1000, dtype: Optional[t
     cdf = cdf / cdf.max()
     return Interp1D(cdf, X, 'linear') # https://gist.github.com/amarvutha/c2a3ea9d42d238551c694480019a6ce1
 
-def _sample_igso3(inv_cdf: Interp1D, N: int, dtype: Optional[torch.dtype] = torch.float64, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+def _sample_igso3(inv_cdf: Interp1D, 
+                  N: int, 
+                  dtype: Optional[torch.dtype] = torch.float64, 
+                  device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
     angle = inv_cdf(torch.rand(N, device=device, dtype=dtype)).unsqueeze(-1)
     axis = F.normalize(torch.randn(N,3, device=device, dtype=dtype), dim=-1)
 
     return transforms.axis_angle_to_quaternion(axis * angle)
 
-def sample_igso3(eps: Union[float, torch.Tensor], N: int = 1, dtype: Optional[torch.dtype] = torch.float64, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
+def sample_igso3(eps: Union[float, torch.Tensor], 
+                 N: int = 1, 
+                 dtype: Optional[torch.dtype] = torch.float64, 
+                 device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
     inv_cdf = get_inv_cdf(eps=eps, device=device, dtype=dtype)
     return _sample_igso3(inv_cdf=inv_cdf, N=N, device=device, dtype=dtype)
 
 @torch.jit.script
-def r3_isotropic_gaussian_score(x: torch.Tensor, std: Union[float, torch.Tensor]):
+def r3_isotropic_gaussian_score(x: torch.Tensor, std: Union[float, torch.Tensor]) -> torch.Tensor:
     if not isinstance(std, torch.Tensor):
         std = torch.tensor(std, device=x.device, dtype=x.dtype)
     return -x / torch.square(std)
 
 @torch.jit.script
-def r3_log_isotropic_gaussian(x: torch.Tensor, std: Union[float, torch.Tensor]):
+def r3_log_isotropic_gaussian(x: torch.Tensor, std: Union[float, torch.Tensor]) -> torch.Tensor:
     if not isinstance(std, torch.Tensor):
         std = torch.tensor(std, device=x.device, dtype=x.dtype)
     
     return -0.5 * torch.square(x).sum(dim=-1) / torch.square(std) - 1.5*math.log(2*torch.square(std)*torch.pi) # gaussian
 
 @torch.jit.script
-def r3_isotropic_gaussian(x: torch.Tensor, std: Union[float, torch.Tensor]):
+def r3_isotropic_gaussian(x: torch.Tensor, std: Union[float, torch.Tensor]) -> torch.Tensor:
     if not isinstance(std, torch.Tensor):
         std = torch.tensor(std, device=x.device, dtype=x.dtype)
     
     return torch.exp(r3_log_isotropic_gaussian(x=x, std=std)) # gaussian
 
 @torch.jit.script
-def se3_isotropic_gaussian_score(T: torch.Tensor, eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], angular_first: bool = True) -> torch.Tensor:
+def se3_isotropic_gaussian_score(T: torch.Tensor, 
+                                 eps: Union[float, torch.Tensor], 
+                                 std: Union[float, torch.Tensor]) -> SE3_SCORE_TYPE:
     q = T[..., :4]
     x = T[..., 4:]
 
     ang_score = igso3_score(q=q, eps=eps)
     lin_score = r3_isotropic_gaussian_score(x=x, std=std)
     lin_score = transforms.quaternion_apply(transforms.quaternion_invert(q), lin_score)
-    if angular_first:
-        score = torch.cat([ang_score, lin_score], dim=-1)
-    else:
-        score = torch.cat([lin_score, ang_score], dim=-1)
     
-    return score
+    return ang_score, lin_score
 
 @torch.jit.script
-def adjoint_se3_score(T_ref: torch.Tensor, score: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
-    assert score.shape[:-1] == T_ref.shape[:-1]
-
-    if angular_first:
-        ang_score = score[..., :3]
-        lin_score = score[..., 3:]
-    else:
-        ang_score = score[..., 3:]
-        lin_score = score[..., :3]
+def adjoint_se3_score(T_ref: torch.Tensor, ang_score: torch.Tensor, lin_score: torch.Tensor) -> SE3_SCORE_TYPE:
+    assert ang_score.shape[:-1] == lin_score.shape[:-1] == T_ref.shape[:-1]
+    assert T_ref.shape[-1] == 7
     
     ang_score = transforms.quaternion_apply(T_ref[..., :4], ang_score)
     lin_score = torch.cross(T_ref[...,4:], ang_score, dim=-1) + transforms.quaternion_apply(T_ref[..., :4], lin_score)
 
-    if angular_first:
-        score = torch.cat([ang_score, lin_score], dim=-1)
-    else:
-        score = torch.cat([lin_score, ang_score], dim=-1)
-
-    return score
+    return ang_score, lin_score
 
 @torch.jit.script
-def adjoint_isotropic_se3_score(x_ref: torch.Tensor, score: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
-    assert score.shape[:-1] == x_ref.shape[:-1]
-
-    if angular_first:
-        ang_score = score[..., :3]
-        lin_score = score[..., 3:]
-    else:
-        ang_score = score[..., 3:]
-        lin_score = score[..., :3]
+def adjoint_isotropic_se3_score(x_ref: torch.Tensor, ang_score: torch.Tensor, lin_score: torch.Tensor) -> SE3_SCORE_TYPE:
+    assert ang_score.shape[:-1] == lin_score.shape[:-1] == x_ref.shape[:-1]
+    assert x_ref.shape[-1] == 3
     
     lin_score = torch.cross(x_ref, ang_score, dim=-1) + lin_score
 
-    if angular_first:
-        score = torch.cat([ang_score, lin_score], dim=-1)
-    else:
-        score = torch.cat([lin_score, ang_score], dim=-1)
-
-    return score
+    return ang_score, lin_score
 
 @torch.jit.script
-def adjoint_inv_tr_se3_score(T_ref: torch.Tensor, score: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
-    assert score.shape[:-1] == T_ref.shape[:-1]
-
-    if angular_first:
-        ang_score = score[..., :3]
-        lin_score = score[..., 3:]
-    else:
-        ang_score = score[..., 3:]
-        lin_score = score[..., :3]
+def adjoint_inv_tr_se3_score(T_ref: torch.Tensor, ang_score: torch.Tensor, lin_score: torch.Tensor) -> SE3_SCORE_TYPE:
+    assert ang_score.shape[:-1] == lin_score.shape[:-1] == T_ref.shape[:-1]
+    assert T_ref.shape[-1] == 7
     
     lin_score = transforms.quaternion_apply(T_ref[..., :4], lin_score)
     ang_score = transforms.quaternion_apply(T_ref[..., :4], ang_score) + torch.cross(T_ref[...,4:], lin_score, dim=-1)
 
-    if angular_first:
-        score = torch.cat([ang_score, lin_score], dim=-1)
-    else:
-        score = torch.cat([lin_score, ang_score], dim=-1)
-
-    return score
+    return ang_score, lin_score
 
 @torch.jit.script
-def adjoint_inv_tr_isotropic_se3_score(x_ref: torch.Tensor, score: torch.Tensor, angular_first: bool = True) -> torch.Tensor:
-    assert score.shape[:-1] == x_ref.shape[:-1]
-
-    if angular_first:
-        ang_score = score[..., :3]
-        lin_score = score[..., 3:]
-    else:
-        ang_score = score[..., 3:]
-        lin_score = score[..., :3]
+def adjoint_inv_tr_isotropic_se3_score(x_ref: torch.Tensor, ang_score: torch.Tensor, lin_score: torch.Tensor) -> SE3_SCORE_TYPE:
+    assert ang_score.shape[:-1] == lin_score.shape[:-1] == x_ref.shape[:-1]
+    assert x_ref.shape[-1] == 3
     
     ang_score = ang_score + torch.cross(x_ref, lin_score, dim=-1)
 
-    if angular_first:
-        score = torch.cat([ang_score, lin_score], dim=-1)
-    else:
-        score = torch.cat([lin_score, ang_score], dim=-1)
-
-    return score
+    return ang_score, lin_score
 
 def sample_isotropic_se3_gaussian(eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], N: int = 1, dtype: Optional[torch.dtype] = torch.float64, device: Optional[Union[str, torch.device]] = None) -> torch.Tensor:
     x = torch.randn(N, 3, device=device, dtype=dtype) * std
@@ -298,9 +262,18 @@ def sample_isotropic_se3_gaussian(eps: Union[float, torch.Tensor], std: Union[fl
     return torch.cat([q,x], dim=-1)
 
 
-def diffuse_isotropic_se3(T0: torch.Tensor, eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], 
-                          x_ref: Optional[torch.Tensor] = None, N: int = 1, angular_first: bool = True, double_precision: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    assert T0.ndim == 2 and T0.shape[-1] == 7
+def diffuse_isotropic_se3(T0: torch.Tensor, 
+                          eps: Union[float, torch.Tensor], 
+                          std: Union[float, torch.Tensor], 
+                          x_ref: Optional[torch.Tensor] = None, 
+                          double_precision: bool = True) -> Tuple[torch.Tensor, 
+                                                                  torch.Tensor, 
+                                                                  SE3_SCORE_TYPE, 
+                                                                  SE3_SCORE_TYPE]:
+    assert T0.ndim == 2 and T0.shape[-1] == 7  # T0: shape (nT, 7)
+    assert x_ref.ndim == 2 and x_ref.shape[-1] == 3 # x_ref: shape (nT, 3)
+    assert x_ref.shape[:-1] == T0.shape[:-1]
+
     input_dtype = T0.dtype
     if double_precision:
         T0 = T0.type(dtype=torch.float64)
@@ -309,31 +282,74 @@ def diffuse_isotropic_se3(T0: torch.Tensor, eps: Union[float, torch.Tensor], std
         if isinstance(std, torch.Tensor):
             std = std.type(dtype=torch.float64)
         if isinstance(x_ref, torch.Tensor):
-            x_ref = x_ref.type(dtype=torch.float64)
+            x_ref = x_ref.type(dtype=torch.float64) 
 
-    delta_T = sample_isotropic_se3_gaussian(eps=eps, std=std, N=N*len(T0), dtype=T0.dtype, device=T0.device)
-    score_ref = se3_isotropic_gaussian_score(T=delta_T, eps=eps, std=std, angular_first=angular_first)
+    delta_T = sample_isotropic_se3_gaussian(eps=eps, std=std, N=len(T0), dtype=T0.dtype, device=T0.device)     # shape: (nT, 7)
+    ang_score_ref, lin_score_ref = se3_isotropic_gaussian_score(T=delta_T, eps=eps, std=std)                   # shape: (nT, 3), (nT, 3)
     if x_ref is not None:
-        score = adjoint_inv_tr_isotropic_se3_score(x_ref=x_ref, score=score_ref, angular_first=angular_first)
+        ang_score, lin_score = adjoint_inv_tr_isotropic_se3_score(x_ref=x_ref, ang_score=ang_score_ref, lin_score=lin_score_ref)  # shape: (nT, 3), (nT, 3)
     else:
-        score = score_ref
-
-    delta_T = delta_T.view(N,*T0.shape)
-    score = score.view(N,*T0.shape[:-1], 6)
+        ang_score, lin_score = ang_score_ref, lin_score_ref    # shape: (nT, 3), (nT, 3)
 
     if x_ref is not None:
         T = torch.cat([delta_T[...,:4],
                        delta_T[...,4:] + x_ref - transforms.quaternion_apply(delta_T[...,:4], x_ref)
-                       ], dim=-1)
-        transforms.multiply_se3(T0.expand(N,*T0.shape), T)
+                       ], dim=-1)        # shape: (nT, 7)
+        transforms.multiply_se3(T0, T)   # shape: (nT, 7)
     else:
-        T = transforms.multiply_se3(T0.expand(N,*T0.shape), delta_T)
+        T = transforms.multiply_se3(T0, delta_T) # shape: (nT, 7)
 
-    return T.type(dtype=input_dtype), delta_T.type(dtype=input_dtype), score.type(dtype=input_dtype), score_ref.type(dtype=input_dtype)
+    return (
+        T.type(dtype=input_dtype), 
+        delta_T.type(dtype=input_dtype), 
+        (ang_score.type(dtype=input_dtype), lin_score.type(dtype=input_dtype)), 
+        (ang_score_ref.type(dtype=input_dtype), lin_score_ref.type(dtype=input_dtype))
+    )
+
+# def diffuse_isotropic_se3(T0: torch.Tensor, eps: Union[float, torch.Tensor], std: Union[float, torch.Tensor], 
+#                           x_ref: Optional[torch.Tensor] = None, N: int = 1, angular_first: bool = True, double_precision: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+#     assert T0.ndim == 2 and T0.shape[-1] == 7
+#     input_dtype = T0.dtype
+#     if double_precision:
+#         T0 = T0.type(dtype=torch.float64)
+#         if isinstance(eps, torch.Tensor):
+#             eps = eps.type(dtype=torch.float64)
+#         if isinstance(std, torch.Tensor):
+#             std = std.type(dtype=torch.float64)
+#         if isinstance(x_ref, torch.Tensor):
+#             x_ref = x_ref.type(dtype=torch.float64)
+
+#     delta_T = sample_isotropic_se3_gaussian(eps=eps, std=std, N=N*len(T0), dtype=T0.dtype, device=T0.device)
+#     ang_score_ref, lin_score_ref = se3_isotropic_gaussian_score(T=delta_T, eps=eps, std=std)
+#     if x_ref is not None:
+#         ang_score, lin_score = adjoint_inv_tr_isotropic_se3_score(x_ref=x_ref, ang_score=ang_score_ref, lin_score=lin_score_ref)
+#     else:
+#         ang_score, lin_score = (ang_score_ref, lin_score_ref)
+
+#     delta_T = delta_T.view(N,*T0.shape)
+#     ang_score = ang_score.view(N,*T0.shape[:-1], 3)
+#     lin_score = lin_score.view(N,*T0.shape[:-1], 3)
+
+#     if x_ref is not None:
+#         T = torch.cat([delta_T[...,:4],
+#                        delta_T[...,4:] + x_ref - transforms.quaternion_apply(delta_T[...,:4], x_ref)
+#                        ], dim=-1)
+#         transforms.multiply_se3(T0.expand(N,*T0.shape), T)
+#     else:
+#         T = transforms.multiply_se3(T0.expand(N,*T0.shape), delta_T)
+
+#     return T.type(dtype=input_dtype), delta_T.type(dtype=input_dtype), (ang_score.type(dtype=input_dtype), lin_score.type(dtype=input_dtype)), (ang_score_ref.type(dtype=input_dtype), lin_score_ref.type(dtype=input_dtype))           
     
     
 
-    
+def eps_std_from_time(time: torch.Tensor, linear_mult: float = 1.) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    eps = time / 2
+    std = torch.sqrt(time) * linear_mult
+
+    ang_rescale_mult = 1 / (2 * torch.sqrt(eps))
+    lin_rescale_mult = 1 / std
+
+    return eps, std, ang_rescale_mult, lin_rescale_mult
 
 
 

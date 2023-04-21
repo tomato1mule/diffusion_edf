@@ -14,7 +14,7 @@ from diffusion_edf.equiformer.layer_norm import EquivariantLayerNormV2
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
 
-from diffusion_edf import EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE, QUERY_TYPE, EDF_INFO_TYPE
+from diffusion_edf import EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE, QUERY_TYPE, EDF_INFO_TYPE, SE3_SCORE_TYPE
 from diffusion_edf.embedding import NodeEmbeddingNetwork
 from diffusion_edf.block import EquiformerBlock
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
@@ -27,6 +27,7 @@ from diffusion_edf.wigner import TransformFeatureQuaternion
 from diffusion_edf.transforms import quaternion_apply, quaternion_multiply, axis_angle_to_quaternion, quaternion_invert, normalize_quaternion
 from diffusion_edf.extractor import EdfExtractorLight
 from diffusion_edf.utils import SinusoidalPositionEmbeddings
+from diffusion_edf.dist import eps_std_from_time
 
 
 
@@ -92,7 +93,8 @@ class ScoreModelHead(torch.nn.Module):
                   query: QUERY_TYPE, 
                   key_gnn_outputs: GNN_OUTPUT_TYPE,
                   time_emb: List[torch.Tensor],
-                  angular_first: bool = True) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
+                  ang_rescale_mult: torch.Tensor, 
+                  lin_rescale_mult: torch.Tensor,) -> Tuple[SE3_SCORE_TYPE, EXTRACTOR_INFO_TYPE]:
         query_weight, query_feature, query_coord, query_batch = query # Shape: (N_query,), (N_query, D), (N_query, 3), (N_query,) 
         assert query_weight.ndim + 1 == query_feature.ndim == query_coord.ndim == query_batch.ndim + 1 == 2 
         assert T.ndim == 2 and T.shape[-1] == 7
@@ -129,30 +131,25 @@ class ScoreModelHead(torch.nn.Module):
         ang_spin = quaternion_apply(qinv, ang_spin) # (N_T, N_Q, 3)
         ang_orbital = torch.cross(query_coord.unsqueeze(0), lin_vel, dim=-1) # (N_T, N_Q, 3)
 
-        lin_vel = torch.einsum('q,tqi->ti', query_weight, lin_vel) # (N_T, 3)
-        ang_vel = torch.einsum('q,tqi->ti', query_weight, ang_orbital) + torch.einsum('q,tqi->ti', query_weight, ang_spin) # (N_T, 3)
+        lin_vel = lin_rescale_mult * torch.einsum('q,tqi->ti', query_weight, lin_vel) # (N_T, 3)
+        ang_vel = (lin_rescale_mult * torch.einsum('q,tqi->ti', query_weight, ang_orbital))   +   (ang_rescale_mult * torch.einsum('q,tqi->ti', query_weight, ang_spin)) # (N_T, 3)
 
-        if angular_first:
-            score = torch.cat([ang_vel, lin_vel], dim=-1)
-        else:
-            score = torch.cat([lin_vel, ang_vel], dim=-1)
-
-        return score, key_info
+        return (ang_vel, lin_vel), key_info
     
     def forward(self, T: torch.Tensor,
                 query: QUERY_TYPE, 
                 key_gnn_outputs: GNN_OUTPUT_TYPE,
                 time_emb: List[torch.Tensor],
-                angular_first: bool = True) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
+                ang_rescale_mult: torch.Tensor, 
+                lin_rescale_mult: torch.Tensor,) -> Tuple[SE3_SCORE_TYPE, EXTRACTOR_INFO_TYPE]:
         
-        score, key_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time_emb=time_emb, angular_first=angular_first)
-        return score, key_info
+        (ang_vel, lin_vel), key_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time_emb=time_emb, ang_rescale_mult=ang_rescale_mult, lin_rescale_mult=lin_rescale_mult)
+        return (ang_vel, lin_vel), key_info
 
 
 
 class ScoreModel(torch.nn.Module):
-    def __init__(self, 
-                 irreps_input: o3.Irreps,
+    def __init__(self, irreps_input: o3.Irreps,
                  irreps_emb_init: o3.Irreps,
                  irreps_sh: o3.Irreps,
                  fc_neurons_init: List[int],
@@ -243,38 +240,48 @@ class ScoreModel(torch.nn.Module):
 
         return query, query_info # query Shape: (N_query,), (N_query, D), (N_query, 3), (N_query,) 
     
-    def get_score(self, T: torch.Tensor,
-                  query: QUERY_TYPE, 
-                  key_gnn_outputs: GNN_OUTPUT_TYPE,
-                  time_emb: List[torch.Tensor],
-                  angular_first: bool = True) -> Tuple[torch.Tensor, EXTRACTOR_INFO_TYPE]:
-        score, key_extractor_info = self.key_head.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, angular_first=angular_first, time_emb=time_emb)
-        return score, key_extractor_info
-    
     def get_time_emb(self, time: torch.Tensor) -> List[torch.Tensor]:
         time_emb: List[torch.Tensor] = []
         for time_mlp in self.time_mlps:
             time_emb.append(time_mlp(time))
         return time_emb[::-1] # because upstream Unet
+
+    def get_score(self, T: torch.Tensor,
+                  query: QUERY_TYPE, 
+                  key_gnn_outputs: GNN_OUTPUT_TYPE,
+                  time: torch.Tensor,
+                  linear_mult: float,
+                  rescale_scores: bool = True,
+                  ) -> Tuple[SE3_SCORE_TYPE, EXTRACTOR_INFO_TYPE]:
         
+        time_emb: List[torch.Tensor] = self.get_time_emb(time)
+        eps, std, ang_rescale_mult, lin_rescale_mult = eps_std_from_time(time = time, linear_mult=linear_mult)
+
+        if not rescale_scores:
+            ang_rescale_mult = torch.ones_like(ang_rescale_mult)
+            lin_rescale_mult = torch.ones_like(lin_rescale_mult)
+
+        (ang_score, lin_score), key_extractor_info = self.key_head.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time_emb=time_emb, ang_rescale_mult=ang_rescale_mult, lin_rescale_mult=lin_rescale_mult)
+        return (ang_score, lin_score), key_extractor_info
 
     def forward(self, T: torch.Tensor,
                 key_feature: torch.Tensor, key_coord: torch.Tensor, key_batch: torch.Tensor,
                 query_feature: torch.Tensor, query_coord: torch.Tensor, query_batch: torch.Tensor,
                 time: torch.Tensor,
-                info_mode: str = 'NONE', iters: int = 1, angular_first: bool = True) -> Tuple[QUERY_TYPE, Optional[QUERY_TYPE], Optional[EDF_INFO_TYPE], Optional[EDF_INFO_TYPE]]:      
+                linear_mult: float,
+                rescale_scores: bool = True,
+                info_mode: str = 'NONE', 
+                iters: int = 1) -> Tuple[SE3_SCORE_TYPE, Optional[QUERY_TYPE], Optional[EDF_INFO_TYPE], Optional[EDF_INFO_TYPE]]:      
         query, query_info = self._get_query(node_feature=query_feature, node_coord=query_coord, batch=query_batch, info_mode=info_mode)
         key_gnn_outputs = self.key_model.get_gnn_outputs(node_feature=key_feature, node_coord=key_coord, batch=key_batch) 
 
-        time_emb: List[torch.Tensor] = self.get_time_emb(time)
-
         ######## EXAMPLE ##########
         if iters == 1:
-            score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time_emb = time_emb, angular_first=angular_first)
+            (ang_score, lin_score), key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time=time, linear_mult=linear_mult, rescale_scores=rescale_scores)
         else:
             with torch.no_grad():
                 for _ in tqdm(range(iters)):
-                    score, key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time_emb = time_emb, angular_first=angular_first)
+                    (ang_score, lin_score), key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time=time, linear_mult=linear_mult, rescale_scores=rescale_scores)
         #############################################
 
 
@@ -299,4 +306,4 @@ class ScoreModel(torch.nn.Module):
         else:
             raise ValueError(f"Unknown info_mode: {info_mode}")
 
-        return score, query, query_info, key_info
+        return (ang_score, lin_score), query, query_info, key_info

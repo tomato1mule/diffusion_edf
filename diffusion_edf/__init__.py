@@ -5,3 +5,4 @@ GNN_OUTPUT_TYPE = Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List[int], tor
 EXTRACTOR_INFO_TYPE = Tuple[torch.Tensor, torch.Tensor]                                                  # field_val, edf_info
 QUERY_TYPE = Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]                               # query_weight, query_feature, query_coord, query_batch
 EDF_INFO_TYPE = Tuple[EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE]
+SE3_SCORE_TYPE = Tuple[torch.Tensor, torch.Tensor]     # Angular score, Linear score
