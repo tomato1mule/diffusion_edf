@@ -48,6 +48,8 @@ class QueryModel(EDF):
                  deterministic: bool = False,
                  compile_head: bool = False,
                  attn_type: str = 'mlp',
+                 input_mean = torch.tensor([0.5, 0.5, 0.5]), 
+                 input_std = torch.tensor([0.5, 0.5, 0.5]),
                  ):
         super().__init__(irreps_input=irreps_input,
                          irreps_emb_init=irreps_emb_init,
@@ -66,7 +68,9 @@ class QueryModel(EDF):
                          irreps_mlp_mid=irreps_mlp_mid,
                          deterministic=deterministic,
                          compile_head=compile_head,
-                         attn_type=attn_type
+                         attn_type=attn_type,
+                         input_mean=input_mean,
+                         input_std=input_std,
                          )
         self.query_downsample_ratio = query_downsample_ratio
 
@@ -166,7 +170,7 @@ class QueryModel(EDF):
         gnn_outputs = self.get_gnn_outputs(node_feature=node_feature, node_coord=node_coord, batch=batch)
         node_feature, node_coord, node_batch, node_scale_slice, edge_src, edge_dst = gnn_outputs
 
-        query_coord, query_batch = self._get_init_query_pos(node_coord=node_coord, node_batch=node_batch, node_scale_slice=node_scale_slice, only_from_top_scale=True)
+        query_coord, query_batch = self._get_init_query_pos(node_coord=node_coord, node_batch=node_batch, node_scale_slice=node_scale_slice, only_from_top_scale=False)
         query_weight = self._extract_weight_logits(query_coord=query_coord, query_batch=query_batch,
                                                    node_feature=node_feature, node_coord=node_coord, 
                                                    node_batch=node_batch, node_scale_slice=node_scale_slice)

@@ -172,6 +172,8 @@ class ScoreModel(torch.nn.Module):
                  irreps_mlp_mid: int = 3,
                  deterministic: bool = False,
                  compile_head: bool = False,
+                 input_mean = torch.tensor([0.5, 0.5, 0.5]), 
+                 input_std = torch.tensor([0.5, 0.5, 0.5]),
                  ):
         super().__init__()
 
@@ -191,7 +193,9 @@ class ScoreModel(torch.nn.Module):
                              drop_path_rate=drop_path_rate,
                              irreps_mlp_mid=irreps_mlp_mid,
                              deterministic=deterministic,
-                             detach_extractor=True)
+                             detach_extractor=True,
+                             input_mean=input_mean,
+                             input_std=input_std)
 
         self.query_model = QueryModel(irreps_input=irreps_input,
                                       irreps_emb_init=irreps_emb_init,
@@ -211,7 +215,9 @@ class ScoreModel(torch.nn.Module):
                                       weight_feature_dim=weight_feature_dim,
                                       query_downsample_ratio=query_downsample_ratio,
                                       deterministic=deterministic,
-                                      compile_head=compile_head)
+                                      compile_head=compile_head,
+                                      input_mean=input_mean,
+                                      input_std=input_std,)
         
         self.key_head = ScoreModelHead(key_extractor = self.key_model.get_extractor(),
                                        irreps_emb_key=self.key_model.irreps_emb,

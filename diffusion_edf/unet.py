@@ -434,6 +434,8 @@ class EDF(torch.nn.Module):
                  detach_extractor: bool = False,
                  compile_head: bool = False,
                  attn_type: str = 'mlp',
+                 input_mean = torch.tensor([0.5, 0.5, 0.5]), 
+                 input_std = torch.tensor([0.5, 0.5, 0.5]),
                  ):
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -472,7 +474,7 @@ class EDF(torch.nn.Module):
         self.drop_path_rate = drop_path_rate
 
 
-        self.enc = NodeEmbeddingNetwork(irreps_input=self.irreps_input, irreps_node_emb=self.irreps[0])
+        self.enc = NodeEmbeddingNetwork(irreps_input=self.irreps_input, irreps_node_emb=self.irreps[0], input_mean=input_mean, input_std=input_std)
         self.gnn = EdfUnet(
             irreps = self.irreps,
             irreps_edge_attr = [self.irreps_sh for _ in range(n_scales)],
