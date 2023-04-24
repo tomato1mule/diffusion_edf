@@ -90,29 +90,29 @@ class QueryModel(EDF):
             proj_drop=proj_drop,
             drop_path_rate=drop_path_rate
         )
-        self.pre_weight_irreps = o3.Irreps(f"{weight_feature_dim}x0e")
-        self.weight_linear1 = LinearRS(irreps_in = self.gnn.irreps[-1], irreps_out = self.pre_weight_irreps, bias=True, rescale=True)
-        self.weight_layernorm = EquivariantLayerNormV2(irreps = self.pre_weight_irreps)
-        self.weight_linear2 = LinearRS(irreps_in = self.pre_weight_irreps, irreps_out = o3.Irreps("1x0e"), bias=True, rescale=True)        
+        self.query_scalar_irreps = o3.Irreps(f"{weight_feature_dim}x0e")
+        self.weight_linear1 = LinearRS(irreps_in = self.gnn.irreps[-1], irreps_out = self.query_scalar_irreps, bias=True, rescale=True)
+        self.weight_layernorm = EquivariantLayerNormV2(irreps = self.query_scalar_irreps)
+        # self.weight_linear2 = LinearRS(irreps_in = self.query_scalar_irreps, irreps_out = o3.Irreps("1x0e"), bias=True, rescale=True)        
 
-    def _extract_weight_logits(self, query_coord: torch.Tensor,
-                               query_batch: torch.Tensor,
-                               node_feature: torch.Tensor,
-                               node_coord: torch.Tensor,
-                               node_batch: torch.Tensor,
-                               node_scale_slice: List[int],) -> torch.Tensor:
+    # def _extract_weight_logits(self, query_coord: torch.Tensor,
+    #                            query_batch: torch.Tensor,
+    #                            node_feature: torch.Tensor,
+    #                            node_coord: torch.Tensor,
+    #                            node_batch: torch.Tensor,
+    #                            node_scale_slice: List[int],) -> torch.Tensor:
         
-        field_val, (edge_src, edge_dst) = self.weight_field(query_coord = query_coord, 
-                                                            query_batch = query_batch,
-                                                            node_feature = node_feature,
-                                                            node_coord = node_coord,
-                                                            node_batch = node_batch,
-                                                            node_scale_slice = node_scale_slice)
-        field_val = self.weight_linear1(field_val)
-        field_val = self.weight_layernorm(field_val)
-        field_val = self.weight_linear2(field_val)
+    #     field_val, (edge_src, edge_dst) = self.weight_field(query_coord = query_coord, 
+    #                                                         query_batch = query_batch,
+    #                                                         node_feature = node_feature,
+    #                                                         node_coord = node_coord,
+    #                                                         node_batch = node_batch,
+    #                                                         node_scale_slice = node_scale_slice)
+    #     field_val = self.weight_linear1(field_val)
+    #     field_val = self.weight_layernorm(field_val)
+    #     field_val = self.weight_linear2(field_val)
         
-        return field_val.squeeze(-1)
+    #     return field_val.squeeze(-1)
     
     def _get_init_query_pos(self, node_coord: torch.Tensor, node_batch: torch.Tensor, node_scale_slice: List[int], only_from_top_scale: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
         if only_from_top_scale:
@@ -171,18 +171,27 @@ class QueryModel(EDF):
         node_feature, node_coord, node_batch, node_scale_slice, edge_src, edge_dst = gnn_outputs
 
         query_coord, query_batch = self._get_init_query_pos(node_coord=node_coord, node_batch=node_batch, node_scale_slice=node_scale_slice, only_from_top_scale=False)
-        query_weight = self._extract_weight_logits(query_coord=query_coord, query_batch=query_batch,
-                                                   node_feature=node_feature, node_coord=node_coord, 
-                                                   node_batch=node_batch, node_scale_slice=node_scale_slice)
-        #query_weight = scatter_softmax(src = query_weight, index=query_batch)
-        query_weight = torch.sigmoid(query_weight)
+        query_scalar, (_, __) = self.weight_field(query_coord = query_coord, 
+                                                               query_batch = query_batch,
+                                                               node_feature = node_feature,
+                                                               node_coord = node_coord,
+                                                               node_batch = node_batch,
+                                                               node_scale_slice = node_scale_slice)
+        query_scalar = self.weight_linear1(query_scalar)
+        query_scalar = self.weight_layernorm(query_scalar)
+        # query_weight = self._extract_weight_logits(query_coord=query_coord, query_batch=query_batch,
+        #                                            node_feature=node_feature, node_coord=node_coord, 
+        #                                            node_batch=node_batch, node_scale_slice=node_scale_slice)
+        # #query_weight = scatter_softmax(src = query_weight, index=query_batch)
+        # query_weight = torch.sigmoid(query_weight)
         query_feature, extractor_info = self.extractor(query_coord = query_coord, 
                                                        query_batch = query_batch,
                                                        node_feature = node_feature,
                                                        node_coord = node_coord,
                                                        node_batch = node_batch,
                                                        node_scale_slice=node_scale_slice)
-        query = (query_weight, query_feature, query_coord, query_batch)
+        # query = (query_weight, query_feature, query_coord, query_batch)
+        query = (query_scalar, query_feature, query_coord, query_batch)
 
         if info_mode == 'NONE':
             query_info = None

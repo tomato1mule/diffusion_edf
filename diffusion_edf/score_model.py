@@ -226,9 +226,9 @@ class ScoreModel(torch.nn.Module):
                                        lin_mult=lin_mult,
                                        ang_mult=ang_mult)
         
-        self.time_mlps = torch.nn.ModuleList()
+        self.key_time_mlps = torch.nn.ModuleList()
         for num_basis in self.key_head.key_extractor.num_basis:
-            self.time_mlps.append(
+            self.key_time_mlps.append(
                 torch.nn.Sequential(
                     SinusoidalPositionEmbeddings(dim=num_basis*4, max_t=1., n=10000),
                     torch.nn.Linear(num_basis*4, num_basis*2),
@@ -237,11 +237,22 @@ class ScoreModel(torch.nn.Module):
                 )
             )
 
-        if compile_head:
-            self.key_head = torch.jit.script(self.key_head)
+        self.query_time_mlp = torch.nn.Sequential(SinusoidalPositionEmbeddings(dim=num_basis*4, max_t=1., n=10000),
+                                                   torch.nn.Linear(weight_feature_dim*4, weight_feature_dim*2),
+                                                   torch.nn.GELU(), 
+                                                   torch.nn.Linear(weight_feature_dim*2, weight_feature_dim),
+                                                   torch.nn.LayerNorm(weight_feature_dim))
+
+        self.query_scalar_plus_time_emb_to_weight_logit = torch.nn.Sequential(torch.nn.Linear(weight_feature_dim, weight_feature_dim//2), 
+                                                                              torch.nn.GELU(),
+                                                                              torch.nn.Linear(weight_feature_dim//2, 1),
+                                                                              )
 
         self.register_buffer('q_indices', torch.tensor([[1,2,3], [0,3,2], [3,0,1], [2,1,0]], dtype=torch.long), persistent=False)
         self.register_buffer('q_factor', torch.tensor([[-0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, 0.5]]), persistent=False)
+
+        if compile_head:
+            self.key_head = torch.jit.script(self.key_head)
 
     def _get_query(self, node_feature: torch.Tensor, 
                    node_coord: torch.Tensor, 
@@ -249,11 +260,11 @@ class ScoreModel(torch.nn.Module):
                    info_mode: str = 'NONE') -> Tuple[QUERY_TYPE, Optional[EDF_INFO_TYPE]]:        
         query, query_info = self.query_model(node_feature=node_feature, node_coord=node_coord, batch=batch, info_mode=info_mode)
 
-        return query, query_info # query Shape: (N_query,), (N_query, D), (N_query, 3), (N_query,) 
+        return query, query_info # query Shape: (N_query, weight_feature_dim), (N_query, D), (N_query, 3), (N_query,) 
     
-    def get_time_emb(self, time: torch.Tensor) -> List[torch.Tensor]:
+    def get_key_time_emb(self, time: torch.Tensor) -> List[torch.Tensor]:
         time_emb: List[torch.Tensor] = []
-        for time_mlp in self.time_mlps:
+        for time_mlp in self.key_time_mlps:
             time_emb.append(time_mlp(time))
         return time_emb[::-1] # because upstream Unet
 
@@ -262,10 +273,14 @@ class ScoreModel(torch.nn.Module):
                   key_gnn_outputs: GNN_OUTPUT_TYPE,
                   time: torch.Tensor) -> Tuple[SE3_SCORE_TYPE, EXTRACTOR_INFO_TYPE]:
         
-        time_emb: List[torch.Tensor] = self.get_time_emb(time)
+        key_time_emb: List[torch.Tensor] = self.get_key_time_emb(time)
+        (query_scalar, query_feature, query_coord, query_batch) = query
+        query_time_emb: torch.Tensor = self.query_time_mlp(time)
+        query_weight: torch.Tensor = self.query_scalar_plus_time_emb_to_weight_logit( query_time_emb + query_scalar ).squeeze(-1)
+        query = (query_weight, query_feature, query_coord, query_batch)
 
-        (ang_score, lin_score), key_extractor_info = self.key_head.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time_emb=time_emb)
-        return (ang_score, lin_score), key_extractor_info
+        (ang_score, lin_score), key_extractor_info = self.key_head.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time_emb=key_time_emb)
+        return (ang_score, lin_score), key_extractor_info, query_weight
 
     def forward(self, T: torch.Tensor,
                 key_feature: torch.Tensor, key_coord: torch.Tensor, key_batch: torch.Tensor,
@@ -278,11 +293,11 @@ class ScoreModel(torch.nn.Module):
 
         ######## EXAMPLE ##########
         if iters == 1:
-            (ang_score, lin_score), key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time=time)
+            (ang_score, lin_score), key_extractor_info, query_weight = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time=time)
         else:
             with torch.no_grad():
                 for _ in tqdm(range(iters)):
-                    (ang_score, lin_score), key_extractor_info = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time=time)
+                    (ang_score, lin_score), key_extractor_info, query_weight = self.get_score(T=T, query=query, key_gnn_outputs=key_gnn_outputs, time=time)
         #############################################
 
 
@@ -294,7 +309,7 @@ class ScoreModel(torch.nn.Module):
             (edge_src_field, edge_dst_field) = key_extractor_info
             (node_feature, node_coord, batch, scale_slice, edge_src, edge_dst) = key_gnn_outputs
             if info_mode == 'NO_GRAD':
-                (query_weight, query_feature, query_coord, query_batch) = query
+                (query_scalar, query_feature, query_coord, query_batch) = query
                 gnn_outputs = (node_feature.detach(), 
                                node_coord.detach(), 
                                batch.detach(),
