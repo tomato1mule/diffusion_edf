@@ -151,7 +151,8 @@ class EdfExtractorLight(torch.nn.Module):
         attn_type: str = 'mlp',
         alpha_drop: float = 0.1,
         proj_drop: float = 0.1,
-        drop_path_rate: float = 0.0):
+        drop_path_rate: float = 0.0,
+        infinite: bool = False):
         
         super().__init__()
         self.irreps_inputs: List[o3.Irreps] = [o3.Irreps(irreps) for irreps in irreps_inputs]
@@ -169,21 +170,26 @@ class EdfExtractorLight(torch.nn.Module):
         self.n_layers: int = n_layers
         self.query_radius: Optional[float] = query_radius
         assert self.n_layers >= 1
+        self.infinite: bool = infinite
 
         self.pre_connect = torch.nn.ModuleList()
         self.pre_radial = torch.nn.ModuleList()
         self.pre_layers = torch.nn.ModuleList()
         self.num_basis: List[int] = []
         for n in range(self.n_scales):
+            r = self.cutoffs[n]
+            if (n == self.n_scales-1) and self.infinite:
+                r = r * 3. # Sufficiently large neighborhood
             self.pre_connect.append(
-                RadiusConnect(r=self.cutoffs[n], offset=None, max_num_neighbors= 1000) # TODO: offset=None -> self.offsets[n]
+                RadiusConnect(r=r, offset=None, max_num_neighbors= 1000) # TODO: offset=None -> self.offsets[n]
             )
             self.pre_radial.append(
                 torch.nn.Sequential(
                     GaussianRadialBasisLayerFiniteCutoff(num_basis=fc_neurons[0], 
                                                         cutoff=self.cutoffs[n], 
                                                         offset=self.offsets[n],
-                                                        soft_cutoff=True),
+                                                        soft_cutoff=True,
+                                                        infinite = (n == self.n_scales-1) and self.infinite),
                     torch.nn.Linear(fc_neurons[0], fc_neurons[0])
                 )
             )

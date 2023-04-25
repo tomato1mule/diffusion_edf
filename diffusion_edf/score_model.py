@@ -195,7 +195,8 @@ class ScoreModel(torch.nn.Module):
                              deterministic=deterministic,
                              detach_extractor=True,
                              input_mean=input_mean,
-                             input_std=input_std)
+                             input_std=input_std,
+                             infinite=True)
 
         self.query_model = QueryModel(irreps_input=irreps_input,
                                       irreps_emb_init=irreps_emb_init,
@@ -217,7 +218,8 @@ class ScoreModel(torch.nn.Module):
                                       deterministic=deterministic,
                                       compile_head=compile_head,
                                       input_mean=input_mean,
-                                      input_std=input_std,)
+                                      input_std=input_std,
+                                      infinite=False)
         
         self.key_head = ScoreModelHead(key_extractor = self.key_model.get_extractor(),
                                        irreps_emb_key=self.key_model.irreps_emb,

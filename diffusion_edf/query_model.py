@@ -50,6 +50,7 @@ class QueryModel(EDF):
                  attn_type: str = 'mlp',
                  input_mean = torch.tensor([0.5, 0.5, 0.5]), 
                  input_std = torch.tensor([0.5, 0.5, 0.5]),
+                 infinite = False
                  ):
         super().__init__(irreps_input=irreps_input,
                          irreps_emb_init=irreps_emb_init,
@@ -71,6 +72,7 @@ class QueryModel(EDF):
                          attn_type=attn_type,
                          input_mean=input_mean,
                          input_std=input_std,
+                         infinite = infinite
                          )
         self.query_downsample_ratio = query_downsample_ratio
 

@@ -436,6 +436,7 @@ class EDF(torch.nn.Module):
                  attn_type: str = 'mlp',
                  input_mean = torch.tensor([0.5, 0.5, 0.5]), 
                  input_std = torch.tensor([0.5, 0.5, 0.5]),
+                 infinite = False,
                  ):
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -472,6 +473,7 @@ class EDF(torch.nn.Module):
         self.alpha_drop = alpha_drop
         self.proj_drop = proj_drop
         self.drop_path_rate = drop_path_rate
+        self.infinite = infinite
 
 
         self.enc = NodeEmbeddingNetwork(irreps_input=self.irreps_input, irreps_node_emb=self.irreps[0], input_mean=input_mean, input_std=input_std)
@@ -514,7 +516,8 @@ class EDF(torch.nn.Module):
                 attn_type=self.attn_type,
                 alpha_drop=self.alpha_drop, 
                 proj_drop=self.proj_drop,
-                drop_path_rate=self.drop_path_rate
+                drop_path_rate=self.drop_path_rate,
+                infinite = self.infinite
             )
         if compile_head and not self.detach_extractor:
             self.extractor = torch.jit.script(self.extractor)
@@ -534,7 +537,8 @@ class EDF(torch.nn.Module):
                             attn_type=self.attn_type,
                             alpha_drop=self.alpha_drop, 
                             proj_drop=self.proj_drop,
-                            drop_path_rate=self.drop_path_rate)
+                            drop_path_rate=self.drop_path_rate,
+                            infinite = self.infinite)
         return extr
 
     def get_gnn_outputs(self, node_feature: torch.Tensor, 
