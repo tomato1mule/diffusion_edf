@@ -119,7 +119,7 @@ class EquivariantLayerNorm(torch.nn.Module):
 
         for context in itertools.product(irreps_list, jits):
             irreps, jit = context
-            module = EquivariantLayerNorm(irreps=irreps)
+            module = EquivariantLayerNorm(irreps=irreps, eps=1e-8)
             if jit == 'default':
                 pass
             elif jit == 'jit':
@@ -137,12 +137,12 @@ class EquivariantLayerNorm(torch.nn.Module):
                 norm = torch.norm(z[...,slice], dim=-1)
                 if l==0:
                     result = torch.isclose(mean, torch.zeros_like(mean), atol=1e-3).type(torch.double).mean()
-                    if result.item() < 0.99:
+                    if result.item() < 0.9999:
                         warnings.warn(f"EquivariantLayernorm mean=0 test failed for irreps {irreps} || jit type: {jit} || isclose ratio: {result.item()}")
                         return False
                 if n>=2:
                     result = torch.isclose(norm, torch.ones_like(norm), atol=1e-3).type(torch.double).mean()
-                    if result.item() < 0.99:
+                    if result.item() < 0.9999:
                         warnings.warn(f"EquivariantLayernorm norm=1 test failed for irreps {irreps} || jit type: {jit} || isclose ratio: {result.item()}")
                         return False
 
