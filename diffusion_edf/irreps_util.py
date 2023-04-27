@@ -9,12 +9,15 @@ from diffusion_edf.equiformer.graph_attention_transformer import sort_irreps_eve
 
 
 def irreps_to_list(irreps: o3.Irreps) -> List[Tuple[int, Tuple[int, int]]]:
+    irreps = o3.Irreps(irreps)
     return [(n,(l,p)) for n,(l,p) in irreps]
 
 def irreps_to_tuple(irreps: o3.Irreps) -> Tuple[Tuple[int, Tuple[int, int]]]:
+    irreps = o3.Irreps(irreps)
     return tuple(irreps_to_list(irreps=irreps))
 
-def multiply_irreps(irreps: Union[o3.Irreps, str], mult: int, strict: bool = True) -> o3.Irreps:
+def multiply_irreps(irreps: o3.Irreps, mult: int, strict: bool = True) -> o3.Irreps:
+    irreps = o3.Irreps(irreps)
     assert isinstance(irreps, o3.Irreps) or isinstance(irreps, o3.Irreps)
 
     output = []
@@ -25,6 +28,22 @@ def multiply_irreps(irreps: Union[o3.Irreps, str], mult: int, strict: bool = Tru
     output = o3.Irreps(output)
 
     return output
+
+def check_irreps_parity(irreps: o3.Irreps, parity: Union[int, str] = 1) -> bool:
+    if parity == 'e' or 'even':
+        parity = 1
+    elif parity == 'o' or 'odd':
+        parity = -1
+    elif parity in [1, -1]:
+        pass
+    else:
+        raise ValueError(f"Unknown parity {parity}")
+    irreps = o3.Irreps(irreps)
+    for (n,(l,p)) in irreps:
+        if p != parity:
+            return False
+    return True
+
 
 class ParityInversionSh(torch.nn.Module):
     def __init__(self, irreps: o3.Irreps):
@@ -205,16 +224,27 @@ class IrrepwiseDotProduct(torch.nn.Module):
     
 
 def get_group_scatter_indices(irreps: o3.Irreps) -> torch.Tensor:
+    irreps = o3.Irreps(irreps)
     scatter_indices = torch.zeros(irreps.dim, dtype=torch.long)
     for i, slice in enumerate(irreps.slices()):
         scatter_indices[slice] = i
     return scatter_indices
 
 def get_irrep_scatter_indices(irreps: o3.Irreps) -> torch.Tensor:
+    irreps = o3.Irreps(irreps)
     scatter_indices = torch.empty(0, dtype=torch.long)
     for i, l in enumerate(irreps.ls):
         indices = torch.ones(2*l+1, dtype=scatter_indices.dtype) * i
         scatter_indices = torch.cat([scatter_indices, indices], dim=-1)
+    return scatter_indices
+
+def get_irrep_to_group_scatter_indices(irreps: o3.Irreps) -> torch.Tensor:
+    irreps = o3.Irreps(irreps)
+    scatter_indices = torch.zeros(irreps.num_irreps, dtype=torch.long)
+    idx = 0
+    for i, (n,(l,p)) in enumerate(irreps):
+        scatter_indices[idx: idx+n] = i
+        idx = idx+n
     return scatter_indices
 
 class GroupwiseApplyScalar(torch.nn.Module):
