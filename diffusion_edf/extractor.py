@@ -205,8 +205,10 @@ class EdfExtractorLight(torch.nn.Module):
                                    alpha_drop = alpha_drop,
                                    proj_drop = proj_drop,
                                    drop_path_rate = drop_path_rate,
-                                   src_bias = False,
-                                   dst_bias = True, debug=True)
+                                   src_bias = True,
+                                   dst_bias = False, 
+                                   dst_feature_layer = False,
+                                   debug=True)
 
         self.spherical_harmonics = o3.SphericalHarmonics(irreps_out = self.irreps_edge_attr, normalize = True, normalization='component')
         self.register_buffer('zero_features', torch.zeros(1, self.emb_dim), persistent=False)

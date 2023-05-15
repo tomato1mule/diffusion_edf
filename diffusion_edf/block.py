@@ -76,6 +76,7 @@ class EquiformerBlock(torch.nn.Module):
         drop_path_rate: float = 0.0,
         src_bias: bool = False,
         dst_bias: bool = True,
+        dst_feature_layer: bool = True,
         debug: bool = False):
         self.debug = debug
         
@@ -95,10 +96,17 @@ class EquiformerBlock(torch.nn.Module):
             self.irreps_mlp_mid = sort_irreps_even_first((self.irreps_emb * irreps_mlp_mid))[0].simplify()
 
         self.norm_1_src = EquivariantLayerNormV2(self.irreps_src)
-        self.norm_1_dst = EquivariantLayerNormV2(self.irreps_dst)
-
         self.linear_src = LinearRS(self.irreps_src, self.irreps_emb, bias=src_bias)
-        self.linear_dst = LinearRS(self.irreps_dst, self.irreps_emb, bias=dst_bias)
+
+        if dst_feature_layer is True:
+            self.dst_feature_layer = True
+            self.norm_1_dst = EquivariantLayerNormV2(self.irreps_dst)
+            self.linear_dst = LinearRS(self.irreps_dst, self.irreps_emb, bias=dst_bias)
+        else:
+            self.dst_feature_layer = False
+            assert dst_bias is False
+            self.norm_1_dst = torch.nn.Identity()
+            self.linear_dst = torch.nn.Identity()
 
 
         if attn_type not in ['mlp', 'linear', 'dp']:
