@@ -2,6 +2,7 @@
 demo/*
 !demo/test_demo
 !demo/test_unseen_demo
+!demo/test_demo_single_mug
 runs/
 runs_old/
 
