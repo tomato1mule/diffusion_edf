@@ -2,9 +2,11 @@ from __future__ import annotations
 import os
 import gzip
 import pickle
-from typing import Union, Optional, List, Tuple, Dict, Any, Iterable, TypeVar, Type
+from typing import Union, Optional, List, Tuple, Dict, Any, Iterable, TypeVar, Type, NamedTuple, Sequence
 from abc import ABCMeta, abstractmethod
+from dataclasses import dataclass
 import warnings
+import collections
 
 import numpy as np
 import open3d as o3d
@@ -187,7 +189,67 @@ class SE3():
             return False
 
 
+
+# @dataclass
+# class FeaturedPoints:
+#     x: torch.Tensor # Position
+#     f: torch.Tensor # Feature
+#     b: torch.Tensor = None # Batch idx
+#     s: torch.Tensor = None # Scale Space
+
+#     def __post_init__(self):
+#         assert self.x.shape[-1] == 3, f"x must be three dimensional positions, but x of shape {self.x.shape} is provided."
+#         assert self.x.shape
+
+#         if self.b is None:
+#             self.b = torch.zeros_like(self.x[..., 0], dtype=torch.long)
+
+#         if self.s is None:
+#             self.s = torch.zeros_like(self.x[..., 0], dtype=torch.long)
+
+#         assert self.x.shape[:-1] == self.f.shape[:-1] == self.b.shape == self.s.shape
+
+# class FeaturedPoints(NamedTuple):
+#     x: torch.Tensor # Position
+#     f: torch.Tensor # Feature
+#     b: torch.Tensor # Batch idx
+
+#     @staticmethod
+#     def cat(pcds: Iterable[FeaturedPoints]) -> FeaturedPoints:
+#         x: torch.Tensor = torch.cat([pcd.x for pcd in pcds])
+#         f: torch.Tensor = torch.cat([pcd.f for pcd in pcds])
+#         b: torch.Tensor = torch.cat([pcd.b for pcd in pcds])
+#         return FeaturedPoints(x=x, f=f, b=b)
+
+FeaturedPoints = collections.namedtuple('FeaturedPoints', ['x', 'f', 'b'])
+
+def _list_merge_featured_points(pcds: List[FeaturedPoints]) -> FeaturedPoints:
+    x: torch.Tensor = torch.cat([pcd.x for pcd in pcds], dim=0)
+    f: torch.Tensor = torch.cat([pcd.f for pcd in pcds], dim=0)
+    b: torch.Tensor = torch.cat([pcd.b for pcd in pcds], dim=0)
+    return FeaturedPoints(x=x, f=f, b=b)
+
+def _tuple_merge_featured_points(pcds: Tuple[FeaturedPoints]) -> FeaturedPoints:
+    x: torch.Tensor = torch.cat([pcd.x for pcd in pcds], dim=0)
+    f: torch.Tensor = torch.cat([pcd.f for pcd in pcds], dim=0)
+    b: torch.Tensor = torch.cat([pcd.b for pcd in pcds], dim=0)
+    return FeaturedPoints(x=x, f=f, b=b)
+
+def merge_featured_points(pcds: Union[List[FeaturedPoints], Tuple[FeaturedPoints]]) -> FeaturedPoints:
+    if isinstance(pcds, list):
+        return _list_merge_featured_points(pcds=pcds)
+    if isinstance(pcds, tuple):
+        return _tuple_merge_featured_points(pcds=pcds)
+    else:
+        raise ValueError()
+
+
+
 class PointCloud():
+    points: torch.Tensor
+    colors: torch.Tensor
+    device: torch.device
+
     def __init__(self, points: torch.Tensor, colors: torch.Tensor, device: Optional[Union[str, torch.device]] = None):
         if device is None:
             device = points.device
@@ -357,6 +419,9 @@ class PointCloud():
     
     def show(self, point_size: float = 1.0, name: Optional[str] = None, opacity: Union[float, torch.Tensor] = 1.0, colors: Optional[torch.Tensor] = None, custom_data: Optional[dict] = None, width = 1600, height=1200):
         return PointCloud.show_pcd(pcd=self, point_size=point_size, name=name, opacity=opacity, colors=colors, custom_data=custom_data, width=width, height=height)
+    
+    def to_featured_points(self, batch_idx: int = 0) -> FeaturedPoints:
+        return FeaturedPoints(x=self.points, f=self.colors, b = torch.empty_like(self.points[..., 0], dtype=torch.long).fill_(batch_idx))
     
 
 
@@ -618,7 +683,3 @@ class OutputLog():
         for k,v in state_dict.items():
             output_log.__setattr__(k, v)
         return output_log
-
-    
-
-    

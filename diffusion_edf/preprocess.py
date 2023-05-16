@@ -18,7 +18,7 @@ def rescale(data, rescale_factor: float):
         scene_pc = rescale(data.scene_pc, rescale_factor=rescale_factor)
         grasp_pc = rescale(data.grasp_pc, rescale_factor=rescale_factor)
         target_poses = rescale(data.target_poses, rescale_factor=rescale_factor)
-        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=scene_pc.device)
+        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=scene_pc.device, name=data.name)
     elif type(data) == PointCloud:
         if data.is_empty():
             return data
@@ -43,7 +43,7 @@ def normalize_color(data, color_mean: torch.Tensor, color_std: torch.Tensor):
         scene_pc = normalize_color(data.scene_pc, color_mean=color_mean, color_std=color_std)
         grasp_pc = normalize_color(data.grasp_pc, color_mean=color_mean, color_std=color_std)
         target_poses = normalize_color(data.target_poses, color_mean=color_mean, color_std=color_std)
-        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device)
+        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device, name=data.name)
     elif type(data) == PointCloud:
         if data.is_empty():
             return data
@@ -66,7 +66,7 @@ def downsample(data, voxel_size: float, coord_reduction: str = "average"):
         scene_pc = downsample(data.scene_pc, voxel_size=voxel_size, coord_reduction=coord_reduction)
         grasp_pc = downsample(data.grasp_pc, voxel_size=voxel_size, coord_reduction=coord_reduction)
         target_poses = downsample(data.target_poses, voxel_size=voxel_size, coord_reduction=coord_reduction)
-        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device)
+        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device, name=data.name)
     elif type(data) == PointCloud:
         if data.is_empty():
             return data
@@ -89,7 +89,7 @@ def apply_SE3(data, poses: SE3, apply_right: bool = False):
         scene_pc = apply_SE3(data=scene_pc, poses=poses, apply_right=apply_right)
         grasp_pc = apply_SE3(data=grasp_pc, poses=poses, apply_right=apply_right)
         target_poses = apply_SE3(data=target_poses, poses=poses, apply_right=apply_right)
-        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device)
+        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device, name=data.name)
     elif type(data) == PointCloud:
         if data.is_empty():
             return data
@@ -112,7 +112,7 @@ def jitter_points(data, jitter_std: float):
         scene_pc = jitter_points(data=scene_pc, jitter_std=jitter_std)
         grasp_pc = jitter_points(data=grasp_pc, jitter_std=jitter_std)
         target_poses = jitter_points(data=target_poses, jitter_std=jitter_std)
-        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device)
+        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device, name=data.name)
     elif type(data) == PointCloud:
         if data.is_empty():
             return data
@@ -136,7 +136,7 @@ def jitter_colors(data, jitter_std: float, cutoff: bool = False):
         scene_pc = jitter_points(data=scene_pc, jitter_std=jitter_std, cutoff=cutoff)
         grasp_pc = jitter_points(data=grasp_pc, jitter_std=jitter_std, cutoff=cutoff)
         target_poses = jitter_points(data=target_poses, jitter_std=jitter_std, cutoff=cutoff)
-        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device)
+        return TargetPoseDemo(scene_pc=scene_pc, grasp_pc=grasp_pc, target_poses=target_poses, device=data.device, name=data.name)
     elif type(data) == PointCloud:
         if data.is_empty():
             return data
