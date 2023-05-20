@@ -1,0 +1,11 @@
+input_voxel_size: 0.01
+irreps_input_feature: '3x0e'
+irreps_sh: '1x0e+1x1e+1x2e'
+fc_neurons: [128, 64, 64]
+num_heads: 4
+alpha_drop: 0.2
+proj_drop: 0.0
+drop_path_rate: 0.0
+irreps_mlp_mid: 2
+n_scales: 4
+pool_ratio: 0.5
