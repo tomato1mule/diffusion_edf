@@ -197,6 +197,9 @@ class Downsample(EdfTransform):
     def forward(self, data):
         data = super().forward(data)
         return downsample(data=data, voxel_size=self.voxel_size, coord_reduction=self.coord_reduction)
+    
+    def extra_repr(self) -> str:
+        return f"voxel_size: {self.voxel_size}, coord_reduction: {self.coord_reduction}"
 
 
     

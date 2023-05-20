@@ -8,7 +8,8 @@ import torch
 from torchvision.transforms import Compose
 from torch.utils.data import DataLoader
 
-from diffusion_edf.data import DemoSeqDataset, DemoSequence, TargetPoseDemo, FeaturedPoints, merge_featured_points
+from diffusion_edf.data import DemoSeqDataset, DemoSequence, TargetPoseDemo
+from diffusion_edf.gnn_data import FeaturedPoints, merge_featured_points, pcd_to_featured_points
 from diffusion_edf import preprocess
 
 def flatten_batch(demo_batch: List[TargetPoseDemo]):
@@ -16,8 +17,8 @@ def flatten_batch(demo_batch: List[TargetPoseDemo]):
     grasp_pcd = []
     target_poses = []
     for b, demo in enumerate(demo_batch):
-        scene_pcd.append(demo.scene_pc.to_featured_points(batch_idx=b))
-        grasp_pcd.append(demo.grasp_pc.to_featured_points(batch_idx=b))
+        scene_pcd.append(pcd_to_featured_points(demo.scene_pc,batch_idx=b))
+        grasp_pcd.append(pcd_to_featured_points(demo.grasp_pc,batch_idx=b))
         target_poses.append(demo.target_poses.poses)
 
     scene_pcd = merge_featured_points(scene_pcd) # Shape: x: (b*p, 3), f: (b*p, 3), b: (b*p, )   # b: N_batch, p: N_points_scene

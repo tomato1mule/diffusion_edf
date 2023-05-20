@@ -1,1 +1,10 @@
 n_batches: 3
+dataset_dir: 'test_data'
+annotation_file: 'data.yaml'
+
+
+preprocess_config:
+  - name: "Downsample"
+    configs:
+      voxel_size: 0.01
+      coord_reduction: "average"
