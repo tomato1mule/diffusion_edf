@@ -1,3 +1,5 @@
+#### Deprecated #####
+
 import warnings
 
 import torch
@@ -5,6 +7,8 @@ from e3nn.util.jit import compile_mode
 from e3nn import o3
 
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
+
+
 
 #@compile_mode('script')
 class NodeEmbeddingNetwork(torch.nn.Module):

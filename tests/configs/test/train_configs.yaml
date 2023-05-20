@@ -1,4 +1,4 @@
-n_batches: 3
+n_batches: 1
 dataset_dir: 'test_data'
 annotation_file: 'data.yaml'
 

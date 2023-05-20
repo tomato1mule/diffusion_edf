@@ -1,5 +1,4 @@
-from typing import Tuple, List, Union
-import collections
+from typing import Tuple, List, Union, Optional, NamedTuple
 
 import torch
 
@@ -24,19 +23,11 @@ from diffusion_edf.data import PointCloud
 
 #         assert self.x.shape[:-1] == self.f.shape[:-1] == self.b.shape == self.s.shape
 
-# class FeaturedPoints(NamedTuple):
-#     x: torch.Tensor # Position
-#     f: torch.Tensor # Feature
-#     b: torch.Tensor # Batch idx
-
-#     @staticmethod
-#     def cat(pcds: Iterable[FeaturedPoints]) -> FeaturedPoints:
-#         x: torch.Tensor = torch.cat([pcd.x for pcd in pcds])
-#         f: torch.Tensor = torch.cat([pcd.f for pcd in pcds])
-#         b: torch.Tensor = torch.cat([pcd.b for pcd in pcds])
-#         return FeaturedPoints(x=x, f=f, b=b)
-
-FeaturedPoints = collections.namedtuple('FeaturedPoints', ['x', 'f', 'b'])
+# FeaturedPoints = NamedTuple('FeaturedPoints', [('x', torch.Tensor), ('f', torch.Tensor), ('b', torch.Tensor)])
+class FeaturedPoints(NamedTuple):
+    x: torch.Tensor # Position
+    f: torch.Tensor # Feature
+    b: torch.Tensor # Batch idx
 
 def _list_merge_featured_points(pcds: List[FeaturedPoints]) -> FeaturedPoints:
     x: torch.Tensor = torch.cat([pcd.x for pcd in pcds], dim=0)
@@ -60,3 +51,11 @@ def merge_featured_points(pcds: Union[List[FeaturedPoints], Tuple[FeaturedPoints
     
 def pcd_to_featured_points(pcd: PointCloud, batch_idx: int = 0) -> FeaturedPoints:
     return FeaturedPoints(x=pcd.points, f=pcd.colors, b = torch.empty_like(pcd.points[..., 0], dtype=torch.long).fill_(batch_idx))
+
+
+class GraphEdge(NamedTuple):
+    edge_src: torch.Tensor # Position
+    edge_dst: torch.Tensor # Feature
+    edge_length: Optional[torch.Tensor] = None
+    edge_attr: Optional[torch.Tensor] = None
+    edge_scalars: Optional[torch.Tensor] = None

@@ -1,24 +1,52 @@
+unit_len: 0.01
 scene:
-  unit_len: 0.01
-  irreps_input_feature: '3x0e'
-  irreps_sh: '1x0e+1x1e+1x2e'
-  fc_neurons: [128, 64, 64]
-  num_heads: 4
-  alpha_drop: 0.2
-  proj_drop: 0.0
-  drop_path_rate: 0.0
-  irreps_mlp_mid: 2
-  n_scales: 4
-  pool_ratio: 0.5
+  feature_extractor_configs:
+    irreps_input: '3x0e'
+    irreps_output: '128x0e+64x1e+32x2e'
+    n_scales: 4
+    irreps:               # mutiscale -> list length must match n_scales
+      - '32x0e+16x1e+8x2e'
+      - '32x0e+16x1e+8x2e'
+      - '64x0e+32x1e+16x2e'
+      - '64x0e+32x1e+16x2e'
+    irreps_edge_attr:     # mutiscale -> list length must match n_scales
+      - '1x0e+1x1e+1x2e'
+      - '1x0e+1x1e+1x2e'
+      - '1x0e+1x1e+1x2e'
+      - '1x0e+1x1e+1x2e'
+    num_heads:
+      - 4
+      - 4
+      - 4
+      - 4
+    fc_neurons:           # mutiscale -> list length must match n_scales
+      - [32, 16, 16]
+      - [32, 16, 16]
+      - [64, 32, 32]
+      - [64, 32, 32]
+    n_layers:             # mutiscale -> list length must match n_scales
+      - 2
+      - 2
+      - 2
+      - 2
+    pool_ratio:           # Pooling ratio. For example, p=0.5 means the number of points are halved.
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
+    radius:               # Maximum radius to connect neighboring nodes. If set to None, it will be set to 1/sqrt(p) of the previous layer's radius. Typically, this results in the number of edges being reduced by ratio p.
+      - 3.                # Base radius must not be None
+      - null
+      - null
+      - null
+    irreps_mlp_mid: 3     # irreps multiplier for mlp, like that of transformers.
+    pool_method: 'fps'
+    attn_type: 'mlp'
+    alpha_drop: 0.1       
+    proj_drop: 0.1
+    drop_path_rate: 0.0
+    deterministic: True
+    n_layers_midstream: 2 # Number of layers that connects downstream to upstream
+
 grasp:
   unit_len: 0.01
-  irreps_input_feature: '3x0e'
-  irreps_sh: '1x0e+1x1e+1x2e'
-  fc_neurons: [128, 64, 64]
-  num_heads: 4
-  alpha_drop: 0.2
-  proj_drop: 0.0
-  drop_path_rate: 0.0
-  irreps_mlp_mid: 2
-  n_scales: 4
-  pool_ratio: 0.5

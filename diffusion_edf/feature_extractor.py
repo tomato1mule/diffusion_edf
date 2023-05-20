@@ -1,59 +1,84 @@
-#### Deprecated #####
-
-from typing import List, Optional, Union, Tuple, Iterable
+from typing import List, Optional, Union, Tuple, Iterable, Dict
 import math
 import warnings
 
+from beartype import beartype
+
 import torch
 from e3nn import o3
-from e3nn.util.jit import compile_mode, script
-from einops import rearrange
-
 
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
-
 from diffusion_edf import EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE, QUERY_TYPE, EDF_INFO_TYPE
-from diffusion_edf.embedding import NodeEmbeddingNetwork
+from diffusion_edf.gnn_data import FeaturedPoints, GraphEdge
 from diffusion_edf.block import EquiformerBlock
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
 from diffusion_edf.utils import multiply_irreps, ParityInversionSh
 from diffusion_edf.skip import ProjectIfMismatch
-from diffusion_edf.extractor import EdfExtractorLight
 
-
-
-
-class EdfUnet(torch.nn.Module):  
+class UnetFeatureExtractor(torch.nn.Module):
+    @beartype
     def __init__(self,
-        irreps: List[o3.Irreps],
-        irreps_edge_attr: List[o3.Irreps], 
+        irreps_input: Optional[Union[str, o3.Irreps]],
+        irreps_output: Union[str, o3.Irreps],
+        irreps: List[Union[str, o3.Irreps]],
+        irreps_edge_attr: List[Union[str, o3.Irreps]], 
         num_heads: List[int], 
         fc_neurons: List[List[int]],
-        radius: List[float],
-        pool_ratio: List[float],
         n_layers: List[int],
+        pool_ratio: List[float],
+        radius: List[Optional[float]],
         deterministic: bool = False,
-        pool_method: Union[Optional[str], List[Optional[str]]] = 'fps',
-        irreps_mlp_mid: Union[Union[o3.Irreps, int], List[Union[o3.Irreps, int]]] = 3,
+        pool_method: Union[
+            Optional[str], 
+            List[Optional[str]]
+            ] = 'fps',
+        irreps_mlp_mid: Union[
+            Union[str, o3.Irreps, int], 
+            List[Union[str, o3.Irreps, int]]
+            ] = 3,
         attn_type: Union[str, List[str]] = 'mlp',
         alpha_drop: Union[float, List[float]] = 0.1,
         proj_drop: Union[float, List[float]] = 0.1,
         drop_path_rate: Union[float, List[float]] = 0.0,
-        n_layers_mid: int = 2):
+        n_layers_midstream: int = 2,
+        n_scales: Optional[int] = None):
         
         super().__init__()
+
+        self.irreps_output: o3.Irreps = o3.Irreps(irreps_output)
         self.irreps: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps]
         self.irreps_edge_attr: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps_edge_attr]
         self.num_heads: List[int] = num_heads
         self.fc_neurons: List[List[int]] = fc_neurons
-        self.radius: List[float] = radius
         self.pool_ratio: List[float] = pool_ratio
         self.n_layers: List[int] = n_layers
         self.deterministic: bool = deterministic
-        self.n_layers_mid = n_layers_mid
-        
-        self.n_scales = len(self.irreps)
+        self.n_layers_midstream: int = n_layers_midstream
+
+        if irreps_input is None:
+            self.irreps_input: o3.Irreps = self.irreps[0]
+            self.input_emb = None
+        else:
+            self.irreps_input: o3.Irreps = o3.Irreps(irreps_input)
+            self.input_emb = LinearRS(self.irreps_input, 
+                                      self.irreps[0], 
+                                      bias=True)
+
+        if n_scales is None:
+            self.n_scales: int = len(self.irreps)
+        else:
+            self.n_scales: int = n_scales
+
+        self.radius: List[float] = [radius[0]]
+        for n, r in enumerate(radius[1:]):
+            if r is None:
+                self.radius.append(
+                    self.radius[-1] / math.sqrt(self.pool_ratio[n-1])
+                )
+            else:
+                self.radius.append(r)
+
         if isinstance(pool_method, list):
             self.pool_method: List[Optional[str]] = pool_method
         else:
@@ -156,7 +181,7 @@ class EdfUnet(torch.nn.Module):
 
         #### Mid Block ####
         self.mid_block = torch.nn.ModuleList()
-        for i in range(self.n_layers_mid):
+        for i in range(self.n_layers_midstream):
             layer = torch.nn.ModuleDict()
             layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[-1][0], cutoff=0.99 * self.radius[-1])
             layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[-1], 
@@ -236,12 +261,21 @@ class EdfUnet(torch.nn.Module):
         self.project_outputs = torch.nn.ModuleList()
         for n in range(self.n_scales + 1):
             self.project_outputs.append(ProjectIfMismatch(irreps_in=self.irreps[max(0,n-1)],
-                                                          irreps_out=self.irreps[-1]))
+                                                          irreps_out=self.irreps_output))
 
+    #@beartype
+    def forward(self, pcd: FeaturedPoints) -> List[FeaturedPoints]:
 
-    def forward(self, node_feature: torch.Tensor,
-                node_coord: torch.Tensor,
-                batch: torch.Tensor) -> GNN_OUTPUT_TYPE:
+        node_coord: torch.Tensor = pcd.x    # (N, 3)
+        node_feature: torch.Tensor = pcd.f  # (N, F_in)
+        batch: torch.Tensor = pcd.b         # (N, )
+        assert node_feature.ndim == 2
+        assert node_coord.ndim == 2
+        assert batch.ndim == 1
+        assert len(node_feature) == len(node_coord) == len(batch)
+
+        if self.input_emb is not None:
+            node_feature = self.input_emb(node_feature) # (N, F)
 
         ########### Downstream Block #############
         downstream_outputs: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
@@ -368,241 +402,65 @@ class EdfUnet(torch.nn.Module):
 
         upstream_outputs, upstream_edges = upstream_outputs[::-1], upstream_edges[::-1]
         upstream_outputs, upstream_edges = [upstream_outputs[n] for n in self.output_idx], [upstream_edges[n] for n in self.output_edge_idx]
-        
-        node_features: List[torch.Tensor] = []
-        node_coords: List[torch.Tensor] = []
-        batchs: List[torch.Tensor] = []
-        edge_srcs: List[torch.Tensor] = []
-        edge_dsts: List[torch.Tensor] = []
-        scale_slice: List[int] = [0,]
 
-        N_nodes = 0
+        pcd_multiscale: List[FeaturedPoints] = []
+        # edge_edges: List[GraphEdge] = []
+
         for scale, projection in enumerate(self.project_outputs):
             (node_feature, node_coord, batch) = upstream_outputs[scale]
 
-            N_nodes_this_scale = len(node_feature)
-            assert N_nodes_this_scale == len(node_feature) == len(node_coord) == len(batch)
-
-            node_features.append(projection(node_feature))
-            node_coords.append(node_coord)
-            batchs.append(batch)
-            scale_slice.append(len(node_coord) + scale_slice[-1])
-
+            pcd = FeaturedPoints(
+                x = node_coord,
+                f = projection(node_feature),
+                b = batch,
+            )
+            pcd_multiscale.append(pcd)
 
             if scale >= self.n_scales: # Last layer is self-connecting
                 assert scale == self.n_scales # shouldn't be higher than self.n_scales
             else:
-                (edge_src, edge_dst, _, _) = upstream_edges[scale]
-                # print((edge_src.min().item(), edge_src.max().item()), (edge_dst.min().item(), edge_dst.max().item()))
-                edge_dst = edge_dst + N_nodes
-                edge_dsts.append(edge_dst)
-                N_nodes = N_nodes + N_nodes_this_scale
-                edge_src = edge_src + N_nodes    
-                edge_srcs.append(edge_src)
-
-
-        node_feature = torch.cat(node_features, dim=-2)
-        node_coord = torch.cat(node_coords, dim=-2)
-        batch = torch.cat(batchs, dim=-1)
-        edge_src = torch.cat(edge_srcs, dim=-1)
-        edge_dst = torch.cat(edge_dsts, dim=-1)
+                pass
+                # (edge_src, edge_dst, _, _) = upstream_edges[scale]
+                # graph_edge = GraphEdge(edge_src=edge_src, edge_dst=edge_dst)
         
-        return node_feature, node_coord, batch, scale_slice, edge_src, edge_dst
-    
+        return pcd_multiscale #, graph_edge
+
+        # node_features: List[torch.Tensor] = []
+        # node_coords: List[torch.Tensor] = []
+        # batchs: List[torch.Tensor] = []
+        # edge_srcs: List[torch.Tensor] = []
+        # edge_dsts: List[torch.Tensor] = []
+        # scale_slice: List[int] = [0,]
+
+        # N_nodes = 0
+        # for scale, projection in enumerate(self.project_outputs):
+        #     (node_feature, node_coord, batch) = upstream_outputs[scale]
+
+        #     N_nodes_this_scale = len(node_feature)
+        #     assert N_nodes_this_scale == len(node_feature) == len(node_coord) == len(batch)
+
+        #     node_features.append(projection(node_feature))
+        #     node_coords.append(node_coord)
+        #     batchs.append(batch)
+        #     scale_slice.append(len(node_coord) + scale_slice[-1])
 
 
+        #     if scale >= self.n_scales: # Last layer is self-connecting
+        #         assert scale == self.n_scales # shouldn't be higher than self.n_scales
+        #     else:
+        #         (edge_src, edge_dst, _, _) = upstream_edges[scale]
+        #         # print((edge_src.min().item(), edge_src.max().item()), (edge_dst.min().item(), edge_dst.max().item()))
+        #         edge_dst = edge_dst + N_nodes
+        #         edge_dsts.append(edge_dst)
+        #         N_nodes = N_nodes + N_nodes_this_scale
+        #         edge_src = edge_src + N_nodes    
+        #         edge_srcs.append(edge_src)
 
 
-
-
-class EDF(torch.nn.Module):
-    def __init__(self, 
-                 irreps_input: o3.Irreps,
-                 irreps_emb_init: o3.Irreps,
-                 irreps_sh: o3.Irreps,
-                 fc_neurons_init: List[int],
-                 num_heads: int,
-                 n_scales: int,
-                 pool_ratio: float,
-                 dim_mult: List[Union[float, int]], 
-                 n_layers: int,
-                 gnn_radius: Union[float, List[float]],
-                 cutoff_radius: Union[float, List[float]],
-                 alpha_drop: float = 0.1,
-                 proj_drop: float = 0.1,
-                 drop_path_rate: float = 0.0,
-                 irreps_mlp_mid: int = 3,
-                 deterministic: bool = False,
-                 detach_extractor: bool = False,
-                 compile_head: bool = False,
-                 attn_type: str = 'mlp',
-                 input_mean = torch.tensor([0.5, 0.5, 0.5]), 
-                 input_std = torch.tensor([0.5, 0.5, 0.5]),
-                 infinite = False,
-                 ):
-        super().__init__()
-        self.irreps_input = o3.Irreps(irreps_input)
-        assert dim_mult[0] == 1
-        self.irreps: List[o3.Irreps] = [multiply_irreps(o3.Irreps(irreps_emb_init), dim_mult[n], strict=True) for n in range(n_scales)]
-        self.irreps_emb = self.irreps[-1]
-        self.irreps_sh = o3.Irreps(irreps_sh)
-        self.num_heads = num_heads
-        self.n_scales = n_scales
-        self.deterministic = deterministic
-        self.fc_neurons = [[round(n_neurons * dim_mult[n]) for n_neurons in fc_neurons_init] for n in range(n_scales)]
-        assert len(self.fc_neurons) == self.n_scales
-        if isinstance(pool_ratio, Iterable):
-            self.pool_ratio = pool_ratio
-        else:
-            self.pool_ratio = [pool_ratio for _ in range(n_scales)]
-        self.n_layers = [n_layers for _ in range(n_scales)]
-        if isinstance(gnn_radius, Iterable):
-            self.gnn_radius = gnn_radius
-        else:
-            self.gnn_radius = [gnn_radius / math.sqrt(self.pool_ratio[n]**n) for n in range(n_scales)]
-        for n in range(1, len(self.gnn_radius)):
-            if not self.gnn_radius[n-1] < self.gnn_radius[n]:
-                warnings.warn(f"gnn_radius[{n}] ({self.gnn_radius[n]}) is smaller than radius[{n-1}] ({self.gnn_radius[n-1]})")
-        if isinstance(cutoff_radius, Iterable):
-            self.cutoff_radius = cutoff_radius
-        else:
-            self.cutoff_radius = [cutoff_radius / math.sqrt(self.pool_ratio[n]**n) for n in range(n_scales)]
-        for n in range(1, len(self.cutoff_radius)):
-            if not self.cutoff_radius[n-1] < self.cutoff_radius[n]:
-                warnings.warn(f"cutoff_radius[{n}] ({self.cutoff_radius[n]}) is smaller than radius[{n-1}] ({self.cutoff_radius[n-1]})")
-        self.irreps_mlp_mid = irreps_mlp_mid
-        self.attn_type = attn_type
-        self.alpha_drop = alpha_drop
-        self.proj_drop = proj_drop
-        self.drop_path_rate = drop_path_rate
-        self.infinite = infinite
-
-
-        self.enc = NodeEmbeddingNetwork(irreps_input=self.irreps_input, irreps_node_emb=self.irreps[0], input_mean=input_mean, input_std=input_std)
-        self.gnn = EdfUnet(
-            irreps = self.irreps,
-            irreps_edge_attr = [self.irreps_sh for _ in range(n_scales)],
-            num_heads = [self.num_heads for _ in range(n_scales)],
-            fc_neurons = self.fc_neurons,
-            radius = self.gnn_radius,
-            pool_ratio = self.pool_ratio,
-            n_layers = self.n_layers,
-            deterministic = deterministic,
-            irreps_mlp_mid = self.irreps_mlp_mid,
-            alpha_drop=self.alpha_drop,
-            proj_drop=self.proj_drop,
-            drop_path_rate=self.drop_path_rate,
-            pool_method = 'fps',
-            attn_type = self.attn_type,
-            n_layers_mid = 2,
-        )
-
-
-        self.min_offset = 0.01 * self.cutoff_radius[0]
-        self.detach_extractor = detach_extractor
-
-        if self.detach_extractor:
-            self.extractor = None
-        else:
-            self.extractor = EdfExtractorLight(
-                irreps_inputs = [self.gnn.irreps[-1] for _ in range(n_scales)],
-                irreps_emb = self.gnn.irreps[-1],
-                irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
-                irreps_head = self.gnn.irreps_head[-1],
-                num_heads = self.gnn.num_heads[-1],
-                fc_neurons = self.gnn.fc_neurons[-1],
-                n_layers = 1,
-                cutoffs = self.cutoff_radius,
-                offsets = [self.min_offset] + [max(self.min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
-                irreps_mlp_mid = self.irreps_mlp_mid,
-                attn_type=self.attn_type,
-                alpha_drop=self.alpha_drop, 
-                proj_drop=self.proj_drop,
-                drop_path_rate=self.drop_path_rate,
-                infinite = self.infinite
-            )
-        if compile_head and not self.detach_extractor:
-            self.extractor = torch.jit.script(self.extractor)
-
-
-    def get_extractor(self) -> EdfExtractorLight:
-        extr = EdfExtractorLight(irreps_inputs = self.gnn.irreps,
-                            irreps_emb = self.gnn.irreps[-1],
-                            irreps_edge_attr = self.gnn.irreps_edge_attr[-1],
-                            irreps_head = self.gnn.irreps_head[-1],
-                            num_heads = self.gnn.num_heads[-1],
-                            fc_neurons = self.gnn.fc_neurons[-1],
-                            n_layers = 1,
-                            cutoffs = self.cutoff_radius,
-                            offsets = [self.min_offset] + [max(self.min_offset, offset - 0.2*(cutoff - offset)) for offset, cutoff in zip(self.cutoff_radius[:-1], self.cutoff_radius[1:])],
-                            irreps_mlp_mid = self.irreps_mlp_mid,
-                            attn_type=self.attn_type,
-                            alpha_drop=self.alpha_drop, 
-                            proj_drop=self.proj_drop,
-                            drop_path_rate=self.drop_path_rate,
-                            infinite = self.infinite)
-        return extr
-
-    def get_gnn_outputs(self, node_feature: torch.Tensor, 
-                        node_coord: torch.Tensor, 
-                        batch: torch.Tensor) -> GNN_OUTPUT_TYPE: 
-        node_emb = self.enc(node_feature)
-        node_feature, node_coord, batch, scale_slice, edge_src, edge_dst = self.gnn(node_feature=node_emb,
-                                                                                    node_coord=node_coord,
-                                                                                    batch=batch)
-        return node_feature, node_coord, batch, scale_slice, edge_src, edge_dst
-    
-    # def _reshape_extractor_inputs(self, query_coord: torch.Tensor,
-    #                               query_batch: torch.Tensor,
-    #                               gnn_outputs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        # node_feature = torch.cat(node_features, dim=-2)
+        # node_coord = torch.cat(node_coords, dim=-2)
+        # batch = torch.cat(batchs, dim=-1)
+        # edge_src = torch.cat(edge_srcs, dim=-1)
+        # edge_dst = torch.cat(edge_dsts, dim=-1)
         
-    #     assert query_coord.ndim == 2 and query_coord.shape[-1] == 3 and query_batch.ndim == 1
-    #     Nq = len(query_coord)
-    #     query_coord = query_coord.expand(self.n_scales, Nq, 3) # (Ns, Nq, 3)
-    #     query_scale = torch.arange(self.n_scales, dtype=query_batch.dtype, device=query_batch.device)
-    #     query_batch_n_scale = query_batch * query_scale.unsqueeze(-1) + query_scale.unsqueeze(-1) # (Ns, Nq)
-
-    #     node_feature, node_coord, batch, scale, edge_src, edge_dst = gnn_outputs
-    #     node_batch_n_scale = batch * scale + scale
-
-    #     return query_coord, query_batch_n_scale, node_feature, node_coord, node_batch_n_scale
-    
-    # def get_scale_node(self, node_coord, node_batch_n_scale, n):
-    #     this_scale_node_idx = (node_batch_n_scale % self.n_scales == n).nonzero().squeeze(-1)
-    #     node_coord_this_scale = torch.index_select(node_coord, dim=-2, index = this_scale_node_idx)
-    #     batch_this_scale = torch.index_select(node_batch_n_scale, dim=-1, index = this_scale_node_idx) // self.n_scales
-            
-
-    def forward(self, query_coord: torch.Tensor,
-                query_batch: torch.Tensor,
-                node_feature: torch.Tensor, 
-                node_coord: torch.Tensor, 
-                batch: torch.Tensor,
-                info_mode: str = 'NONE') -> Tuple[torch.Tensor, Optional[EDF_INFO_TYPE]]:      
-        gnn_outputs = self.get_gnn_outputs(node_feature=node_feature, node_coord=node_coord, batch=batch)
-        node_feature, node_coord, batch, scale_slice, edge_src, edge_dst = gnn_outputs
-
-        field_val, extractor_info = self.extractor(query_coord = query_coord, 
-                                                   query_batch = query_batch,
-                                                   node_feature = node_feature,
-                                                   node_coord = node_coord,
-                                                   node_batch = batch,
-                                                   node_scale_slice = scale_slice)
-        
-        if info_mode == 'NONE':
-            edf_info = None
-        elif info_mode == 'NO_GRAD' or info_mode == 'REQUIRES_GRAD':
-            (edge_src_field, edge_dst_field) = extractor_info
-            if info_mode == 'NO_GRAD':
-                gnn_outputs = (node_feature.detach(), 
-                            node_coord.detach(), 
-                            batch.detach(),
-                            scale_slice,
-                            edge_src.detach(), 
-                            edge_dst.detach())
-                extractor_info = (edge_src_field.detach(), edge_dst_field.detach())
-            edf_info = (extractor_info, gnn_outputs)
-        else:
-            raise ValueError(f"Unknown info_mode: {info_mode}")
-        
-        return field_val, edf_info
+        # return node_feature, node_coord, batch, scale_slice, edge_src, edge_dst
