@@ -1,8 +1,8 @@
-# deprecated
-
 from typing import List, Dict, Union, Optional, Tuple
+from beartype import beartype
 
 import torch
+from e3nn import o3
 from e3nn.o3._wigner import _Jd
 from e3nn.math._linalg import direct_sum
 from e3nn.util.jit import compile_mode
@@ -160,8 +160,9 @@ def transform_feature_quat(irreps, feature, q, Js):
     return transform_feature_quat_(ls, feature_slices, Js, q)
 
 
-class TransformFeatureQuaternion(torch.nn.Module):
-    def __init__(self, irreps, device: Union[str, torch.device]):
+class _TransformFeatureQuaternion(torch.nn.Module):
+    @beartype
+    def __init__(self, irreps: o3.Irreps, device: Union[str, torch.device]):
         super().__init__()
         self.ls = tuple([ir.l for mul, ir in irreps])
         self.slices = tuple([(slice_.start, slice_.stop) for slice_ in irreps.slices()])
@@ -174,24 +175,12 @@ class TransformFeatureQuaternion(torch.nn.Module):
 
         return transform_feature_quat_(ls=self.ls, feature_slices=feature_slices, Js=self.Js, q=q)
 
+@beartype
+def TransformFeatureQuaternion(irreps: o3.Irreps, device: Union[str, torch.device], compile: bool = True):
+    if compile:
+        return torch.jit.script(_TransformFeatureQuaternion(irreps=irreps, device=device))
+    else:
+        return _TransformFeatureQuaternion(irreps=irreps, device=device)
 
-# @compile_mode('script')
-# class TransformFeatureQuaternion(torch.nn.Module):
-#     def __init__(self, irreps):
-#         super().__init__()
-#         self.ls = tuple([ir.l for mul, ir in irreps])
-#         self.slices = tuple([(slice_.start, slice_.stop) for slice_ in irreps.slices()])
 
-#         self.Js = torch.nn.ParameterList([torch.nn.Parameter(_Jd[l].to(dtype = torch.float32), requires_grad=False) for l in self.ls])
 
-#     @torch.jit.unused
-#     def requires_grad_(self, requires_grad: bool):
-#         return self
-
-#     def forward(self, feature, q):
-#         feature_slices = []
-#         for slice_ in self.slices:
-#             feature_slices.append(feature[..., slice_[0]:slice_[1]])
-#         Js = [J.detach() for J in self.Js]
-
-#         return transform_feature_quat_(ls=self.ls, feature_slices=feature_slices, Js=Js, q=q)
