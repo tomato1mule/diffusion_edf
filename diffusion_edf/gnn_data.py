@@ -18,12 +18,18 @@ def _list_merge_featured_points(pcds: List[FeaturedPoints]) -> FeaturedPoints:
     x: torch.Tensor = torch.cat([pcd.x for pcd in pcds], dim=0)
     f: torch.Tensor = torch.cat([pcd.f for pcd in pcds], dim=0)
     b: torch.Tensor = torch.cat([pcd.b for pcd in pcds], dim=0)
+    for pcd in pcds:
+        if pcd.w is not None:
+            raise NotImplementedError
     return FeaturedPoints(x=x, f=f, b=b)
 
 def _tuple_merge_featured_points(pcds: Tuple[FeaturedPoints]) -> FeaturedPoints:
     x: torch.Tensor = torch.cat([pcd.x for pcd in pcds], dim=0)
     f: torch.Tensor = torch.cat([pcd.f for pcd in pcds], dim=0)
     b: torch.Tensor = torch.cat([pcd.b for pcd in pcds], dim=0)
+    for pcd in pcds:
+        if pcd.w is not None:
+            raise NotImplementedError
     return FeaturedPoints(x=x, f=f, b=b)
 
 def merge_featured_points(pcds: Union[List[FeaturedPoints], Tuple[FeaturedPoints]]) -> FeaturedPoints:
@@ -63,3 +69,5 @@ class GraphEdge(NamedTuple):
     edge_length: Optional[torch.Tensor] = None
     edge_attr: Optional[torch.Tensor] = None
     edge_scalars: Optional[torch.Tensor] = None
+    edge_weight_scalar: Optional[torch.Tensor] = None
+    edge_weight_nonscalar: Optional[torch.Tensor] = None
