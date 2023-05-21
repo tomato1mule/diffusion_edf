@@ -21,7 +21,7 @@ class UnetFeatureExtractor(torch.nn.Module):
     def __init__(self,
         irreps_input: Optional[Union[str, o3.Irreps]],
         irreps_output: Union[str, o3.Irreps],
-        irreps: List[Union[str, o3.Irreps]],
+        irreps_emb: List[Union[str, o3.Irreps]],
         irreps_edge_attr: List[Union[str, o3.Irreps]], 
         num_heads: List[int], 
         fc_neurons: List[List[int]],
@@ -47,7 +47,7 @@ class UnetFeatureExtractor(torch.nn.Module):
         super().__init__()
 
         self.irreps_output: o3.Irreps = o3.Irreps(irreps_output)
-        self.irreps: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps]
+        self.irreps_emb: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps_emb]
         self.irreps_edge_attr: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps_edge_attr]
         self.num_heads: List[int] = num_heads
         self.fc_neurons: List[List[int]] = fc_neurons
@@ -57,16 +57,16 @@ class UnetFeatureExtractor(torch.nn.Module):
         self.n_layers_midstream: int = n_layers_midstream
 
         if irreps_input is None:
-            self.irreps_input: o3.Irreps = self.irreps[0]
+            self.irreps_input: o3.Irreps = self.irreps_emb[0]
             self.input_emb = None
         else:
             self.irreps_input: o3.Irreps = o3.Irreps(irreps_input)
             self.input_emb = LinearRS(self.irreps_input, 
-                                      self.irreps[0], 
+                                      self.irreps_emb[0], 
                                       bias=True)
 
         if n_scales is None:
-            self.n_scales: int = len(self.irreps)
+            self.n_scales: int = len(self.irreps_emb)
         else:
             self.n_scales: int = n_scales
 
@@ -104,7 +104,7 @@ class UnetFeatureExtractor(torch.nn.Module):
         else:
             self.drop_path_rate: List[float] = [drop_path_rate for _ in range(self.n_scales)]
 
-        assert self.n_scales == len(self.irreps)
+        assert self.n_scales == len(self.irreps_emb)
         assert self.n_scales == len(self.irreps_edge_attr) 
         assert self.n_scales == len(self.num_heads) 
         assert self.n_scales == len(self.fc_neurons) 
@@ -117,7 +117,7 @@ class UnetFeatureExtractor(torch.nn.Module):
         assert self.n_scales == len(self.alpha_drop) 
         assert self.n_scales == len(self.proj_drop) 
         assert self.n_scales == len(self.drop_path_rate)
-        self.irreps_head: List[o3.Irreps] = [multiply_irreps(self.irreps[n], 1/self.num_heads[n], strict=True) for n in range(self.n_scales)]
+        self.irreps_head: List[o3.Irreps] = [multiply_irreps(self.irreps_emb[n], 1/self.num_heads[n], strict=True) for n in range(self.n_scales)]
 
         for n in range(self.n_scales):
             if self.pool_ratio[n] == 1.0:
@@ -133,7 +133,7 @@ class UnetFeatureExtractor(torch.nn.Module):
             block = torch.nn.ModuleDict()
             if self.pool_method[n] == 'fps':
                 block['pool'] = FpsPool(ratio=self.pool_ratio[n], random_start=not self.deterministic, r=self.radius[n], max_num_neighbors=1000)
-                block['pool_proj'] = ProjectIfMismatch(irreps_in = self.irreps[max(n-1,0)], irreps_out = self.irreps[n])
+                block['pool_proj'] = ProjectIfMismatch(irreps_in = self.irreps_emb[max(n-1,0)], irreps_out = self.irreps_emb[n])
             else:
                 raise NotImplementedError
             block['radius_graph'] = RadiusGraph(r=self.radius[n], max_num_neighbors=1000)
@@ -141,8 +141,8 @@ class UnetFeatureExtractor(torch.nn.Module):
 
             pool_layer = torch.nn.ModuleDict()
             pool_layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
-            pool_layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[max(n-1,0)], 
-                                                irreps_dst = self.irreps[n], 
+            pool_layer['gnn'] = EquiformerBlock(irreps_src = self.irreps_emb[max(n-1,0)], 
+                                                irreps_dst = self.irreps_emb[n], 
                                                 irreps_edge_attr = self.irreps_edge_attr[n], 
                                                 irreps_head = self.irreps_head[n],
                                                 num_heads = self.num_heads[n], 
@@ -160,8 +160,8 @@ class UnetFeatureExtractor(torch.nn.Module):
             for _ in range(self.n_layers[n] - 1):
                 layer = torch.nn.ModuleDict()
                 layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
-                layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[n], 
-                                               irreps_dst = self.irreps[n], 
+                layer['gnn'] = EquiformerBlock(irreps_src = self.irreps_emb[n], 
+                                               irreps_dst = self.irreps_emb[n], 
                                                irreps_edge_attr = self.irreps_edge_attr[n], 
                                                irreps_head = self.irreps_head[n],
                                                num_heads = self.num_heads[n], 
@@ -184,8 +184,8 @@ class UnetFeatureExtractor(torch.nn.Module):
         for i in range(self.n_layers_midstream):
             layer = torch.nn.ModuleDict()
             layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[-1][0], cutoff=0.99 * self.radius[-1])
-            layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[-1], 
-                                            irreps_dst = self.irreps[-1], 
+            layer['gnn'] = EquiformerBlock(irreps_src = self.irreps_emb[-1], 
+                                            irreps_dst = self.irreps_emb[-1], 
                                             irreps_edge_attr = self.irreps_edge_attr[-1], 
                                             irreps_head = self.irreps_head[-1],
                                             num_heads = self.num_heads[-1], 
@@ -209,8 +209,8 @@ class UnetFeatureExtractor(torch.nn.Module):
             for _ in range(self.n_layers[n] - 1):
                 layer = torch.nn.ModuleDict()
                 layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
-                layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[n], 
-                                               irreps_dst = self.irreps[n], 
+                layer['gnn'] = EquiformerBlock(irreps_src = self.irreps_emb[n], 
+                                               irreps_dst = self.irreps_emb[n], 
                                                irreps_edge_attr = self.irreps_edge_attr[n], 
                                                irreps_head = self.irreps_head[n],
                                                num_heads = self.num_heads[n], 
@@ -227,8 +227,8 @@ class UnetFeatureExtractor(torch.nn.Module):
 
             unpool_layer = torch.nn.ModuleDict()
             unpool_layer['radial'] = GaussianRadialBasisLayerFiniteCutoff(num_basis=self.fc_neurons[n][0], cutoff=0.99 * self.radius[n])
-            unpool_layer['gnn'] = EquiformerBlock(irreps_src = self.irreps[n], 
-                                                  irreps_dst = self.irreps[max(n-1,0)], 
+            unpool_layer['gnn'] = EquiformerBlock(irreps_src = self.irreps_emb[n], 
+                                                  irreps_dst = self.irreps_emb[max(n-1,0)], 
                                                   irreps_edge_attr = self.irreps_edge_attr[n], 
                                                   irreps_head = self.irreps_head[max(n-1,0)],
                                                   num_heads = self.num_heads[n], 
@@ -260,7 +260,7 @@ class UnetFeatureExtractor(torch.nn.Module):
 
         self.project_outputs = torch.nn.ModuleList()
         for n in range(self.n_scales + 1):
-            self.project_outputs.append(ProjectIfMismatch(irreps_in=self.irreps[max(0,n-1)],
+            self.project_outputs.append(ProjectIfMismatch(irreps_in=self.irreps_emb[max(0,n-1)],
                                                           irreps_out=self.irreps_output))
 
     #@beartype

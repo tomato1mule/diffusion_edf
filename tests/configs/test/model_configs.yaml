@@ -4,7 +4,7 @@ scene:
     irreps_input: '3x0e'
     irreps_output: '128x0e+64x1e+32x2e'
     n_scales: 4
-    irreps:               # mutiscale -> list length must match n_scales
+    irreps_emb:           # mutiscale -> list length must match n_scales
       - '32x0e+16x1e+8x2e'
       - '32x0e+16x1e+8x2e'
       - '64x0e+32x1e+16x2e'
