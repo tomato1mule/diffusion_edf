@@ -1,33 +1,18 @@
 from typing import Tuple, List, Union, Optional, NamedTuple
+from beartype import beartype
 
 import torch
+from e3nn import o3
 
 from diffusion_edf.data import PointCloud
+from diffusion_edf.wigner import TransformFeatureQuaternion
+from diffusion_edf.pc_utils import transform_points
 
-# @dataclass
-# class FeaturedPoints:
-#     x: torch.Tensor # Position
-#     f: torch.Tensor # Feature
-#     b: torch.Tensor = None # Batch idx
-#     s: torch.Tensor = None # Scale Space
-
-#     def __post_init__(self):
-#         assert self.x.shape[-1] == 3, f"x must be three dimensional positions, but x of shape {self.x.shape} is provided."
-#         assert self.x.shape
-
-#         if self.b is None:
-#             self.b = torch.zeros_like(self.x[..., 0], dtype=torch.long)
-
-#         if self.s is None:
-#             self.s = torch.zeros_like(self.x[..., 0], dtype=torch.long)
-
-#         assert self.x.shape[:-1] == self.f.shape[:-1] == self.b.shape == self.s.shape
-
-# FeaturedPoints = NamedTuple('FeaturedPoints', [('x', torch.Tensor), ('f', torch.Tensor), ('b', torch.Tensor)])
 class FeaturedPoints(NamedTuple):
     x: torch.Tensor # Position
     f: torch.Tensor # Feature
     b: torch.Tensor # Batch idx
+    w: Optional[torch.Tensor] = None # some optional scalar weight of the points
 
 def _list_merge_featured_points(pcds: List[FeaturedPoints]) -> FeaturedPoints:
     x: torch.Tensor = torch.cat([pcd.x for pcd in pcds], dim=0)
@@ -51,6 +36,25 @@ def merge_featured_points(pcds: Union[List[FeaturedPoints], Tuple[FeaturedPoints
     
 def pcd_to_featured_points(pcd: PointCloud, batch_idx: int = 0) -> FeaturedPoints:
     return FeaturedPoints(x=pcd.points, f=pcd.colors, b = torch.empty_like(pcd.points[..., 0], dtype=torch.long).fill_(batch_idx))
+
+class TransformPcd(torch.nn.Module):
+    @beartype
+    def __init__(self, irreps: Union[str, o3.Irreps], device: Union[str, torch.device]):
+        super().__init__()
+        self.transform_features = TransformFeatureQuaternion(irreps=o3.Irreps(irreps), device=device, compile=True)
+
+    def forward(self, pcd: FeaturedPoints, Ts: torch.Tensor) -> FeaturedPoints: 
+        assert Ts.ndim == 2
+        assert Ts.shape[-1] == 7
+        f_transformed = self.transform_features(feature=pcd.f,  q=Ts[..., :4]) # (Nt, Np, F)
+        x_transformed = transform_points(points=pcd.x, Ts=Ts)                  # (Nt, Np, 3)
+        b_transformed = pcd.b.expand(len(Ts), -1)                              # (Nt, Np)
+        w_transformed = pcd.w
+        if isinstance(w_transformed, torch.Tensor):
+            w_transformed = w_transformed.expand(len(Ts), -1)                  # (Nt, Np)
+
+        return FeaturedPoints(f=f_transformed, x=x_transformed, b = b_transformed, w=w_transformed)
+
 
 
 class GraphEdge(NamedTuple):
