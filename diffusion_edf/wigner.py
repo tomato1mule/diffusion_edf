@@ -1,3 +1,5 @@
+# deprecated
+
 from typing import List, Dict, Union, Optional, Tuple
 
 import torch
@@ -108,12 +110,21 @@ def D_from_quaternion(irreps, Js, q):
     #return torch.block_diag(*Ds)
 
 
-def transform_feature_slice(feature: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor, l: int, J: torch.Tensor) -> torch.Tensor:
+def transform_feature_slice_nonscalar(feature: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor, l: int, J: torch.Tensor) -> torch.Tensor:
     assert feature.dim() == 2
     feature = feature.reshape(feature.shape[-2], -1, 2*l+1) # (N_query, mul*(2l+1)) -> (N_query, mul, 2l+1)
     D = wigner_D(l, alpha, beta, gamma, J) # (Nt, 2l+1, 2l+1)
     feature_transformed = torch.einsum('tij,qmj->tqmi', D, feature) # (Nt, 2l+1, 2l+1) x (Nq, mul, 2l+1) -> (Nt, Nq, mul, 2l+1)
     feature_transformed = feature_transformed.reshape(feature_transformed.shape[0], feature_transformed.shape[1], -1) # (Nt, N_query, mul*(2l+1))
+    return feature_transformed
+
+def transform_feature_slice(feature: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor, l: int, J: torch.Tensor) -> torch.Tensor:
+    assert alpha.ndim == 1
+    assert feature.dim() == 2
+    if l == 0:
+        feature_transformed = feature.expand(len(alpha), len(feature), feature.shape[-1])
+    else:
+        feature_transformed = transform_feature_slice_nonscalar(feature=feature, alpha=alpha, beta=beta, gamma=gamma, l=l, J=J)
     return feature_transformed
 
 def transform_feature_(ls: List[int], feature_slices: List[torch.Tensor], Js: List[torch.Tensor], alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:

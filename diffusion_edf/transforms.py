@@ -324,27 +324,35 @@ def _copysign(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 
-def random_quaternions(
-    n: int, *ns, dtype: Optional[torch.dtype] = None, device: Optional[Device] = None
-) -> torch.Tensor:
-    """
-    Generate random quaternions representing rotations,
-    i.e. versors with nonnegative real part.
-    Args:
-        n: Number of quaternions in a batch to return.
-        dtype: Type to return.
-        device: Desired device of returned tensor. Default:
-            uses the current device for the default tensor type.
-    Returns:
-        Quaternions as tensor of shape (N, 4).
-    """
+# def random_quaternions(
+#     n: int, *ns, dtype: Optional[torch.dtype] = None, device: Optional[Device] = None
+# ) -> torch.Tensor:
+#     """
+#     Generate random quaternions representing rotations,
+#     i.e. versors with nonnegative real part.
+#     Args:
+#         n: Number of quaternions in a batch to return.
+#         dtype: Type to return.
+#         device: Desired device of returned tensor. Default:
+#             uses the current device for the default tensor type.
+#     Returns:
+#         Quaternions as tensor of shape (N, 4).
+#     """
+#     if isinstance(device, str):
+#         device = torch.device(device)
+#     shape = [n] + [i for i in ns] + [4]
+#     o = torch.randn(shape, dtype=dtype, device=device)
+#     s = (o * o).sum(dim=-1)
+#     o = o / _copysign(torch.sqrt(s), o[:, 0])[:, None]
+#     return o
+
+@torch.jit.script
+def random_quaternions(n: int, device: Optional[Union[str, torch.device]] = None, dtype: Optional[torch.dtype] = None):
     if isinstance(device, str):
         device = torch.device(device)
-    shape = [n] + [i for i in ns] + [4]
-    o = torch.randn(shape, dtype=dtype, device=device)
-    s = (o * o).sum(dim=-1)
-    o = o / _copysign(torch.sqrt(s), o[:, 0])[:, None]
-    return o
+    q = torch.randn(n,4, device=device, dtype=dtype)
+
+    return standardize_quaternion(q / torch.norm(q, dim=-1, keepdim=True))
 
 
 
