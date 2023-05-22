@@ -28,6 +28,7 @@ class UnetFeatureExtractor(torch.nn.Module):
         n_layers: List[int],
         pool_ratio: List[float],
         radius: List[Optional[float]],
+        point_weight_emb_dim: Optional[int] = None,
         deterministic: bool = False,
         pool_method: Union[
             Optional[str], 
@@ -47,6 +48,13 @@ class UnetFeatureExtractor(torch.nn.Module):
         super().__init__()
 
         self.irreps_output: o3.Irreps = o3.Irreps(irreps_output)
+        self.point_weight_emb_dim =  point_weight_emb_dim
+        if point_weight_emb_dim is None:
+            self.point_weight_mlp = None
+        else:
+            assert point_weight_emb_dim >= 2
+            self.point_weight_mlp = torch.nn.Linear(point_weight_emb_dim, 1)
+            self._point_weight_appended_irreps_output: o3.Irreps = o3.Irreps(f"{point_weight_emb_dim}x0e") + self.irreps_output
         self.irreps_emb: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps_emb]
         self.irreps_edge_attr: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps_edge_attr]
         self.num_heads: List[int] = num_heads
@@ -261,7 +269,7 @@ class UnetFeatureExtractor(torch.nn.Module):
         self.project_outputs = torch.nn.ModuleList()
         for n in range(self.n_scales + 1):
             self.project_outputs.append(ProjectIfMismatch(irreps_in=self.irreps_emb[max(0,n-1)],
-                                                          irreps_out=self.irreps_output))
+                                                          irreps_out=self._point_weight_appended_irreps_output))
 
     #@beartype
     def forward(self, pcd: FeaturedPoints) -> List[FeaturedPoints]:
@@ -408,11 +416,18 @@ class UnetFeatureExtractor(torch.nn.Module):
 
         for scale, projection in enumerate(self.project_outputs):
             (node_feature, node_coord, batch) = upstream_outputs[scale]
+            f = projection(node_feature)
+            if self.point_weight_mlp is None:
+                w = None
+            else:
+                w = self.point_weight_mlp(f[..., :self.point_weight_emb_dim]).squeeze(-1).contiguous()
+                f = f[..., self.point_weight_emb_dim:].contiguous()
 
             pcd = FeaturedPoints(
                 x = node_coord,
-                f = projection(node_feature),
+                f = f,
                 b = batch,
+                w = w,
             )
             pcd_multiscale.append(pcd)
 

@@ -39,6 +39,7 @@ scene:
       - null
       - null
       - null
+    point_weight_emb_dim: 64
     irreps_mlp_mid: 3     # irreps multiplier for mlp, like that of transformers.
     pool_method: 'fps'
     attn_type: 'mlp'
