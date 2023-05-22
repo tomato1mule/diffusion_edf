@@ -36,5 +36,6 @@ setup(
         'dash',
         'dash_vtk',
         'dash_daq',
+        'beartype'
     ]
 )

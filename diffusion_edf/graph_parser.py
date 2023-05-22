@@ -14,7 +14,7 @@ from diffusion_edf.radial_func import SinusoidalPositionEmbeddings, soft_square_
 
 class GraphEdgeEncoderBase(torch.nn.Module):
     """
-    length_enc_kwarg: length_enc_kwarg: {'dim': 128, 'n': 10000}
+    length_enc_kwarg: length_enc_kwarg: {'n': 10000}
     """
     r: float
     max_neighbors: int
@@ -27,6 +27,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
 
     @beartype
     def __init__(self, r: float, 
+                 length_enc_dim: Optional[int],
                  length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
                  length_enc_kwarg: Dict = {}, 
                  sh_irreps: Optional[Union[str, o3.Irreps]] = None,
@@ -54,13 +55,16 @@ class GraphEdgeEncoderBase(torch.nn.Module):
             self.sh_dim = 0
         
         ######### Length Encoder #########
-        if length_enc_type is None:
+        if length_enc_type is None or length_enc_dim is None:
+            assert length_enc_type is None and length_enc_dim is None
             self.length_enc = None
+            self.length_enc_dim = None
         else:
+            self.length_enc_dim = length_enc_dim
             if length_enc_type == 'SinusoidalPositionEmbeddings':
                 if 'max_val' not in length_enc_kwarg.keys():
                     length_enc_kwarg['max_val'] = self.r
-                self.length_enc = SinusoidalPositionEmbeddings(**length_enc_kwarg)
+                self.length_enc = SinusoidalPositionEmbeddings(dim=self.length_enc_dim, **length_enc_kwarg)
             else:
                 raise ValueError(f"Unknown length encoder type: {length_enc_kwarg['type']}")
             
@@ -130,23 +134,28 @@ class GraphEdgeEncoderBase(torch.nn.Module):
 
 class RadiusBipartite(GraphEdgeEncoderBase):
     """
-    length_enc_kwarg: {'dim': 128, 'n': 10000}
+    length_enc_kwarg: {'n': 10000}
     """
-    max_neighbors: int
+    max_neighbors: Optional[int]
 
     @beartype
     def __init__(self, r: float, 
+                 length_enc_dim: Optional[int],
                  length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
                  length_enc_kwarg: Dict = {}, 
                  sh_irreps: Optional[Union[str, o3.Irreps]] = None,
                  cutoff: bool = True,
                  max_neighbors: int = 1000):
-        super().__init__(r=r, length_enc_type=length_enc_type, length_enc_kwarg=length_enc_kwarg, sh_irreps=sh_irreps, cutoff=cutoff)
+        super().__init__(r=r, length_enc_dim=length_enc_dim, length_enc_type=length_enc_type, length_enc_kwarg=length_enc_kwarg, sh_irreps=sh_irreps, cutoff=cutoff)
         self.max_neighbors = max_neighbors
 
     def forward(self, src: FeaturedPoints, dst: FeaturedPoints, max_neighbors: Optional[int] = None) -> GraphEdge:
         if max_neighbors is None:
-            max_neighbors = self.max_neighbors
+            if self.max_neighbors is None:
+                raise ValueError("max_neighbor must be specified")
+            else:
+                max_neighbors = self.max_neighbors
+        assert max_neighbors is not None
         edge = radius(x = src.x, y = dst.x, r=self.r, batch_x=src.b, batch_y=dst.b, max_num_neighbors=max_neighbors)
         edge_dst, edge_src = edge[0], edge[1]
         if not self.encode_graph:
