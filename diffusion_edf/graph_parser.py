@@ -13,73 +13,97 @@ from diffusion_edf.radial_func import SinusoidalPositionEmbeddings, soft_square_
 
 
 class GraphEdgeEncoderBase(torch.nn.Module):
-    """
-    length_enc_kwarg: length_enc_kwarg: {'n': 10000}
-    """
-    r: float
-    max_neighbors: int
-    sh_irreps: Optional[o3.Irreps]
-    sh_dim: int
-    cutoff: bool
+    r_maxcut: Optional[float]
+    r_mincut_nonscalar: Optional[float]
+    r_mincut_scalar: Optional[float]
+    #sh_irreps: Optional[o3.Irreps]
+    sh_dim: Optional[int]
     scalar_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
     nonscalar_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
-    encode_graph: bool
+    requires_length: bool
+    requires_encoding: bool
+    length_enc_dim: Optional[int]
 
     @beartype
-    def __init__(self, r: float, 
+    def __init__(self, r_maxcut: Optional[float],
+                 r_mincut_nonscalar: Optional[float], 
                  length_enc_dim: Optional[int],
                  length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
                  length_enc_kwarg: Dict = {}, 
                  sh_irreps: Optional[Union[str, o3.Irreps]] = None,
-                 cutoff: bool = True):
+                 r_mincut_scalar: Optional[float] = None,
+                 requires_length: Optional[bool] = None):
         super().__init__()
-        self.r = r
+        self.r_maxcut = r_maxcut
+        self.r_mincut_nonscalar = r_mincut_nonscalar
+        self.r_mincut_scalar = r_mincut_scalar
+        self.requires_length = True if requires_length else False
 
         ######### Cutoff Encoder #########
-        self.cutoff = cutoff
-        if self.cutoff is False:
-            self.scalar_cutoff_ranges = None
-            self.nonscalar_cutoff_ranges = None
+        # For continuity, information must vanish as edge length approaches maximum raidus.
+        # Spherical Harmonics of degree >1 are sigular at zero, so must be cut-off for continuity
+        if self.r_maxcut is None:
+            if self.r_mincut_scalar is None:
+                self.scalar_cutoff_ranges = None
+            else:
+                self.scalar_cutoff_ranges = (0.2*self.r_mincut_scalar, 1.0*self.r_mincut_scalar, None, None)
+                self.requires_length = True
+
+            if self.r_mincut_nonscalar is None:
+                self.nonscalar_cutoff_ranges = None
+            else:
+                self.nonscalar_cutoff_ranges = (0.2*self.r_mincut_nonscalar, 1.0*self.r_mincut_nonscalar, None, None)
+                self.requires_length = True
         else:
-            self.scalar_cutoff_ranges = (None, None, 0.8 * self.r, 0.99 * self.r)                      # For continuity, information must vanish as edge length approaches maximum raidus.
-            self.nonscalar_cutoff_ranges = (0.05 * self.r, 0.15 * self.r, 0.8 * self.r, 0.99 * self.r) # Spherical Harmonics of degree >1 are sigular at zero, so must be cut-off for continuity
+            if self.r_mincut_scalar is None:
+                self.scalar_cutoff_ranges = (None, None, 0.8*self.r_maxcut, 0.99*self.r_maxcut)
+                self.requires_length = True
+            else:
+                self.scalar_cutoff_ranges = (0.2*self.r_mincut_scalar, 1.0*self.r_mincut_scalar, 0.8*self.r_maxcut, 0.99*self.r_maxcut)
+                self.requires_length = True
+                
+            if self.r_mincut_nonscalar is None:
+                self.nonscalar_cutoff_ranges = (None, None, 0.8*self.r_maxcut, 0.99*self.r_maxcut)
+                self.requires_length = True
+            else:
+                self.nonscalar_cutoff_ranges = (0.2*self.r_mincut_nonscalar, 1.0*self.r_mincut_nonscalar, 0.8*self.r_maxcut, 0.99*self.r_maxcut)
+                self.requires_length = True
 
         ######### Spherical Harmonics Encoder #########
-        if sh_irreps is not None:
+        if sh_irreps is None:
+            self.sh_irreps = None
+            self.sh_dim = None
+            self.sh = None
+        else:
             self.sh_irreps = o3.Irreps(sh_irreps)
             self.sh_dim = self.sh_irreps.dim
             self.sh = o3.SphericalHarmonics(irreps_out = self.sh_irreps, normalize = True, normalization='component')
-        else:
-            self.sh_irreps = None
-            self.sh = None
-            self.sh_dim = 0
-        
+
         ######### Length Encoder #########
-        if length_enc_type is None or length_enc_dim is None:
-            assert length_enc_type is None and length_enc_dim is None
+        if length_enc_dim is None:
+            assert length_enc_type is None
             self.length_enc = None
             self.length_enc_dim = None
         else:
+            assert length_enc_type is not None
+            self.requires_length = True
             self.length_enc_dim = length_enc_dim
             if length_enc_type == 'SinusoidalPositionEmbeddings':
                 if 'max_val' not in length_enc_kwarg.keys():
-                    length_enc_kwarg['max_val'] = self.r
+                    length_enc_kwarg['max_val'] = self.r_maxcut
                 self.length_enc = SinusoidalPositionEmbeddings(dim=self.length_enc_dim, **length_enc_kwarg)
             else:
                 raise ValueError(f"Unknown length encoder type: {length_enc_kwarg['type']}")
-            
         ##################################
-        if self.sh is not None or \
-           self.scalar_cutoff_ranges is not None or \
-           self.nonscalar_cutoff_ranges is None or \
-           self.length_enc is not None:
-           self.encode_graph = True
+        if requires_length is False and requires_length != self.requires_length:
+            raise ValueError(f"requires_length is manually set to False, but it seems length is required")
+        if self.sh is None and not self.requires_length:
+            self.requires_encoding = False
         else:
-           self.encode_graph = False
-
+            self.requires_encoding = True
             
     def _encode_edges(self, x_src: torch.Tensor, x_dst: torch.Tensor, edge_src: torch.Tensor, edge_dst: torch.Tensor) -> GraphEdge:
-        if not self.encode_graph:
+        if not self.requires_encoding:
             raise ValueError("You don't have to encode the graph.")
         
         assert x_src.ndim == 2
@@ -108,19 +132,21 @@ class GraphEdgeEncoderBase(torch.nn.Module):
         else:
             edge_sh = None
 
-        if edge_sh is not None and self.cutoff is True:
+        if edge_sh is not None:
             edge_sh_cutoff = []
             last_idx = 0
             for n, (l,p) in self.sh_irreps:
                 d = n * (2*l + 1)
-                if l == 0:
+                if l == 0 and cutoff_scalar is not None:
                     edge_sh_cutoff.append(
                         edge_sh[..., last_idx: last_idx+d] * cutoff_scalar[..., None]
                     )
-                else:
+                elif l != 0 and cutoff_nonscalar is not None:
                     edge_sh_cutoff.append(
                         edge_sh[..., last_idx: last_idx+d] * cutoff_nonscalar[..., None]
                     )
+                else:
+                    edge_sh_cutoff.append(edge_sh[..., last_idx: last_idx+d])
                 
                 last_idx = last_idx + d
 
@@ -133,20 +159,36 @@ class GraphEdgeEncoderBase(torch.nn.Module):
 
 
 class RadiusBipartite(GraphEdgeEncoderBase):
-    """
-    length_enc_kwarg: {'n': 10000}
-    """
     max_neighbors: Optional[int]
+    r_maxcut: float
+    r_mincut_nonscalar: Optional[float]
+    r_mincut_scalar: Optional[float]
+    #sh_irreps: Optional[o3.Irreps]
+    sh_dim: Optional[int]
+    scalar_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
+    nonscalar_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
+    requires_length: bool
+    requires_encoding: bool
+    length_enc_dim: Optional[int]
 
     @beartype
-    def __init__(self, r: float, 
+    def __init__(self, r_maxcut: float,
+                 r_mincut_nonscalar: Optional[float], 
                  length_enc_dim: Optional[int],
                  length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
                  length_enc_kwarg: Dict = {}, 
                  sh_irreps: Optional[Union[str, o3.Irreps]] = None,
-                 cutoff: bool = True,
-                 max_neighbors: int = 1000):
-        super().__init__(r=r, length_enc_dim=length_enc_dim, length_enc_type=length_enc_type, length_enc_kwarg=length_enc_kwarg, sh_irreps=sh_irreps, cutoff=cutoff)
+                 r_mincut_scalar: Optional[float] = None,
+                 requires_length: Optional[bool] = None,
+                 max_neighbors: Optional[int] = 1000):
+        super().__init__(r_maxcut=r_maxcut,
+                         r_mincut_nonscalar=r_mincut_nonscalar,
+                         length_enc_dim=length_enc_dim,
+                         length_enc_type=length_enc_type,
+                         length_enc_kwarg=length_enc_kwarg,
+                         sh_irreps=sh_irreps,
+                         r_mincut_scalar=r_mincut_scalar,
+                         requires_length=requires_length)
         self.max_neighbors = max_neighbors
 
     def forward(self, src: FeaturedPoints, dst: FeaturedPoints, max_neighbors: Optional[int] = None) -> GraphEdge:
@@ -156,9 +198,9 @@ class RadiusBipartite(GraphEdgeEncoderBase):
             else:
                 max_neighbors = self.max_neighbors
         assert max_neighbors is not None
-        edge = radius(x = src.x, y = dst.x, r=self.r, batch_x=src.b, batch_y=dst.b, max_num_neighbors=max_neighbors)
+        edge = radius(x = src.x, y = dst.x, r=self.r_maxcut, batch_x=src.b, batch_y=dst.b, max_num_neighbors=max_neighbors)
         edge_dst, edge_src = edge[0], edge[1]
-        if not self.encode_graph:
+        if not self.requires_encoding:
             return GraphEdge(edge_src=edge_src, edge_dst=edge_dst)
         
         return self._encode_edges(x_src=src.x, x_dst=dst.x, edge_src=edge_src, edge_dst=edge_dst)

@@ -28,12 +28,15 @@ def soft_square_cutoff(x, thr:float = 0.8, n:int = 3, infinite: bool = False) ->
         return (x > 0.5) + soft_cutoff(1-x, thr=thr, n=n) * (x <= 0.5)
     
 @torch.jit.script
-def soft_square_cutoff_2(x: torch.Tensor, ranges: Tuple[Optional[float], Optional[float], Optional[float], Optional[float]], n:int = 3) -> torch.Tensor:
+def soft_square_cutoff_2(x: torch.Tensor, ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]], n:int = 3) -> torch.Tensor:
     """
     Input:
         ranges: (left_end, left_begin, right_begin, right_end)
         n: n-th polynomial is used.
     """
+    if ranges is None:
+        return x
+    
     assert len(ranges) == 4
     left_end, left_begin, right_begin, right_end = ranges
     if left_end is None or left_begin is None:
