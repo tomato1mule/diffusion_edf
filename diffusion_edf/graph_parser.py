@@ -10,7 +10,7 @@ from e3nn import o3
 
 from diffusion_edf.gnn_data import FeaturedPoints, GraphEdge
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings, soft_square_cutoff_2
-from diffusion_edf.irreps_util import cutoff_irreps
+from diffusion_edf.irreps_utils import cutoff_irreps
 
 
 class GraphEdgeEncoderBase(torch.nn.Module):
