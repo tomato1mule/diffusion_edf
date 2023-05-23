@@ -10,6 +10,7 @@ from e3nn import o3
 
 from diffusion_edf.gnn_data import FeaturedPoints, GraphEdge
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings, soft_square_cutoff_2
+from diffusion_edf.irreps_util import cutoff_irreps
 
 
 class GraphEdgeEncoderBase(torch.nn.Module):
@@ -23,6 +24,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
     requires_length: bool
     requires_encoding: bool
     length_enc_dim: Optional[int]
+    cutoff_sh: bool
 
     @beartype
     def __init__(self, r_maxcut: Optional[float],
@@ -32,12 +34,14 @@ class GraphEdgeEncoderBase(torch.nn.Module):
                  length_enc_kwarg: Dict = {}, 
                  sh_irreps: Optional[Union[str, o3.Irreps]] = None,
                  r_mincut_scalar: Optional[float] = None,
-                 requires_length: Optional[bool] = None):
+                 requires_length: Optional[bool] = None,
+                 cutoff_sh: bool = False):
         super().__init__()
         self.r_maxcut = r_maxcut
         self.r_mincut_nonscalar = r_mincut_nonscalar
         self.r_mincut_scalar = r_mincut_scalar
         self.requires_length = True if requires_length else False
+        self.cutoff_sh = cutoff_sh
 
         ######### Cutoff Encoder #########
         # For continuity, information must vanish as edge length approaches maximum raidus.
@@ -132,30 +136,19 @@ class GraphEdgeEncoderBase(torch.nn.Module):
         else:
             edge_sh = None
 
-        if edge_sh is not None:
-            edge_sh_cutoff = []
-            last_idx = 0
-            for n, (l,p) in self.sh_irreps:
-                d = n * (2*l + 1)
-                if l == 0 and cutoff_scalar is not None:
-                    edge_sh_cutoff.append(
-                        edge_sh[..., last_idx: last_idx+d] * cutoff_scalar[..., None]
-                    )
-                elif l != 0 and cutoff_nonscalar is not None:
-                    edge_sh_cutoff.append(
-                        edge_sh[..., last_idx: last_idx+d] * cutoff_nonscalar[..., None]
-                    )
-                else:
-                    edge_sh_cutoff.append(edge_sh[..., last_idx: last_idx+d])
-                
-                last_idx = last_idx + d
+        if isinstance(edge_sh, torch.Tensor):
+            if self.cutoff_sh:
+                edge_sh = cutoff_irreps(f=edge_sh, 
+                                        cutoff_scalar=cutoff_scalar, 
+                                        cutoff_nonscalar=cutoff_nonscalar,
+                                        irreps=self.sh_irreps)
 
-            edge_sh_cutoff = torch.cat(edge_sh_cutoff, dim=-1)
+        return GraphEdge(edge_src=edge_src, edge_dst=edge_dst, edge_attr=edge_sh, edge_length=edge_length, edge_scalars=edge_scalars, edge_weight_scalar=cutoff_scalar, edge_weight_nonscalar=cutoff_nonscalar)
 
-        else:
-            edge_sh_cutoff = edge_sh
-                
-        return GraphEdge(edge_src=edge_src, edge_dst=edge_dst, edge_attr=edge_sh_cutoff, edge_length=edge_length, edge_scalars=edge_scalars, edge_weight_scalar=cutoff_scalar, edge_weight_nonscalar=cutoff_nonscalar)
+
+
+
+
 
 
 class RadiusBipartite(GraphEdgeEncoderBase):
@@ -170,6 +163,7 @@ class RadiusBipartite(GraphEdgeEncoderBase):
     requires_length: bool
     requires_encoding: bool
     length_enc_dim: Optional[int]
+    cutoff_sh: bool
 
     @beartype
     def __init__(self, r_maxcut: float,
@@ -180,7 +174,8 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                  sh_irreps: Optional[Union[str, o3.Irreps]] = None,
                  r_mincut_scalar: Optional[float] = None,
                  requires_length: Optional[bool] = None,
-                 max_neighbors: Optional[int] = 1000):
+                 max_neighbors: Optional[int] = 1000,
+                 cutoff_sh: bool = False):
         super().__init__(r_maxcut=r_maxcut,
                          r_mincut_nonscalar=r_mincut_nonscalar,
                          length_enc_dim=length_enc_dim,
@@ -188,7 +183,8 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                          length_enc_kwarg=length_enc_kwarg,
                          sh_irreps=sh_irreps,
                          r_mincut_scalar=r_mincut_scalar,
-                         requires_length=requires_length)
+                         requires_length=requires_length,
+                         cutoff_sh=cutoff_sh)
         self.max_neighbors = max_neighbors
 
     def forward(self, src: FeaturedPoints, dst: FeaturedPoints, max_neighbors: Optional[int] = None) -> GraphEdge:
