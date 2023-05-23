@@ -1,6 +1,7 @@
 import warnings
 import math
 from typing import Union, Optional, List, Tuple, Dict
+from beartype import beartype
 
 import torch
 import torch.nn.functional as F
@@ -154,6 +155,7 @@ class SinusoidalPositionEmbeddings(torch.nn.Module):
     max_val: input assumed to be in 0~max_val
     n: The period of each sinusoidal kernel ranges from 2pi~n*2pi
     """
+    @beartype
     def __init__(self, dim: int, max_val: float = 1., n: float = 10000.):
         super().__init__()
         self.dim = dim

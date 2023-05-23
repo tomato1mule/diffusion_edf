@@ -88,6 +88,8 @@ class GraphEdgeEncoderBase(torch.nn.Module):
             self.length_enc_dim = length_enc_dim
             if length_enc_type == 'SinusoidalPositionEmbeddings':
                 if 'max_val' not in length_enc_kwarg.keys():
+                    if self.r_maxcut is None:
+                        raise ValueError("Please explicitly set length_enc_kwarg['max_val'] for the length encoder!")
                     length_enc_kwarg['max_val'] = self.r_maxcut
                 self.length_enc = SinusoidalPositionEmbeddings(dim=self.length_enc_dim, **length_enc_kwarg)
             else:
@@ -173,7 +175,8 @@ class GraphEdgeEncoderBase(torch.nn.Module):
 
 class RadiusBipartite(GraphEdgeEncoderBase):
     max_neighbors: Optional[int]
-    r_maxcut: float
+    r_cluster: Optional[float]
+    r_maxcut: Optional[float]
     r_mincut_nonscalar: Optional[float]
     r_mincut_scalar: Optional[float]
     #sh_irreps: Optional[o3.Irreps]
@@ -187,9 +190,10 @@ class RadiusBipartite(GraphEdgeEncoderBase):
     cutoff_eps: float
 
     @beartype
-    def __init__(self, r_maxcut: float,
-                 r_mincut_nonscalar: Optional[float], 
+    def __init__(self, r_cluster: Optional[float],
+                 r_mincut_nonscalar: Optional[float],  # Need to set non-zero r_mincut for continuity
                  length_enc_dim: Optional[int],
+                 r_maxcut: Union[Optional[float], str] = 'default',
                  length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
                  length_enc_kwarg: Dict = {}, 
                  sh_irreps: Optional[Union[str, o3.Irreps]] = None,
@@ -198,6 +202,15 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                  max_neighbors: Optional[int] = 1000,
                  cutoff_sh: bool = False,
                  cutoff_eps: float = 1e-12):
+        
+        self.max_neighbors = max_neighbors
+        self.r_cluster = r_cluster
+        if r_maxcut == 'default':
+            if r_cluster is None:
+                r_maxcut = None
+            else:
+                raise ValueError("r_maxcut must be explicitly set to Optional[float] if r_cluster is not None")
+
         super().__init__(r_maxcut=r_maxcut,
                          r_mincut_nonscalar=r_mincut_nonscalar,
                          length_enc_dim=length_enc_dim,
@@ -208,17 +221,26 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                          requires_length=requires_length,
                          cutoff_sh=cutoff_sh,
                          cutoff_eps=cutoff_eps)
-        self.max_neighbors = max_neighbors
 
     def forward(self, src: FeaturedPoints, dst: FeaturedPoints, max_neighbors: Optional[int] = None) -> GraphEdge:
+        assert src.x.ndim == 2
+        assert dst.x.ndim == 2
         if max_neighbors is None:
             if self.max_neighbors is None:
                 raise ValueError("max_neighbor must be specified")
             else:
                 max_neighbors = self.max_neighbors
         assert max_neighbors is not None
-        edge = radius(x = src.x, y = dst.x, r=self.r_maxcut, batch_x=src.b, batch_y=dst.b, max_num_neighbors=max_neighbors)
-        edge_dst, edge_src = edge[0], edge[1]
+        if self.r_cluster is None:
+            edge_src, edge_dst = torch.meshgrid(torch.arange(len(src.x), device = src.x.device), torch.arange(len(dst.x), device = dst.x.device))
+            edge_src = edge_src.reshape(-1)
+            edge_dst = edge_dst.reshape(-1)
+        else:
+            r = self.r_cluster
+            assert isinstance(r, float)
+            edge = radius(x = src.x, y = dst.x, r=r, batch_x=src.b, batch_y=dst.b, max_num_neighbors=max_neighbors)
+            edge_dst, edge_src = edge[0], edge[1]
+
         if not self.requires_encoding:
             return GraphEdge(edge_src=edge_src, edge_dst=edge_dst)
         
