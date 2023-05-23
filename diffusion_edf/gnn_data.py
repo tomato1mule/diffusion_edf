@@ -69,5 +69,7 @@ class GraphEdge(NamedTuple):
     edge_length: Optional[torch.Tensor] = None
     edge_attr: Optional[torch.Tensor] = None
     edge_scalars: Optional[torch.Tensor] = None
-    edge_weight_scalar: Optional[torch.Tensor] = None
-    edge_weight_nonscalar: Optional[torch.Tensor] = None
+    edge_log_weight: Optional[torch.Tensor] = None
+    edge_log_weight_scalar: Optional[torch.Tensor] = None
+    edge_log_weight_nonscalar: Optional[torch.Tensor] = None
+

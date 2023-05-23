@@ -19,12 +19,14 @@ class GraphEdgeEncoderBase(torch.nn.Module):
     r_mincut_scalar: Optional[float]
     #sh_irreps: Optional[o3.Irreps]
     sh_dim: Optional[int]
+    edge_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
     scalar_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
     nonscalar_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
     requires_length: bool
     requires_encoding: bool
     length_enc_dim: Optional[int]
     cutoff_sh: bool
+    cutoff_eps: float
 
     @beartype
     def __init__(self, r_maxcut: Optional[float],
@@ -35,43 +37,35 @@ class GraphEdgeEncoderBase(torch.nn.Module):
                  sh_irreps: Optional[Union[str, o3.Irreps]] = None,
                  r_mincut_scalar: Optional[float] = None,
                  requires_length: Optional[bool] = None,
-                 cutoff_sh: bool = False):
+                 cutoff_sh: bool = False,
+                 cutoff_eps: float = 1e-12):
         super().__init__()
         self.r_maxcut = r_maxcut
         self.r_mincut_nonscalar = r_mincut_nonscalar
         self.r_mincut_scalar = r_mincut_scalar
         self.requires_length = True if requires_length else False
         self.cutoff_sh = cutoff_sh
+        self.cutoff_eps = cutoff_eps
 
         ######### Cutoff Encoder #########
         # For continuity, information must vanish as edge length approaches maximum raidus.
         # Spherical Harmonics of degree >1 are sigular at zero, so must be cut-off for continuity
         if self.r_maxcut is None:
-            if self.r_mincut_scalar is None:
-                self.scalar_cutoff_ranges = None
-            else:
-                self.scalar_cutoff_ranges = (0.2*self.r_mincut_scalar, 1.0*self.r_mincut_scalar, None, None)
-                self.requires_length = True
-
-            if self.r_mincut_nonscalar is None:
-                self.nonscalar_cutoff_ranges = None
-            else:
-                self.nonscalar_cutoff_ranges = (0.2*self.r_mincut_nonscalar, 1.0*self.r_mincut_nonscalar, None, None)
-                self.requires_length = True
+            self.edge_cutoff_ranges = None
         else:
-            if self.r_mincut_scalar is None:
-                self.scalar_cutoff_ranges = (None, None, 0.8*self.r_maxcut, 0.99*self.r_maxcut)
-                self.requires_length = True
-            else:
-                self.scalar_cutoff_ranges = (0.2*self.r_mincut_scalar, 1.0*self.r_mincut_scalar, 0.8*self.r_maxcut, 0.99*self.r_maxcut)
-                self.requires_length = True
-                
-            if self.r_mincut_nonscalar is None:
-                self.nonscalar_cutoff_ranges = (None, None, 0.8*self.r_maxcut, 0.99*self.r_maxcut)
-                self.requires_length = True
-            else:
-                self.nonscalar_cutoff_ranges = (0.2*self.r_mincut_nonscalar, 1.0*self.r_mincut_nonscalar, 0.8*self.r_maxcut, 0.99*self.r_maxcut)
-                self.requires_length = True
+            self.edge_cutoff_ranges = (None, None, 0.8*self.r_maxcut, 0.99*self.r_maxcut)
+            self.requires_length = True
+        if self.r_mincut_scalar is None:
+            self.scalar_cutoff_ranges = None
+        else:
+            
+            self.scalar_cutoff_ranges = (0.2*self.r_mincut_scalar, 1.0*self.r_mincut_scalar, None, None)
+            self.requires_length = True
+        if self.r_mincut_nonscalar is None:
+            self.nonscalar_cutoff_ranges = None
+        else:
+            self.nonscalar_cutoff_ranges = (0.2*self.r_mincut_nonscalar, 1.0*self.r_mincut_nonscalar, None, None)
+            self.requires_length = True
 
         ######### Spherical Harmonics Encoder #########
         if sh_irreps is None:
@@ -117,6 +111,10 @@ class GraphEdgeEncoderBase(torch.nn.Module):
 
         edge_vec = x_src.index_select(0, edge_src) - x_dst.index_select(0, edge_dst) # (Nedge, 3)
         edge_length = edge_vec.norm(dim=1, p=2)                                      # (Nedge, )
+        if self.edge_cutoff_ranges is None:
+            edge_cutoff = None
+        else:
+            edge_cutoff = soft_square_cutoff_2(x=edge_length, ranges=self.edge_cutoff_ranges) # (Nedge, )
         if self.scalar_cutoff_ranges is None:
             cutoff_scalar = None
         else:
@@ -139,11 +137,33 @@ class GraphEdgeEncoderBase(torch.nn.Module):
         if isinstance(edge_sh, torch.Tensor):
             if self.cutoff_sh:
                 edge_sh = cutoff_irreps(f=edge_sh, 
+                                        edge_cutoff=edge_cutoff,
                                         cutoff_scalar=cutoff_scalar, 
                                         cutoff_nonscalar=cutoff_nonscalar,
                                         irreps=self.sh_irreps)
+                
+        if edge_cutoff is None:
+            log_edge_cutoff = None
+        else:
+            log_edge_cutoff = torch.log(edge_cutoff + self.cutoff_eps)
+        if cutoff_scalar is None:
+            log_cutoff_scalar = None
+        else:
+            log_cutoff_scalar = torch.log(cutoff_scalar + self.cutoff_eps)
+        if cutoff_nonscalar is None:
+            log_cutoff_nonscalar = None
+        else:
+            log_cutoff_nonscalar = torch.log(cutoff_nonscalar + self.cutoff_eps)
 
-        return GraphEdge(edge_src=edge_src, edge_dst=edge_dst, edge_attr=edge_sh, edge_length=edge_length, edge_scalars=edge_scalars, edge_weight_scalar=cutoff_scalar, edge_weight_nonscalar=cutoff_nonscalar)
+
+        return GraphEdge(edge_src=edge_src, 
+                         edge_dst=edge_dst, 
+                         edge_attr=edge_sh, 
+                         edge_length=edge_length, 
+                         edge_scalars=edge_scalars, 
+                         edge_log_weight=log_edge_cutoff,
+                         edge_log_weight_scalar=log_cutoff_scalar, 
+                         edge_log_weight_nonscalar=log_cutoff_nonscalar)
 
 
 
@@ -164,6 +184,7 @@ class RadiusBipartite(GraphEdgeEncoderBase):
     requires_encoding: bool
     length_enc_dim: Optional[int]
     cutoff_sh: bool
+    cutoff_eps: float
 
     @beartype
     def __init__(self, r_maxcut: float,
@@ -175,7 +196,8 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                  r_mincut_scalar: Optional[float] = None,
                  requires_length: Optional[bool] = None,
                  max_neighbors: Optional[int] = 1000,
-                 cutoff_sh: bool = False):
+                 cutoff_sh: bool = False,
+                 cutoff_eps: float = 1e-12):
         super().__init__(r_maxcut=r_maxcut,
                          r_mincut_nonscalar=r_mincut_nonscalar,
                          length_enc_dim=length_enc_dim,
@@ -184,7 +206,8 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                          sh_irreps=sh_irreps,
                          r_mincut_scalar=r_mincut_scalar,
                          requires_length=requires_length,
-                         cutoff_sh=cutoff_sh)
+                         cutoff_sh=cutoff_sh,
+                         cutoff_eps=cutoff_eps)
         self.max_neighbors = max_neighbors
 
     def forward(self, src: FeaturedPoints, dst: FeaturedPoints, max_neighbors: Optional[int] = None) -> GraphEdge:

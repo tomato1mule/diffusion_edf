@@ -18,25 +18,44 @@ def multiply_irreps(irreps: Union[o3.Irreps, str], mult: int, strict: bool = Tru
 
 @torch.jit.script
 def cutoff_irreps(f: torch.Tensor,
+                  edge_cutoff: Optional[torch.Tensor],
                   cutoff_scalar: Optional[torch.Tensor], 
                   cutoff_nonscalar: Optional[torch.Tensor], 
-                  irreps: List[Tuple[int, Tuple[int, int]]]) -> torch.Tensor:
+                  irreps: List[Tuple[int, Tuple[int, int]]],
+                  log: bool = False) -> torch.Tensor:
     f_cutoff = []
     last_idx = 0
     for n, (l,p) in irreps:
         d = n * (2*l + 1)
         if l == 0 and cutoff_scalar is not None:
-            f_cutoff.append(
-                f[..., last_idx: last_idx+d] * cutoff_scalar[..., None]
-            )
+            if log is True:
+                f_cutoff.append(
+                    f[..., last_idx: last_idx+d] * torch.exp(cutoff_scalar[..., None])
+                )
+            else:
+                f_cutoff.append(
+                    f[..., last_idx: last_idx+d] * cutoff_scalar[..., None]
+                )
         elif l != 0 and cutoff_nonscalar is not None:
-            f_cutoff.append(
-                f[..., last_idx: last_idx+d] * cutoff_nonscalar[..., None]
-            )
+            if log is True:
+                f_cutoff.append(
+                    f[..., last_idx: last_idx+d] * torch.exp(cutoff_nonscalar[..., None])
+                )
+            else:
+                f_cutoff.append(
+                    f[..., last_idx: last_idx+d] * cutoff_nonscalar[..., None]
+                )
         else:
             f_cutoff.append(f[..., last_idx: last_idx+d])
         
         last_idx = last_idx + d
 
     f_cutoff = torch.cat(f_cutoff, dim=-1)
+
+    if edge_cutoff is not None:
+        if log is True:
+            f_cutoff = f_cutoff * torch.exp(edge_cutoff[..., None])
+        else:
+            f_cutoff = f_cutoff * edge_cutoff[..., None]
+
     return f_cutoff
