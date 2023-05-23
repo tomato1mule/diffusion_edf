@@ -232,7 +232,7 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                 max_neighbors = self.max_neighbors
         assert max_neighbors is not None
         if self.r_cluster is None:
-            edge_src, edge_dst = torch.meshgrid(torch.arange(len(src.x), device = src.x.device), torch.arange(len(dst.x), device = dst.x.device))
+            edge_src, edge_dst = torch.meshgrid(torch.arange(len(src.x), device = src.x.device), torch.arange(len(dst.x), device = dst.x.device), indexing='ij')
             edge_src = edge_src.reshape(-1)
             edge_dst = edge_dst.reshape(-1)
         else:

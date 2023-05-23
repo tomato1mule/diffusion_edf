@@ -80,9 +80,7 @@ class EquiformerBlock(torch.nn.Module):
         drop_path_rate: float = 0.0,
         use_dst_feature: bool = True,
         skip_connection: bool = True, 
-        bias: bool = True,
-        debug: bool = False):
-        self.debug = debug
+        bias: bool = True):
         
         super().__init__()
         self.irreps_src: o3.Irreps = o3.Irreps(irreps_src)
@@ -96,8 +94,6 @@ class EquiformerBlock(torch.nn.Module):
             self.irreps_output: o3.Irreps = self.irreps_dst
         else:
             self.irreps_output: o3.Irreps = o3.Irreps(irreps_output)
-        self.irreps_head: o3.Irreps = multiply_irreps(self.irreps_emb, 1/self.num_heads, strict=True)
-        assert num_heads*self.irreps_head.dim == self.irreps_emb.dim, f"{num_heads} X {self.irreps_head} != {self.irreps_emb}"
         if isinstance(irreps_mlp_mid, o3.Irreps):
             self.irreps_mlp_mid: o3.Irreps = o3.Irreps(irreps_mlp_mid)
         elif isinstance(irreps_mlp_mid, int):
@@ -130,12 +126,12 @@ class EquiformerBlock(torch.nn.Module):
         #     raise ValueError(f"wrong input to bias: {bias}")
 
         if self.use_dst_feature:
-            self.prenorm_src = EquivariantLayerNormV2(self.irreps_src, bias=True)
+            self.prenorm_src = EquivariantLayerNormV2(self.irreps_src, affine=True)
             self.linear_src = LinearRS(self.irreps_src, self.irreps_emb, bias=False)
-            self.prenorm_dst = EquivariantLayerNormV2(self.irreps_dst, bias=True)
+            self.prenorm_dst = EquivariantLayerNormV2(self.irreps_dst, affine=True)
             self.linear_dst = LinearRS(self.irreps_dst, self.irreps_emb, bias=True)
         else:
-            self.prenorm_src = EquivariantLayerNormV2(self.irreps_src, bias=True)
+            self.prenorm_src = EquivariantLayerNormV2(self.irreps_src, affine=True)
             self.linear_src = LinearRS(self.irreps_src, self.irreps_emb, bias=True)
             self.prenorm_dst = None
             self.linear_dst = None
@@ -146,13 +142,11 @@ class EquiformerBlock(torch.nn.Module):
         if self.attn_type == 'mlp':
             self.ga = GraphAttentionMLP2(irreps_input = self.irreps_emb,
                                         irreps_edge_attr = self.irreps_edge_attr,
-                                        irreps_node_output = self.irreps_emb,
+                                        irreps_output = self.irreps_emb,
                                         fc_neurons = self.fc_neurons,
-                                        irreps_head = self.irreps_head,
                                         num_heads=self.num_heads, 
                                         alpha_drop=alpha_drop, 
-                                        proj_drop=proj_drop,
-                                        debug=self.debug)
+                                        proj_drop=proj_drop)
         elif self.attn_type == 'linear':
             raise NotImplementedError
         elif self.attn_type == 'dp':
@@ -162,7 +156,7 @@ class EquiformerBlock(torch.nn.Module):
         
 
         self.drop_path = GraphDropPath(drop_path_rate) if drop_path_rate > 0. else None
-        self.post_norm = EquivariantLayerNormV2(self.irreps_emb, bias=bias)
+        self.post_norm = EquivariantLayerNormV2(self.irreps_emb, affine=bias)
         self.ffn = FeedForwardNetwork(
             irreps_node_input=self.irreps_dst, 
             irreps_node_output=self.irreps_dst, 

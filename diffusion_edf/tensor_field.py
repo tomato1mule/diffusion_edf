@@ -31,12 +31,13 @@ class TensorField(torch.nn.Module):
         fc_neurons: List[int],
         length_emb_dim: int,
         time_emb_dim: Optional[int],
-        r_maxcut: float,
         r_mincut_nonscalar: Optional[float],
+        r_cluster: Optional[float] = None,
+        r_maxcut: Optional[float] = 'default',
         r_mincut_scalar: Optional[float] = None,
         n_layers: int = 1,
         length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
-        length_enc_kwargs: Dict =  {}, # {'n': 10000},
+        length_enc_kwargs: Dict =  {}, # {'max_val': <max length to encode>, 'n': 10000},
         max_neighbor: Optional[int] = None,
         irreps_mlp_mid: Union[str, o3.Irreps, int] = 3,
         attn_type: str = 'mlp',
@@ -50,6 +51,7 @@ class TensorField(torch.nn.Module):
         self.irreps_sh = o3.Irreps(irreps_sh)
         self.num_heads: int = num_heads
         self.fc_neurons: List[int] = fc_neurons
+        self.r_cluster = r_cluster
         self.r_maxcut = r_maxcut
         self.r_mincut_nonscalar = r_mincut_nonscalar
         self.r_mincut_scalar = r_mincut_scalar
@@ -67,14 +69,16 @@ class TensorField(torch.nn.Module):
             assert self.time_emb_dim > 0, f"{self.time_emb_dim}"
             assert fc_neurons[0] == self.length_emb_dim + self.time_emb_dim, f"{fc_neurons[0]}"
 
-        self.graph_parser = RadiusBipartite(r_maxcut=self.r_maxcut,
+        self.graph_parser = RadiusBipartite(r_cluster=self.r_cluster,
+                                            r_maxcut=self.r_maxcut,
                                             r_mincut_nonscalar=self.r_mincut_nonscalar,
                                             r_mincut_scalar=self.r_mincut_scalar, 
                                             length_enc_dim=self.length_emb_dim,
                                             length_enc_type=length_enc_type, 
                                             length_enc_kwarg=length_enc_kwargs, 
                                             sh_irreps=self.irreps_sh, 
-                                            max_neighbors=max_neighbor)
+                                            max_neighbors=max_neighbor,
+                                            cutoff_sh=False)
 
         self.gnn_block = EquiformerBlock(irreps_src = self.irreps_input, 
                                          irreps_dst = self.irreps_output, 
@@ -90,21 +94,23 @@ class TensorField(torch.nn.Module):
                                          drop_path_rate = drop_path_rate,
                                          use_dst_feature = False,
                                          skip_connection = True,
-                                         bias = True,
-                                         debug=True)
+                                         bias = True)
         
     def forward(self, query_points: FeaturedPoints,
                 input_points: FeaturedPoints,
                 time_emb: Optional[torch.Tensor] = None,
-                max_neighbor: Optional[int] = None) -> FeaturedPoints:
+                max_neighbors: Optional[int] = None) -> FeaturedPoints:
         assert query_points.x.ndim == 2 # (Nq, 3)
         assert input_points.x.ndim == 2 # (Np, 3)
         assert time_emb.ndim == 2 # (Batch, tEmb)
 
-        if max_neighbor is None:
-            max_neighbor = len(input_points.x)
+        if self.time_emb_dim is not None:
+            assert isinstance(time_emb, torch.Tensor)
 
-        graph_edge: GraphEdge = self.graph_parser(src=input_points, dst=query_points, max_neighbor=max_neighbor)
+        if max_neighbors is None:
+            max_neighbors = len(input_points.x)
+
+        graph_edge: GraphEdge = self.graph_parser(src=input_points, dst=query_points, max_neighbors=max_neighbors)
         if isinstance(time_emb, torch.Tensor):
             assert self.time_emb_dim is not None
             assert self.time_emb_dim == time_emb.shape[-1]
@@ -116,8 +122,8 @@ class TensorField(torch.nn.Module):
                                    edge_length=graph_edge.edge_length,
                                    edge_attr=graph_edge.edge_attr,
                                    edge_scalars=edge_scalars,
-                                   edge_weight_scalar=graph_edge.edge_weight_scalar,
-                                   edge_weight_nonscalar=graph_edge.edge_weight_nonscalar)
+                                   edge_log_weight_scalar=graph_edge.edge_log_weight_scalar,
+                                   edge_log_weight_nonscalar=graph_edge.edge_log_weight_nonscalar)
 
         output_points: FeaturedPoints = self.gnn_block(src_points=input_points,
                                                        dst_points=query_points,
