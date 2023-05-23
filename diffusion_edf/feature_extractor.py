@@ -272,7 +272,7 @@ class UnetFeatureExtractor(torch.nn.Module):
                                                           irreps_out=self._point_weight_appended_irreps_output))
 
     #@beartype
-    def forward(self, pcd: FeaturedPoints) -> List[FeaturedPoints]:
+    def forward_multiscale(self, pcd: FeaturedPoints) -> List[FeaturedPoints]:
 
         node_coord: torch.Tensor = pcd.x    # (N, 3)
         node_feature: torch.Tensor = pcd.f  # (N, F_in)
@@ -439,43 +439,6 @@ class UnetFeatureExtractor(torch.nn.Module):
                 # graph_edge = GraphEdge(edge_src=edge_src, edge_dst=edge_dst)
         
         return pcd_multiscale #, graph_edge
-
-        # node_features: List[torch.Tensor] = []
-        # node_coords: List[torch.Tensor] = []
-        # batchs: List[torch.Tensor] = []
-        # edge_srcs: List[torch.Tensor] = []
-        # edge_dsts: List[torch.Tensor] = []
-        # scale_slice: List[int] = [0,]
-
-        # N_nodes = 0
-        # for scale, projection in enumerate(self.project_outputs):
-        #     (node_feature, node_coord, batch) = upstream_outputs[scale]
-
-        #     N_nodes_this_scale = len(node_feature)
-        #     assert N_nodes_this_scale == len(node_feature) == len(node_coord) == len(batch)
-
-        #     node_features.append(projection(node_feature))
-        #     node_coords.append(node_coord)
-        #     batchs.append(batch)
-        #     scale_slice.append(len(node_coord) + scale_slice[-1])
-
-
-        #     if scale >= self.n_scales: # Last layer is self-connecting
-        #         assert scale == self.n_scales # shouldn't be higher than self.n_scales
-        #     else:
-        #         (edge_src, edge_dst, _, _) = upstream_edges[scale]
-        #         # print((edge_src.min().item(), edge_src.max().item()), (edge_dst.min().item(), edge_dst.max().item()))
-        #         edge_dst = edge_dst + N_nodes
-        #         edge_dsts.append(edge_dst)
-        #         N_nodes = N_nodes + N_nodes_this_scale
-        #         edge_src = edge_src + N_nodes    
-        #         edge_srcs.append(edge_src)
-
-
-        # node_feature = torch.cat(node_features, dim=-2)
-        # node_coord = torch.cat(node_coords, dim=-2)
-        # batch = torch.cat(batchs, dim=-1)
-        # edge_src = torch.cat(edge_srcs, dim=-1)
-        # edge_dst = torch.cat(edge_dsts, dim=-1)
-        
-        # return node_feature, node_coord, batch, scale_slice, edge_src, edge_dst
+    
+    def forward(self, pcd: FeaturedPoints, scalespace: int) -> FeaturedPoints:
+        return self.forward_multiscale(pcd=pcd)[scalespace]
