@@ -38,6 +38,7 @@ class TensorField(torch.nn.Module):
         n_layers: int = 1,
         length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
         length_enc_kwargs: Dict =  {}, # {'max_val': <max length to encode>, 'n': 10000},
+        input_dst_feature: bool = False,
         max_neighbor: Optional[int] = None,
         irreps_mlp_mid: Union[str, o3.Irreps, int] = 3,
         attn_type: str = 'mlp',
@@ -92,7 +93,7 @@ class TensorField(torch.nn.Module):
                                          alpha_drop = alpha_drop,
                                          proj_drop = proj_drop,
                                          drop_path_rate = drop_path_rate,
-                                         use_dst_feature = False,
+                                         use_dst_feature = input_dst_feature,
                                          skip_connection = True,
                                          bias = True)
         

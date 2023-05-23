@@ -64,6 +64,7 @@ scene:
     length_enc_kwargs: {'max_val': 200.}
     max_neighbor: null
     irreps_mlp_mid: 3
+    input_dst_feature: False
 
 grasp:
   unit_len: 0.01

@@ -60,6 +60,19 @@ class TransformPcd(torch.nn.Module):
             w_transformed = w_transformed.expand(len(Ts), -1)                  # (Nt, Np)
 
         return FeaturedPoints(f=f_transformed, x=x_transformed, b = b_transformed, w=w_transformed)
+    
+@torch.jit.script
+def flatten_featured_points(points: FeaturedPoints):
+    x = points.x.reshape(-1,3)
+    f = points.f.reshape(-1,points.f.shape[-1])
+    b = points.b.reshape(-1)
+    w = points.w
+    if w is not None:
+        w = w.reshape(-1)
+    else:
+        w = None
+
+    return FeaturedPoints(x=x, f=f, b=b, w=w)
 
 
 
