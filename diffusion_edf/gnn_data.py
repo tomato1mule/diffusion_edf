@@ -48,7 +48,7 @@ class TransformPcd(torch.nn.Module):
     def __init__(self, irreps: Union[str, o3.Irreps]):
         super().__init__()
         self.transform_features = TransformFeatureQuaternion(irreps=o3.Irreps(irreps))
-
+            
     @torch.jit.ignore()
     def to(self, *args, **kwargs):
         for module in self.children():

@@ -170,6 +170,11 @@ class TransformFeatureQuaternion(torch.nn.Module):
         self.slices = tuple([(slice_.start, slice_.stop) for slice_ in irreps.slices()])
         self.Js = tuple(_Jd[l] for l in self.ls)
         self.dim: int = o3.Irreps(irreps).dim
+
+        for n, (l,p) in o3.Irreps(irreps):
+            if p != 1:
+                raise NotImplementedError(f"E3 equivariance is not implemented! (input_irreps: {o3.Irreps(irreps)})")
+        self.lmax: int = o3.Irreps(irreps).lmax
         
     @torch.jit.ignore()
     def to(self, *args, **kwargs):
@@ -180,7 +185,12 @@ class TransformFeatureQuaternion(torch.nn.Module):
         return super().to(*args, **kwargs)
 
     def forward(self, feature: torch.Tensor, q: torch.Tensor) -> torch.Tensor : # (N_Q, N_D) x (N_T, 4) -> (N_T, N_Q, N_D)
-        assert feature.shape[-1] == self.dim
+        assert q.ndim == 2 and q.shape[-1] == 4, f"{q.shape}" # (nT, 4)
+        assert feature.ndim == 2 and feature.shape[-1] == self.dim, f"{feature.shape}" # (nQ, D)
+
+        if self.lmax == 0:
+            return feature.expand(len(q), -1, -1)
+        
         feature_slices = []
         for slice_ in self.slices:
             feature_slices.append(feature[..., slice_[0]:slice_[1]])
