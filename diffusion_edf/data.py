@@ -11,6 +11,11 @@ import numpy as np
 import open3d as o3d
 import yaml
 import plotly.graph_objects as go
+import matplotlib
+import numpy as np
+
+magma_cmap = matplotlib.cm.get_cmap('magma')
+viridis_cmap = matplotlib.cm.get_cmap('viridis')
 
 import torch
 from torchvision.transforms import Compose
@@ -202,6 +207,12 @@ class PointCloud():
 
         self.points: torch.Tensor = points # (N,3)
         self.colors: torch.Tensor = colors # (N,3)
+        if (self.colors.ndim + 1 == self.points.ndim and self.colors.shape == self.points.shape[:1])\
+            or (self.colors.shape[-1] == 1 and self.colors.shape[:1] == self.points.shape[:1]):
+
+            colors = viridis_cmap(self.colors) # https://plotly.com/python/v3/matplotlib-colorscales/
+            self.colors: torch.Tensor = torch.tensor(colors, device=self.colors.device, dtype=self.colors.dtype)
+        
 
     def to(self, device: Union[str, torch.device]) -> PointCloud:
         device = torch.device(device)
@@ -309,7 +320,7 @@ class PointCloud():
             if colors is None:
                 colors: torch.Tensor = torch.zeros(len(points), 3)
         colors = colors.detach().cpu()
-        if colors.ndim==1:
+        if colors.ndim==1 and len(colors) == 3:
             colors = colors.expand(len(pcd), 3)
 
         pcd_marker = {}

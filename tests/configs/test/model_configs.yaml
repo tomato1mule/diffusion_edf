@@ -8,7 +8,7 @@ score_model_configs:
       irreps_input: '3x0e'
       irreps_output: '128x0e+64x1e+32x2e'
       n_scales: 4
-      output_scalespace: 1
+      output_scalespace: 3
       irreps_emb:           # mutiscale -> list length must match n_scales
         - '32x0e+16x1e+8x2e'
         - '32x0e+16x1e+8x2e'
@@ -72,7 +72,7 @@ score_model_configs:
       irreps_input: '3x0e'
       irreps_output: '128x0e+64x1e+32x2e'
       n_scales: 4
-      output_scalespace: -2
+      output_scalespace: 3
       irreps_emb:           # mutiscale -> list length must match n_scales
         - '32x0e+16x1e+8x2e'
         - '32x0e+16x1e+8x2e'

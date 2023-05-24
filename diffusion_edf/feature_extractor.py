@@ -65,6 +65,8 @@ class UnetFeatureExtractor(torch.nn.Module):
         self.deterministic: bool = deterministic
         self.n_layers_midstream: int = n_layers_midstream
         self.output_scalespace: int = output_scalespace
+        if self.output_scalespace < 0:
+            self.output_scalespace = self.n_scales + self.output_scalespace + 1
 
         if irreps_input is None:
             self.irreps_input: o3.Irreps = self.irreps_emb[0]
@@ -444,4 +446,7 @@ class UnetFeatureExtractor(torch.nn.Module):
         return pcd_multiscale #, graph_edge
     
     def forward(self, pcd: FeaturedPoints) -> FeaturedPoints:
-        return self.forward_multiscale(pcd=pcd)[self.output_scalespace]
+        scale_space: int = self.output_scalespace-1
+        assert scale_space >= 0
+        
+        return self.forward_multiscale(pcd=pcd)[scale_space]
