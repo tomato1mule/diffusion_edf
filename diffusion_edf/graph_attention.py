@@ -217,7 +217,8 @@ class GraphAttentionMLP2(torch.nn.Module):
         
     def forward(self, message: torch.Tensor,
                 graph_edge: GraphEdge,
-                n_nodes_dst: int) -> torch.Tensor:
+                n_nodes_dst: int,
+                edge_attention: Optional[torch.Tensor] = None) -> torch.Tensor:
         assert isinstance(graph_edge.edge_attr, torch.Tensor)
         assert isinstance(graph_edge.edge_scalars, torch.Tensor)
         assert message.ndim == 2 # (nEdge, F_in)
@@ -252,6 +253,8 @@ class GraphAttentionMLP2(torch.nn.Module):
         else:
             log_Z = scatter_logsumexp(log_alpha, graph_edge.edge_dst, dim=-2, dim_size = n_nodes_dst) # (NodeNum,1)
         alpha = torch.exp(log_alpha - log_Z[graph_edge.edge_dst]) # (N_edge, N_head)
+        if edge_attention is not None:
+            alpha = alpha * edge_attention.unsqueeze(-1)          # (N_edge, N_head)
 
         alpha: torch.Tensor = alpha.unsqueeze(-1)                              # (N_edge, N_head, 1)
         if self.alpha_dropout is not None:

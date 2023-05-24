@@ -63,6 +63,8 @@ class FeedForwardNetwork(torch.nn.Module):
 
 #@compile_mode('script')
 class EquiformerBlock(torch.nn.Module):
+    use_src_w: bool
+    use_dst_w: bool
 
     @beartype
     def __init__(self,
@@ -80,7 +82,9 @@ class EquiformerBlock(torch.nn.Module):
         drop_path_rate: float = 0.0,
         use_dst_feature: bool = True,
         skip_connection: bool = True, 
-        bias: bool = True):
+        bias: bool = True,
+        use_src_w: bool = True,
+        use_dst_w: bool = False):
         
         super().__init__()
         self.irreps_src: o3.Irreps = o3.Irreps(irreps_src)
@@ -113,17 +117,8 @@ class EquiformerBlock(torch.nn.Module):
 
         if not self.use_dst_feature:
             assert self.skip_1 is None
-
-        # if not bias:
-        #     self.biases = None
-        # elif bias is True:
-        #     biases = []
-        #     for (n,(l,p)) in self.irreps_emb:
-        #         if l == 0 and p == 1:
-        #             biases.append(torch.nn.Parameter(torch.zeros([n])))
-        #     self.biases = torch.nn.ParameterList(biases)
-        # else:
-        #     raise ValueError(f"wrong input to bias: {bias}")
+        self.use_src_w = use_src_w
+        self.use_dst_w = use_dst_w
 
         if self.use_dst_feature:
             self.prenorm_src = EquivariantLayerNormV2(self.irreps_src, affine=True)
@@ -181,10 +176,19 @@ class EquiformerBlock(torch.nn.Module):
         message: torch.Tensor = message_src[graph_edge.edge_src]         # Shape: (N_edge, F_emb)
         if message_dst is not None:
             message = message + message_dst[graph_edge.edge_dst]         # Shape: (N_edge, F_emb)
+
+        if self.use_src_w:
+            assert isinstance(src_points.w, torch.Tensor)
+            edge_attention = (src_points.w)[graph_edge.edge_src]         # Shape: (N_edge,)
+        else:
+            edge_attention = None
+        if self.use_dst_w:
+            raise NotImplementedError
         
         emb_features: torch.Tensor = self.ga(message=message, 
                                              graph_edge=graph_edge,
-                                             n_nodes_dst = len(dst_points.x)) # Shape: (N_dst, F_emb)
+                                             n_nodes_dst = len(dst_points.x),
+                                             edge_attention = edge_attention) # Shape: (N_dst, F_emb)
         
         if self.drop_path is not None:
             emb_features = self.drop_path(x=emb_features, batch=dst_points.b) # Shape: (N_dst, F_emb)

@@ -104,7 +104,9 @@ class TensorField(torch.nn.Module):
                                          drop_path_rate = drop_path_rate,
                                          use_dst_feature = use_dst_feature,
                                          skip_connection = True,
-                                         bias = True)
+                                         bias = True,
+                                         use_src_w = True,
+                                         use_dst_w = False)
         
     def forward(self, query_points: FeaturedPoints,
                 input_points: FeaturedPoints,
