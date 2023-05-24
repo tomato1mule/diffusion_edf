@@ -423,6 +423,7 @@ class UnetFeatureExtractor(torch.nn.Module):
                 w = None
             else:
                 w = self.point_weight_mlp(f[..., :self.point_weight_emb_dim]).squeeze(-1).contiguous()
+                w = torch.sigmoid(w)
                 f = f[..., self.point_weight_emb_dim:].contiguous()
 
             pcd = FeaturedPoints(

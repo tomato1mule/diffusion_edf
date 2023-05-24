@@ -14,6 +14,39 @@ class FeaturedPoints(NamedTuple):
     b: torch.Tensor # Batch idx
     w: Optional[torch.Tensor] = None # some optional scalar weight of the points
 
+    # def __repr__(self) -> str:
+    #     if self.w is None:
+    #         return f"x: {self.x.shape} | f: {self.f.shape} | b: {self.b.shape} | w: None"
+    #     else:
+    #         return f"x: {self.x.shape} | f: {self.f.shape} | b: {self.b.shape} | w: {self.w.shape}"
+
+def _featured_points_repr(p: FeaturedPoints) -> str:
+    if p.w is None:
+        return f"x: {p.x.shape} | f: {p.f.shape} | b: {p.b.shape} | w: None"
+    else:
+        return f"x: {p.x.shape} | f: {p.f.shape} | b: {p.b.shape} | w: {p.w.shape}"
+
+@torch.jit.script
+def set_featured_points_attribute(points: FeaturedPoints, x: Optional[torch.Tensor] = None, f: Optional[torch.Tensor] = None, b: Optional[torch.Tensor] = None, w: Union[str,Optional[torch.Tensor]] = '') -> FeaturedPoints:
+    if x is None:
+        x = points.x
+    if f is None:
+        f = points.f
+    if b is None:
+        b = points.b
+    if isinstance(w, str):
+        assert w == ''
+        w = points.w
+    return FeaturedPoints(x=x, f=f, b=b, w=w)
+
+@torch.jit.script
+def detach_featured_points(points: FeaturedPoints) -> FeaturedPoints:
+    w = points.w
+    if isinstance(w, torch.Tensor):
+        w = w.detach()
+    return FeaturedPoints(x=points.x.detach(), f=points.f.detach(), b=points.b.detach(), w=w)
+
+
 def _list_merge_featured_points(pcds: List[FeaturedPoints]) -> FeaturedPoints:
     x: torch.Tensor = torch.cat([pcd.x for pcd in pcds], dim=0)
     f: torch.Tensor = torch.cat([pcd.f for pcd in pcds], dim=0)
@@ -45,9 +78,12 @@ def pcd_to_featured_points(pcd: PointCloud, batch_idx: int = 0) -> FeaturedPoint
 
 class TransformPcd(torch.nn.Module):
     @beartype
-    def __init__(self, irreps: Union[str, o3.Irreps]):
+    def __init__(self, irreps: Optional[Union[str, o3.Irreps]]):
         super().__init__()
-        self.transform_features = TransformFeatureQuaternion(irreps=o3.Irreps(irreps))
+        if irreps is None:
+            self.transform_features = None
+        else:
+            self.transform_features = TransformFeatureQuaternion(irreps=o3.Irreps(irreps))
             
     @torch.jit.ignore()
     def to(self, *args, **kwargs):
@@ -57,9 +93,11 @@ class TransformPcd(torch.nn.Module):
         return super().to(*args, **kwargs)
 
     def forward(self, pcd: FeaturedPoints, Ts: torch.Tensor) -> FeaturedPoints: 
-        assert Ts.ndim == 2
-        assert Ts.shape[-1] == 7
-        f_transformed = self.transform_features(feature=pcd.f,  q=Ts[..., :4]) # (Nt, Np, F)
+        assert Ts.ndim == 2 and Ts.shape[-1] == 7, f"{Ts.shape}" # Ts: (nT, 4+3: quaternion + position) 
+        if self.transform_features is not None:
+            f_transformed = self.transform_features(feature=pcd.f,  q=Ts[..., :4]) # (Nt, Np, F)
+        else:
+            f_transformed = pcd.f.expand(len(Ts), -1, -1)                      # (Nt, Np, F)
         x_transformed = transform_points(points=pcd.x, Ts=Ts)                  # (Nt, Np, 3)
         b_transformed = pcd.b.expand(len(Ts), -1)                              # (Nt, Np)
         w_transformed = pcd.w
