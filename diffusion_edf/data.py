@@ -212,8 +212,7 @@ class PointCloud():
         if cmap is None:
             if self.colors.shape != self.points.shape:
                 raise ValueError(f"shape of the color ({self.colors.shape}) does not match with ({self.points.shape}). Use cmap argument if using scalar features")
-
-        if cmap == 'viridis':
+        elif cmap == 'viridis':
             assert (self.colors.ndim + 1 == self.points.ndim and self.colors.shape == self.points.shape[:1])\
                     or (self.colors.shape[-1] == 1 and self.colors.shape[:1] == self.points.shape[:1])
             colors = viridis_cmap(self.colors)[..., :3] # https://plotly.com/python/v3/matplotlib-colorscales/

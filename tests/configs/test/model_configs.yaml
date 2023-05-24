@@ -1,15 +1,15 @@
 max_time: 5.
-time_emb_mlp: [128, 64, 64]
+time_emb_mlp: [64, 32, 32]
 lin_mult: 10.
 key_kwargs:
   feature_extractor_configs:
     irreps_input: '3x0e'
-    irreps_output: '128x0e+64x1e+32x2e'
+    irreps_output: '64x0e+32x1e+16x2e'
     n_scales: 4
-    output_scalespace: 3
+    output_scalespace: 2
     irreps_emb:           # mutiscale -> list length must match n_scales
       - '32x0e+16x1e+8x2e'
-      - '32x0e+16x1e+8x2e'
+      - '64x0e+32x1e+16x2e'
       - '64x0e+32x1e+16x2e'
       - '64x0e+32x1e+16x2e'
     irreps_edge_attr:     # mutiscale -> list length must match n_scales
@@ -51,11 +51,11 @@ key_kwargs:
     drop_path_rate: 0.0
     n_layers_midstream: 2 # Number of layers that connects downstream to upstream
   tensor_field_configs:
-    irreps_output: '128x0e+64x1e+32x2e'
+    irreps_output: '64x0e+32x1e+16x2e'
     irreps_sh: '1x0e+1x1e+1x2e'
     num_heads: 4
-    fc_neurons: [128, 64, 64]
-    length_emb_dim: 128
+    fc_neurons: [64, 32, 32]
+    length_emb_dim: 64          # must be equal to fc_neurons[0]
     r_cluster: null
     r_maxcut: null
     r_mincut_nonscalar: 0.5
@@ -68,7 +68,7 @@ key_kwargs:
 query_kwargs:
   feature_extractor_configs:
     irreps_input: '3x0e'
-    irreps_output: '128x0e+64x1e+32x2e'
+    irreps_output: '64x0e+32x1e+16x2e'
     n_scales: 4
     output_scalespace: 3
     irreps_emb:           # mutiscale -> list length must match n_scales
