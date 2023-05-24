@@ -156,7 +156,7 @@ class SinusoidalPositionEmbeddings(torch.nn.Module):
     n: The period of each sinusoidal kernel ranges from 2pi~n*2pi
     """
     @beartype
-    def __init__(self, dim: int, max_val: float = 1., n: float = 10000.):
+    def __init__(self, dim: int, max_val: float, n: float = 10000.):
         super().__init__()
         self.dim = dim
         assert self.dim % 2 == 0, f"dim must be an even number!"

@@ -21,16 +21,16 @@ from diffusion_edf.gnn_data import FeaturedPoints, GraphEdge
 from diffusion_edf.graph_parser import RadiusBipartite
 
 
-class TensorField(torch.nn.Module):  
+class TensorField(torch.nn.Module):
     @beartype
     def __init__(self,
         irreps_input: Union[str, o3.Irreps], 
         irreps_output: Union[str, o3.Irreps], 
+        irreps_query: Optional[Union[str, o3.Irreps]],
         irreps_sh: Union[str, o3.Irreps], 
         num_heads: int, 
         fc_neurons: List[int],
         length_emb_dim: int,
-        time_emb_dim: Optional[int],
         r_mincut_nonscalar: Optional[float],
         r_cluster: Optional[float] = None,
         r_maxcut: Optional[float] = 'default',
@@ -38,18 +38,27 @@ class TensorField(torch.nn.Module):
         n_layers: int = 1,
         length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
         length_enc_kwargs: Dict =  {}, # {'max_val': <max length to encode>, 'n': 10000},
-        input_dst_feature: bool = False,
         max_neighbor: Optional[int] = None,
         irreps_mlp_mid: Union[str, o3.Irreps, int] = 3,
         attn_type: str = 'mlp',
         alpha_drop: float = 0.1,
         proj_drop: float = 0.1,
-        drop_path_rate: float = 0.0):
+        drop_path_rate: float = 0.0,
+        time_emb_dim: Optional[int] = None,):
+
+        if time_emb_dim is not None:
+            warnings.warn("time_emb_dim in TensorField module is deprecated. Please set it to None.")
         
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
         self.irreps_output = o3.Irreps(irreps_output)
         self.irreps_sh = o3.Irreps(irreps_sh)
+        if irreps_query is not None:
+            use_dst_feature = True
+            self.irreps_query = o3.Irreps(irreps_query)
+        else:
+            use_dst_feature = False
+            self.irreps_query = None
         self.num_heads: int = num_heads
         self.fc_neurons: List[int] = fc_neurons
         self.r_cluster = r_cluster
@@ -82,9 +91,9 @@ class TensorField(torch.nn.Module):
                                             cutoff_sh=False)
 
         self.gnn_block = EquiformerBlock(irreps_src = self.irreps_input, 
-                                         irreps_dst = self.irreps_output, 
-                                         irreps_emb = None, # equal to irreps_dst
-                                         irreps_output = None, # equal to irreps_dst
+                                         irreps_dst = self.irreps_query, 
+                                         irreps_emb = self.irreps_input, 
+                                         irreps_output = self.irreps_output, 
                                          irreps_edge_attr = self.irreps_sh, 
                                          num_heads = self.num_heads, 
                                          fc_neurons = fc_neurons,
@@ -93,7 +102,7 @@ class TensorField(torch.nn.Module):
                                          alpha_drop = alpha_drop,
                                          proj_drop = proj_drop,
                                          drop_path_rate = drop_path_rate,
-                                         use_dst_feature = input_dst_feature,
+                                         use_dst_feature = use_dst_feature,
                                          skip_connection = True,
                                          bias = True)
         
@@ -103,7 +112,8 @@ class TensorField(torch.nn.Module):
                 max_neighbors: Optional[int] = None) -> FeaturedPoints:
         assert query_points.x.ndim == 2 # (Nq, 3)
         assert input_points.x.ndim == 2 # (Np, 3)
-        assert time_emb.ndim == 2 # (Batch, tEmb)
+        if time_emb is not None:
+            assert time_emb.ndim == 2 # (Batch, tEmb)
 
         if self.time_emb_dim is not None:
             assert isinstance(time_emb, torch.Tensor)

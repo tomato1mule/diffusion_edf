@@ -158,8 +158,8 @@ class EquiformerBlock(torch.nn.Module):
         self.drop_path = GraphDropPath(drop_path_rate) if drop_path_rate > 0. else None
         self.post_norm = EquivariantLayerNormV2(self.irreps_emb, affine=bias)
         self.ffn = FeedForwardNetwork(
-            irreps_node_input=self.irreps_dst, 
-            irreps_node_output=self.irreps_dst, 
+            irreps_node_input=self.irreps_emb, 
+            irreps_node_output=self.irreps_output, 
             irreps_mlp_mid=self.irreps_mlp_mid,
             proj_drop=proj_drop)
             
@@ -177,7 +177,7 @@ class EquiformerBlock(torch.nn.Module):
         else:
             message_dst = self.prenorm_dst(dst_points.f) # Shape: (N_dst, F_dst)
             if self.linear_dst is not None:
-                message_dst = message_dst + self.linear_dst(message_dst) # Shape: (N_dst, F_emb)
+                message_dst = self.linear_dst(message_dst) # Shape: (N_dst, F_emb)
         message: torch.Tensor = message_src[graph_edge.edge_src]         # Shape: (N_edge, F_emb)
         if message_dst is not None:
             message = message + message_dst[graph_edge.edge_dst]         # Shape: (N_edge, F_emb)

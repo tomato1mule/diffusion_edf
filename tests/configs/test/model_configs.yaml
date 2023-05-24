@@ -1,4 +1,6 @@
 unit_len: 0.01
+time_emb_dim: 128
+max_time: 5.
 scene:
   feature_extractor_configs:
     irreps_input: '3x0e'
@@ -50,11 +52,11 @@ scene:
     n_layers_midstream: 2 # Number of layers that connects downstream to upstream
   tensor_field_configs:
     irreps_output: '128x0e+64x1e+32x2e'
+    irreps_query: '128x0e'
     irreps_sh: '1x0e+1x1e+1x2e'
     num_heads: 4
-    fc_neurons: [256, 64, 64]
+    fc_neurons: [128, 64, 64]
     length_emb_dim: 128
-    time_emb_dim: 128
     r_cluster: null
     r_maxcut: null
     r_mincut_nonscalar: 0.5
@@ -64,7 +66,6 @@ scene:
     length_enc_kwargs: {'max_val': 200.}
     max_neighbor: null
     irreps_mlp_mid: 3
-    input_dst_feature: False
 grasp:
   feature_extractor_configs:
     irreps_input: '3x0e'
