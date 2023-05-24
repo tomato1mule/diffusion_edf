@@ -173,4 +173,4 @@ class SinusoidalPositionEmbeddings(torch.nn.Module):
         embeddings = x[..., None] * embeddings                                      # shape: (*x.shape, self.dim/2) 
         embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)        # shape: (*x.shape, self.dim)
 
-        return embeddings # (Nx, dim)
+        return embeddings # (*x.shape, self.dim)

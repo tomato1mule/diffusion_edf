@@ -45,9 +45,16 @@ def pcd_to_featured_points(pcd: PointCloud, batch_idx: int = 0) -> FeaturedPoint
 
 class TransformPcd(torch.nn.Module):
     @beartype
-    def __init__(self, irreps: Union[str, o3.Irreps], device: Union[str, torch.device]):
+    def __init__(self, irreps: Union[str, o3.Irreps]):
         super().__init__()
-        self.transform_features = TransformFeatureQuaternion(irreps=o3.Irreps(irreps), device=device, compile=True)
+        self.transform_features = TransformFeatureQuaternion(irreps=o3.Irreps(irreps))
+
+    @torch.jit.ignore()
+    def to(self, *args, **kwargs):
+        for module in self.children():
+            if isinstance(module, torch.nn.Module):
+                module.to(*args, **kwargs)
+        return super().to(*args, **kwargs)
 
     def forward(self, pcd: FeaturedPoints, Ts: torch.Tensor) -> FeaturedPoints: 
         assert Ts.ndim == 2

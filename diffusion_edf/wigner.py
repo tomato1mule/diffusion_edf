@@ -8,6 +8,8 @@ from e3nn.math._linalg import direct_sum
 from e3nn.util.jit import compile_mode
 from diffusion_edf.transforms import matrix_to_euler_angles, quaternion_to_matrix, standardize_quaternion
 
+_Jd: Tuple[torch.Tensor] = tuple(J.detach().clone().to(dtype=torch.float32) for J in _Jd)
+
 def quat_to_angle_fast(q: torch.Tensor) -> torch.Tensor: # >10 times faster than e3nn's quaternion_to_angle function
     ang = matrix_to_euler_angles(quaternion_to_matrix(q), "YXY").T
     return ang
@@ -160,13 +162,21 @@ def transform_feature_quat(irreps, feature, q, Js):
     return transform_feature_quat_(ls, feature_slices, Js, q)
 
 
-class _TransformFeatureQuaternion(torch.nn.Module):
+class TransformFeatureQuaternion(torch.nn.Module):
     @beartype
-    def __init__(self, irreps: o3.Irreps, device: Union[str, torch.device]):
+    def __init__(self, irreps: o3.Irreps):
         super().__init__()
         self.ls = tuple([ir.l for mul, ir in irreps])
         self.slices = tuple([(slice_.start, slice_.stop) for slice_ in irreps.slices()])
-        self.Js = tuple(_Jd[l].to(dtype = torch.float32, device=device) for l in self.ls)
+        self.Js = tuple(_Jd[l] for l in self.ls)
+        
+    @torch.jit.ignore()
+    def to(self, *args, **kwargs):
+        self.Js = tuple(_Jd[l].to(*args, **kwargs) for l in self.ls)
+        for module in self.children():
+            if isinstance(module, torch.nn.Module):
+                module.to(*args, **kwargs)
+        return super().to(*args, **kwargs)
 
     def forward(self, feature: torch.Tensor, q: torch.Tensor) -> torch.Tensor : # (N_Q, N_D) x (N_T, 4) -> (N_T, N_Q, N_D)
         feature_slices = []
@@ -174,13 +184,6 @@ class _TransformFeatureQuaternion(torch.nn.Module):
             feature_slices.append(feature[..., slice_[0]:slice_[1]])
 
         return transform_feature_quat_(ls=self.ls, feature_slices=feature_slices, Js=self.Js, q=q)
-
-@beartype
-def TransformFeatureQuaternion(irreps: o3.Irreps, device: Union[str, torch.device], compile: bool = True):
-    if compile:
-        return torch.jit.script(_TransformFeatureQuaternion(irreps=irreps, device=device))
-    else:
-        return _TransformFeatureQuaternion(irreps=irreps, device=device)
 
 
 
