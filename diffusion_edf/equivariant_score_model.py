@@ -199,7 +199,8 @@ class ScoreModel(torch.nn.Module):
             deterministic=deterministic
         )
 
-
+        self.lin_mult = self.score_head.lin_mult
+        self.ang_mult = self.score_head.ang_mult
 
         # self.register_buffer('q_indices', torch.tensor([[1,2,3], [0,3,2], [3,0,1], [2,1,0]], dtype=torch.long), persistent=False)
         # self.register_buffer('q_factor', torch.tensor([[-0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, 0.5]]), persistent=False)

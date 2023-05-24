@@ -6,6 +6,7 @@ from typing import Union, Optional, List, Tuple, Dict, Any, Iterable, TypeVar, T
 from abc import ABCMeta, abstractmethod
 from dataclasses import dataclass
 import warnings
+from beartype import beartype
 
 import numpy as np
 import open3d as o3d
@@ -198,7 +199,8 @@ class PointCloud():
     colors: torch.Tensor
     device: torch.device
 
-    def __init__(self, points: torch.Tensor, colors: torch.Tensor, device: Optional[Union[str, torch.device]] = None):
+    @beartype
+    def __init__(self, points: torch.Tensor, colors: torch.Tensor, device: Optional[Union[str, torch.device]] = None, cmap: Optional[str] = None):
         if device is None:
             device = points.device
         device = torch.device(device)
@@ -207,11 +209,22 @@ class PointCloud():
 
         self.points: torch.Tensor = points # (N,3)
         self.colors: torch.Tensor = colors # (N,3)
-        if (self.colors.ndim + 1 == self.points.ndim and self.colors.shape == self.points.shape[:1])\
-            or (self.colors.shape[-1] == 1 and self.colors.shape[:1] == self.points.shape[:1]):
+        if cmap is None:
+            if self.colors.shape != self.points.shape:
+                raise ValueError(f"shape of the color ({self.colors.shape}) does not match with ({self.points.shape}). Use cmap argument if using scalar features")
 
-            colors = viridis_cmap(self.colors) # https://plotly.com/python/v3/matplotlib-colorscales/
+        if cmap == 'viridis':
+            assert (self.colors.ndim + 1 == self.points.ndim and self.colors.shape == self.points.shape[:1])\
+                    or (self.colors.shape[-1] == 1 and self.colors.shape[:1] == self.points.shape[:1])
+            colors = viridis_cmap(self.colors)[..., :3] # https://plotly.com/python/v3/matplotlib-colorscales/
             self.colors: torch.Tensor = torch.tensor(colors, device=self.colors.device, dtype=self.colors.dtype)
+        elif cmap == 'magma':
+            assert (self.colors.ndim + 1 == self.points.ndim and self.colors.shape == self.points.shape[:1])\
+                    or (self.colors.shape[-1] == 1 and self.colors.shape[:1] == self.points.shape[:1])
+            colors = magma_cmap(self.colors)[..., :3] # https://plotly.com/python/v3/matplotlib-colorscales/
+            self.colors: torch.Tensor = torch.tensor(colors, device=self.colors.device, dtype=self.colors.dtype)
+        else:
+            raise ValueError(f"Unknown cmap: {cmap}")
         
 
     def to(self, device: Union[str, torch.device]) -> PointCloud:
@@ -269,7 +282,7 @@ class PointCloud():
             return False
     
     @staticmethod
-    def transform_pcd(pcd, Ts: Union[torch.Tensor, SE3]) -> List[PointCloud]:
+    def transform_pcd(pcd, Ts: Union[torch.Tensor, SE3], squeeze: bool = False) -> Union[List[PointCloud], PointCloud]:
         assert isinstance(pcd, PointCloud)
         if isinstance(Ts, SE3):
             Ts = Ts.poses.detach().clone()
@@ -284,10 +297,14 @@ class PointCloud():
             output: List[PointCloud] = [PointCloud(points=point, colors=pcd.colors) for point in points]
         else:
             output: List[PointCloud] = [PointCloud(points=points, colors=pcd.colors)]
-        return output
+        if squeeze:
+            assert len(output) == 1
+            return output[0]
+        else:
+            return output
 
-    def transformed(self, Ts: Union[torch.Tensor, SE3]) -> PointCloud:
-        return PointCloud.transform_pcd(pcd=self, Ts=Ts)
+    def transformed(self, Ts: Union[torch.Tensor, SE3], squeeze: bool = False) -> PointCloud:
+        return PointCloud.transform_pcd(pcd=self, Ts=Ts, squeeze=squeeze)
     
     @staticmethod
     def merge(*args) -> PointCloud:

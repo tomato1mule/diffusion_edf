@@ -12,7 +12,7 @@ from diffusion_edf.data import DemoSeqDataset, DemoSequence, TargetPoseDemo
 from diffusion_edf.gnn_data import FeaturedPoints, merge_featured_points, pcd_to_featured_points
 from diffusion_edf import preprocess
 
-def flatten_batch(demo_batch: List[TargetPoseDemo]):
+def flatten_batch(demo_batch: List[TargetPoseDemo]) -> Tuple[FeaturedPoints, FeaturedPoints, torch.Tensor]:
     scene_pcd = []
     grasp_pcd = []
     target_poses = []
