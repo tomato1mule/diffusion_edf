@@ -225,6 +225,72 @@ class ScoreModel(torch.nn.Module):
                 module.to(*args, **kwargs)
         return super().to(*args, **kwargs)
 
+    @torch.jit.export
+    def get_train_loss(self, Ts: torch.Tensor, 
+                       time: torch.Tensor, 
+                       key_pcd: FeaturedPoints, 
+                       query_pcd: FeaturedPoints, 
+                       target_ang_score: torch.Tensor,
+                       target_lin_score: torch.Tensor,
+                       ) -> Tuple[torch.Tensor, Dict[str, FeaturedPoints], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        assert target_ang_score.ndim == 2 and target_ang_score.shape[-1] == 3, f"{target_ang_score.shape}"
+        assert target_lin_score.ndim == 2 and target_lin_score.shape[-1] == 3, f"{target_lin_score.shape}"
+        assert time.ndim == 1 and target_ang_score.shape[-1] == 3, f"{target_ang_score.shape}"
+        assert len(time) == len(target_ang_score) == len(target_lin_score)
+
+        key_pcd: FeaturedPoints = self.key_feature_extractor(key_pcd)
+        query_pcd: FeaturedPoints = self.query_feature_extractor(query_pcd)
+
+        ang_score, lin_score = self.score_head(Ts = Ts, 
+                                               key_pcd = key_pcd, 
+                                               query_pcd = query_pcd,
+                                               time = time)
+        
+        target_ang_score = target_ang_score * torch.sqrt(time[..., None])
+        target_lin_score = target_lin_score * torch.sqrt(time[..., None])
+        ang_score_diff = target_ang_score - ang_score
+        lin_score_diff = target_lin_score - lin_score
+        ang_loss = torch.sum(torch.square(ang_score_diff), dim=-1).mean(dim=-1)
+        lin_loss = torch.sum(torch.square(lin_score_diff * self.lin_mult), dim=-1).mean(dim=-1)
+
+        loss = ang_loss + lin_loss
+
+
+        target_norm_ang, target_norm_lin = torch.norm(target_ang_score.detach(), dim=-1), torch.norm(target_lin_score.detach(), dim=-1) # Shape: (nT, ), (nT, )
+        score_norm_ang, score_norm_lin = torch.norm(ang_score.detach(), dim=-1), torch.norm(lin_score.detach(), dim=-1)         # Shape: (nT, ), (nT, )
+        dp_align_ang = torch.einsum('...i,...i->...', ang_score.detach(), target_ang_score.detach()) # Shape: (nT, )
+        dp_align_lin = torch.einsum('...i,...i->...', lin_score.detach(), target_lin_score.detach()) # Shape: (nT, )
+        dp_align_ang_normalized = dp_align_ang / target_norm_ang / score_norm_ang # Shape: (nT, )
+        dp_align_lin_normalized = dp_align_lin / target_norm_lin / score_norm_lin # Shape: (nT, )
+
+        statistics: Dict[str, torch.Tensor] = {
+            "Loss/train": loss.item(),
+            "Loss/angular": ang_loss.item(),
+            "Loss/linear": lin_loss.item(),
+            "norm/target_ang": target_norm_ang.mean(dim=-1).item(),
+            "norm/target_lin": target_norm_lin.mean(dim=-1).item(),
+            "norm/inferred_ang": score_norm_ang.mean(dim=-1).item(),
+            "norm/inferred_lin": score_norm_lin.mean(dim=-1).item(),
+            "alignment/unnormalized/ang": dp_align_ang.mean(dim=-1).item(),
+            "alignment/unnormalized/lin": dp_align_lin.mean(dim=-1).item(),
+            "alignment/normalized/ang": dp_align_ang_normalized.mean(dim=-1).item(),
+            "alignment/normalized/lin": dp_align_lin_normalized.mean(dim=-1).item(),
+        }
+
+        fp_info: Dict[str, FeaturedPoints] = {
+            "key_fp": detach_featured_points(key_pcd),
+            "query_fp": detach_featured_points(query_pcd),
+        }
+
+        tensor_info: Dict[str, torch.Tensor] = {
+            'ang_score': ang_score.detach(),
+            'lin_score': lin_score.detach(),
+        }
+
+        return loss, fp_info, tensor_info, statistics
+
+        
+
     def forward(self, Ts: torch.Tensor, 
                 time: torch.Tensor, 
                 key_pcd: FeaturedPoints, 
