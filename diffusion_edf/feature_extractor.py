@@ -67,9 +67,6 @@ class UnetFeatureExtractor(torch.nn.Module):
         self.n_layers: List[int] = n_layers
         self.deterministic: bool = deterministic
         self.n_layers_midstream: int = n_layers_midstream
-        self.output_scalespace: int = output_scalespace
-        if self.output_scalespace < 0:
-            self.output_scalespace = self.n_scales + self.output_scalespace + 1
 
         if irreps_input is None:
             self.irreps_input: o3.Irreps = self.irreps_emb[0]
@@ -84,6 +81,10 @@ class UnetFeatureExtractor(torch.nn.Module):
             self.n_scales: int = len(self.irreps_emb)
         else:
             self.n_scales: int = n_scales
+        self.output_scalespace: int = output_scalespace
+        if self.output_scalespace < 0:
+            self.output_scalespace = self.n_scales + self.output_scalespace + 1
+
 
         self.radius: List[float] = [radius[0]]
         for n, r in enumerate(radius[1:]):

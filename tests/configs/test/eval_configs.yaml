@@ -2,7 +2,7 @@
 train_dataset_dir: '../demo/test_demo_single_mug'
 test_dataset_dir: '../demo/test_unseen_demo'
 annotation_file: 'data.yaml'
-checkpoint_file: 'runs/2023_05_25_13-47-46/checkpoint/180.pt'
+checkpoint_file: 'runs/2023_05_25_15-01-30/checkpoint/200.pt'
 
 
 preprocess_config:
