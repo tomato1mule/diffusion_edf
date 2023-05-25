@@ -1,6 +1,7 @@
-dataset_dir: 'test_data'
+# dataset_dir: 'test_data'
+dataset_dir: '../demo/test_unseen_demo'
 annotation_file: 'data.yaml'
-checkpoint_file: 'runs/2023_05_25_02-09-57/checkpoint/200.pt'
+checkpoint_file: 'runs/2023_05_25_12-52-54/checkpoint/120.pt'
 
 
 preprocess_config:

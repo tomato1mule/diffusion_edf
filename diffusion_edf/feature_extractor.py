@@ -6,6 +6,7 @@ from beartype import beartype
 
 import torch
 from e3nn import o3
+from torch_scatter import scatter_log_softmax
 
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
 from diffusion_edf import EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE, QUERY_TYPE, EDF_INFO_TYPE
@@ -45,6 +46,8 @@ class UnetFeatureExtractor(torch.nn.Module):
         n_layers_midstream: int = 2,
         n_scales: Optional[int] = None,
         output_scalespace: int = -1):
+
+        self.log_num_points = math.log(10)
         
         super().__init__()
 
@@ -425,7 +428,9 @@ class UnetFeatureExtractor(torch.nn.Module):
                 w = None
             else:
                 w = self.point_weight_mlp(f[..., :self.point_weight_emb_dim]).squeeze(-1).contiguous()
-                w = torch.sigmoid(w)
+                # w = torch.sigmoid(w)
+                w = scatter_log_softmax(src=w, index=batch, dim=-1) + self.log_num_points
+                w = torch.exp(w)
                 f = f[..., self.point_weight_emb_dim:].contiguous()
 
             pcd = FeaturedPoints(
