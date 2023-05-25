@@ -54,10 +54,10 @@ class TensorField(torch.nn.Module):
         self.irreps_output = o3.Irreps(irreps_output)
         self.irreps_sh = o3.Irreps(irreps_sh)
         if irreps_query is not None:
-            use_dst_feature = True
+            self.use_dst_feature = True
             self.irreps_query = o3.Irreps(irreps_query)
         else:
-            use_dst_feature = False
+            self.use_dst_feature = False
             self.irreps_query = None
         self.num_heads: int = num_heads
         self.fc_neurons: List[int] = fc_neurons
@@ -67,8 +67,6 @@ class TensorField(torch.nn.Module):
         self.r_mincut_scalar = r_mincut_scalar
         self.n_layers = n_layers
         assert self.n_layers >= 1
-        if self.n_layers > 1:
-            raise NotImplementedError
 
         self.length_emb_dim = length_emb_dim
         self.time_emb_dim = time_emb_dim
@@ -94,11 +92,12 @@ class TensorField(torch.nn.Module):
                                             sh_irreps=self.irreps_sh, 
                                             max_neighbors=max_neighbor,
                                             cutoff_sh=False)
-
-        self.gnn_block = EquiformerBlock(irreps_src = self.irreps_input, 
+        
+        
+        self.gnn_block_init = EquiformerBlock(irreps_src = self.irreps_input, 
                                          irreps_dst = self.irreps_query, 
                                          irreps_emb = self.irreps_input, 
-                                         irreps_output = self.irreps_output, 
+                                         irreps_output = self.irreps_output if self.n_layers == 1 else self.irreps_input, 
                                          irreps_edge_attr = self.irreps_sh, 
                                          num_heads = self.num_heads, 
                                          fc_neurons = fc_neurons,
@@ -107,11 +106,33 @@ class TensorField(torch.nn.Module):
                                          alpha_drop = alpha_drop,
                                          proj_drop = proj_drop,
                                          drop_path_rate = drop_path_rate,
-                                         use_dst_feature = use_dst_feature,
+                                         use_dst_feature = self.use_dst_feature,
                                          skip_connection = True,
                                          bias = True,
                                          use_src_w = True,
                                          use_dst_w = False)
+        
+        self.gnn_blocks = torch.nn.ModuleList()
+        for n in range(self.n_layers-1):
+            self.gnn_blocks.append(
+                EquiformerBlock(irreps_src = self.irreps_input, 
+                                irreps_dst = self.irreps_input, 
+                                irreps_emb = self.irreps_input, 
+                                irreps_output = self.irreps_output if n == self.n_layers-1 else self.irreps_input, 
+                                irreps_edge_attr = self.irreps_sh, 
+                                num_heads = self.num_heads, 
+                                fc_neurons = fc_neurons,
+                                irreps_mlp_mid = irreps_mlp_mid,
+                                attn_type = attn_type,
+                                alpha_drop = alpha_drop,
+                                proj_drop = proj_drop,
+                                drop_path_rate = drop_path_rate,
+                                use_dst_feature = True,
+                                skip_connection = True,
+                                bias = True,
+                                use_src_w = True,
+                                use_dst_w = False)
+            )
         
     def forward(self, query_points: FeaturedPoints,
                 input_points: FeaturedPoints,
@@ -143,9 +164,13 @@ class TensorField(torch.nn.Module):
                                    edge_log_weight_scalar=graph_edge.edge_log_weight_scalar,
                                    edge_log_weight_nonscalar=graph_edge.edge_log_weight_nonscalar)
 
-        output_points: FeaturedPoints = self.gnn_block(src_points=input_points,
-                                                       dst_points=query_points,
-                                                       graph_edge=graph_edge)
+        output_points: FeaturedPoints = self.gnn_block_init(src_points=input_points,
+                                                            dst_points=query_points,
+                                                            graph_edge=graph_edge)
+        for block in self.gnn_blocks:
+            output_points: FeaturedPoints = block(src_points=input_points,
+                                                  dst_points=output_points,
+                                                  graph_edge=graph_edge)
         
         return output_points
         

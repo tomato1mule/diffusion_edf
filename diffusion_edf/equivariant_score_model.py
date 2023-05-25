@@ -96,6 +96,8 @@ class ScoreModelHead(torch.nn.Module):
                                         norm_layer = None,
                                         internal_weights = True)
         #self.ang_vel_proj = LinearRS(irreps_in = self.irreps_prescore, irreps_out = o3.Irreps("1x1e"), bias=False, rescale=False).to(device)
+        if not self.use_time_emb_for_edge_encoding:
+            assert self.key_tensor_field.use_dst_feature is True
 
     @torch.jit.ignore()
     def to(self, *args, **kwargs):

@@ -61,7 +61,7 @@ key_kwargs:
     r_maxcut: null
     r_mincut_nonscalar: 0.5
     r_mincut_scalar: null
-    n_layers: 1
+    n_layers: 2
     length_enc_type: 'SinusoidalPositionEmbeddings'
     length_enc_kwargs: {'max_val': 200.}
     max_neighbor: null
