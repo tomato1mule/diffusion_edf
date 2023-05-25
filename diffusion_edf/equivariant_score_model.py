@@ -12,7 +12,6 @@ from diffusion_edf import transforms
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
 from diffusion_edf.feature_extractor import UnetFeatureExtractor
 from diffusion_edf.tensor_field import TensorField
-from diffusion_edf.extractor import EdfExtractorLight
 from diffusion_edf.gnn_data import FeaturedPoints, GraphEdge, TransformPcd, set_featured_points_attribute, flatten_featured_points, detach_featured_points
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
 from diffusion_edf.wigner import TransformFeatureQuaternion
@@ -26,6 +25,7 @@ class ScoreModelHead(torch.nn.Module):
     n_irreps_prescore: int
     lin_mult: float
     ang_mult: float
+    use_time_emb_for_edge_encoding: bool
 
     @beartype
     def __init__(self, 
@@ -34,7 +34,8 @@ class ScoreModelHead(torch.nn.Module):
                  key_tensor_field_kwargs: Dict,
                  irreps_query_edf: Union[str, o3.Irreps],
                  lin_mult: float,
-                 ang_mult: float = math.sqrt(2)):
+                 ang_mult: float = math.sqrt(2),
+                 use_time_emb_for_edge_encoding: bool = False):
         super().__init__()
         self.lin_mult = lin_mult
         self.ang_mult = ang_mult
@@ -48,6 +49,7 @@ class ScoreModelHead(torch.nn.Module):
             time_enc.append(torch.nn.Linear(self.time_emb_mlp[i-1], self.time_emb_mlp[i]))
         time_enc.append(torch.nn.SiLU(inplace=True)) # because there is another mlp in the key_tensor_field
         self.time_enc = torch.nn.Sequential(*time_enc)
+        self.use_time_emb_for_edge_encoding = use_time_emb_for_edge_encoding
 
         ################# Key field ########################
         if 'irreps_query' not in key_tensor_field_kwargs.keys():
@@ -124,7 +126,14 @@ class ScoreModelHead(torch.nn.Module):
         query_transformed: FeaturedPoints = self.query_transform(pcd = query_pcd, Ts = Ts)                                     # (nT, nQ, 3), (nT, nQ, F), (nT, nQ,), (nT, nQ,)
         query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=time_emb, w=None)        # (nT, nQ, 3), (nT, nQ, time_emb), (nT, nQ,), None
         query_transformed: FeaturedPoints = flatten_featured_points(query_transformed)                                         # (nT*nQ, 3), (nT*nQ, time_emb), (nT*nQ,), None
-        query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, input_points = key_pcd)    # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
+        if self.use_time_emb_for_edge_encoding:
+            query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
+                                                                      input_points = key_pcd,
+                                                                      time_emb = query_transformed.f)                          # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
+        else:
+            query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
+                                                                      input_points = key_pcd,
+                                                                      time_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
         query_features_transformed: torch.Tensor = query_transformed.f                                                         # (nT*nQ, F)
         key_features: torch.Tensor = query_transformed.f                                                                       # (nT*nQ, F)
 
@@ -176,6 +185,7 @@ class ScoreModel(torch.nn.Module):
         key_tensor_field_kwargs = key_kwargs['tensor_field_configs']
         key_tensor_field_kwargs['irreps_input'] = key_feature_extractor_kwargs['irreps_output']
         query_feature_extractor_kwargs = query_kwargs['feature_extractor_configs']
+        use_time_emb_for_edge_encoding = key_kwargs['use_time_emb_for_edge_encoding']
 
         print("ScoreModel: Initializing Score Head")
         self.score_head = ScoreModelHead(max_time=max_time, 
@@ -185,6 +195,7 @@ class ScoreModel(torch.nn.Module):
                                          irreps_query_edf=query_feature_extractor_kwargs['irreps_output'],
                                          lin_mult=lin_mult,
                                          ang_mult=ang_mult,
+                                         use_time_emb_for_edge_encoding = use_time_emb_for_edge_encoding
                                          )
 
         print("ScoreModel: Initializing Key Feature Extractor")

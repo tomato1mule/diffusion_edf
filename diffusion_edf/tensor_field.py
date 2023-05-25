@@ -32,6 +32,7 @@ class TensorField(torch.nn.Module):
         fc_neurons: List[int],
         length_emb_dim: int,
         r_mincut_nonscalar: Optional[float],
+        time_emb_dim: Optional[int] = None,
         r_cluster: Optional[float] = None,
         r_maxcut: Optional[float] = 'default',
         r_mincut_scalar: Optional[float] = None,
@@ -43,11 +44,10 @@ class TensorField(torch.nn.Module):
         attn_type: str = 'mlp',
         alpha_drop: float = 0.1,
         proj_drop: float = 0.1,
-        drop_path_rate: float = 0.0,
-        time_emb_dim: Optional[int] = None,):
+        drop_path_rate: float = 0.0):
 
-        if time_emb_dim is not None:
-            warnings.warn("time_emb_dim in TensorField module is deprecated. Please set it to None.")
+        # if time_emb_dim is not None:
+        #     warnings.warn("time_emb_dim in TensorField module is deprecated. Please set it to None.")
         
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -73,6 +73,11 @@ class TensorField(torch.nn.Module):
         self.length_emb_dim = length_emb_dim
         self.time_emb_dim = time_emb_dim
         assert self.length_emb_dim > 0, f"{self.length_emb_dim}"
+        if self.fc_neurons[0] == -1:
+            if self.time_emb_dim is None:
+                self.fc_neurons[0] = self.length_emb_dim
+            else:
+                self.fc_neurons[0] = self.length_emb_dim + self.time_emb_dim
         if self.time_emb_dim is None:
             assert fc_neurons[0] == self.length_emb_dim, f"{fc_neurons[0]}"
         else:
@@ -115,7 +120,7 @@ class TensorField(torch.nn.Module):
         assert query_points.x.ndim == 2 # (Nq, 3)
         assert input_points.x.ndim == 2 # (Np, 3)
         if time_emb is not None:
-            assert time_emb.ndim == 2 # (Batch, tEmb)
+            assert time_emb.ndim == 2 # (Nq, tEmb)
 
         if self.time_emb_dim is not None:
             assert isinstance(time_emb, torch.Tensor)
@@ -126,8 +131,8 @@ class TensorField(torch.nn.Module):
         graph_edge: GraphEdge = self.graph_parser(src=input_points, dst=query_points, max_neighbors=max_neighbors)
         if isinstance(time_emb, torch.Tensor):
             assert self.time_emb_dim is not None
-            assert self.time_emb_dim == time_emb.shape[-1]
-            time_emb = time_emb.index_select(0, query_points.b)            # (Nq, tEmb)
+            assert self.time_emb_dim == time_emb.shape[-1], f"{self.time_emb_dim} != {time_emb.shape[-1]} of {time_emb.shape}"
+            # time_emb = time_emb.index_select(0, query_points.b)            # (Nq, tEmb)
             time_emb = time_emb.index_select(0, graph_edge.edge_dst)       # (nEdge, tEmb)
             edge_scalars = torch.cat([graph_edge.edge_scalars, time_emb], dim=-1)  # (nEdge, tEmb + lEmb)
             graph_edge = GraphEdge(edge_src=graph_edge.edge_src, 

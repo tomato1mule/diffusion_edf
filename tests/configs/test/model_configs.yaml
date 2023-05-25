@@ -2,6 +2,7 @@ max_time: 5.
 time_emb_mlp: [64, 32, 32]
 lin_mult: 10.
 key_kwargs:
+  use_time_emb_for_edge_encoding: False
   feature_extractor_configs:
     irreps_input: '3x0e'
     irreps_output: '64x0e+32x1e+16x2e'
@@ -54,8 +55,8 @@ key_kwargs:
     irreps_output: '64x0e+32x1e+16x2e'
     irreps_sh: '1x0e+1x1e+1x2e'
     num_heads: 4
-    fc_neurons: [64, 32, 32]
-    length_emb_dim: 64          # must be equal to fc_neurons[0]
+    fc_neurons: [-1, 32, 32]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
+    length_emb_dim: 64          
     r_cluster: null
     r_maxcut: null
     r_mincut_nonscalar: 0.5
