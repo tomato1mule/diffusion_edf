@@ -2,7 +2,7 @@
 train_dataset_dir: '../demo/test_demo_single_mug'
 test_dataset_dir: '../demo/test_unseen_demo'
 annotation_file: 'data.yaml'
-checkpoint_file: 'runs/2023_05_25_15-01-30/checkpoint/200.pt'
+checkpoint_file: 'runs/2023_05_25_15-51-29/checkpoint/140.pt'
 
 
 preprocess_config:
@@ -17,10 +17,10 @@ n_batches: 1
 max_epochs: 200
 n_epochs_per_checkpoint: 20
 n_samples_x_ref: 10
-task_type: 'pick'
-contact_radius: 5.
-# task_type: 'place'
-# contact_radius: 3.
+# task_type: 'pick'
+# contact_radius: 5.
+task_type: 'place'
+contact_radius: 3.
 
 
 optimizer_kwargs:
