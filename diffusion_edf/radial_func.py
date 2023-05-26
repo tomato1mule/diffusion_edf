@@ -74,11 +74,16 @@ class BesselBasisEncoder(torch.nn.Module):
     max_val: float
     max_cutoff: bool
     dim: int
+    c: float
+    sqrt_two_div_c: float
+    max_cutoff: float
     @beartype
-    def __init__(self, dim: int, max_val: Union[float, int], min_val: Optional[Union[float, int]] = 0., max_cutoff: bool = False) -> None:
+    def __init__(self, dim: int, max_val: Union[float, int], min_val: Union[float, int] = 0., max_cutoff: bool = False) -> None:
         super().__init__()
         self.max_val = float(max_val)
         self.min_val = float(min_val)
+        if self.min_val != 0.:
+            raise NotImplementedError
         self.c = self.max_val - self.min_val
         self.dim = dim
         self.register_buffer('bessel_roots', torch.arange(1, self.dim + 1) * math.pi)
@@ -86,9 +91,10 @@ class BesselBasisEncoder(torch.nn.Module):
         self.max_cutoff = max_cutoff
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x[..., None] - self.min_val
+        eps = 1e-12
+        x = (x[..., None] - self.min_val).abs()
         x_div_c = x / self.c
-        out = self.sqrt_two_div_c * torch.sin(self.bessel_roots * x_div_c) / x
+        out = self.sqrt_two_div_c * (torch.sin(self.bessel_roots * x_div_c) + eps*self.bessel_roots / x_div_c) / (x+eps)
         if not self.max_cutoff:
             return out
         else:

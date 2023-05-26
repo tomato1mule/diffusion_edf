@@ -21,21 +21,51 @@ class GraphEdgeEncoderBase(torch.nn.Module):
     nonscalar_sh_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
     requires_length: bool
     requires_encoding: bool
-    length_enc_dim: Optional[int]
     cutoff_eps: float
 
     @beartype
     def __init__(self, r_cutoff: Optional[Union[Union[float, int], Sequence[Union[float, int, None]]]],
                  irreps_sh: Optional[Union[str, o3.Irreps]],
-                 length_enc_dim: Optional[int],
-                 length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
-                 length_enc_kwargs: Dict = {}, 
+                 length_enc: Optional[torch.nn.Module],
                  r_mincut_nonscalar_sh: Union[str, float, int, None] = 'default',  # Explicitly set this to ensure continuity of nonscalar spherical harmonics.
                  requires_length: Optional[bool] = None,  # Set to True if explicitly want length.
                  cutoff_eps: float = 1e-12):
         super().__init__()
         self.requires_length = True if requires_length else False
         self.cutoff_eps = cutoff_eps
+
+        ######### Length Encoder ##############
+        self.length_enc = length_enc
+        if self.length_enc is not None:
+            self.requires_length = True
+        # if length_enc_dim is None:
+        #     if length_enc_type is not None:
+        #         raise ValueError(f"length_enc_type: {length_enc_type} must be explicitly set to None if length_enc_dim is None.")
+        #     self.length_enc = None
+        #     self.length_enc_dim = None
+        # else:
+        #     assert length_enc_type is not None
+        #     self.requires_length = True
+        #     self.length_enc_dim = length_enc_dim
+        #     if length_enc_type == 'SinusoidalPositionEmbeddings':
+        #         if self.edge_cutoff_ranges is not None:
+        #             if self.edge_cutoff_ranges[-1] is not None:
+        #                 if 'max_val' not in length_enc_kwargs.keys():
+        #                     length_enc_kwargs['max_val'] = self.edge_cutoff_ranges[-1]
+        #         self.length_enc = SinusoidalPositionEmbeddings(dim=self.length_enc_dim, **length_enc_kwargs)
+        #     elif length_enc_type == 'BesselBasisEncoder':
+        #         if self.edge_cutoff_ranges is not None:
+        #             if self.edge_cutoff_ranges[-1] is not None:
+        #                 if 'max_val' not in length_enc_kwargs.keys():
+        #                     length_enc_kwargs['max_val'] = self.edge_cutoff_ranges[-1]
+        #                 if 'max_cutoff' not in length_enc_kwargs.keys():
+        #                     length_enc_kwargs['max_cutoff'] = True
+        #             if self.edge_cutoff_ranges[0] is not None:
+        #                 if 'min_val' not in length_enc_kwargs.keys():
+        #                     length_enc_kwargs['min_val'] = self.edge_cutoff_ranges[0]
+        #         self.length_enc = BesselBasisEncoder(dim=self.length_enc_dim, **length_enc_dim)
+        #     else:
+        #         raise ValueError(f"Unknown length encoder type: {length_enc_kwargs['type']}")
 
         ######### Edge Cutoff Encoder #########
         # For continuity, information must vanish as edge length approaches maximum or minimum radius.
@@ -64,9 +94,20 @@ class GraphEdgeEncoderBase(torch.nn.Module):
                 pass
             elif isinstance(r_mincut_nonscalar_sh, int) or isinstance(r_mincut_nonscalar_sh, float):
                 r_mincut_nonscalar_sh = float(r_mincut_nonscalar_sh)
-                warnings.warn(f"r_mincut_nonscalar_sh ({r_mincut_nonscalar_sh}) and self.edge_cutoff_ranges[0:1] ({self.edge_cutoff_ranges}) are simultaneously set. Are you sure?")
             else:
                 raise TypeError(f"Unknown type of r_mincut_nonscalar_sh: {r_mincut_nonscalar_sh}")
+        else:
+            if r_mincut_nonscalar_sh == 'default':
+                r_mincut_nonscalar_sh = None
+            elif r_mincut_nonscalar_sh is None:
+                pass
+            elif isinstance(r_mincut_nonscalar_sh, int) or isinstance(r_mincut_nonscalar_sh, float):
+                r_mincut_nonscalar_sh = float(r_mincut_nonscalar_sh)
+                # warnings.warn(f"r_mincut_nonscalar_sh ({r_mincut_nonscalar_sh}) and self.edge_cutoff_ranges[0:1] ({self.edge_cutoff_ranges}) are simultaneously set. Are you sure?")
+                raise ValueError(f"r_mincut_nonscalar_sh ({r_mincut_nonscalar_sh}) and self.edge_cutoff_ranges[0:1] ({self.edge_cutoff_ranges}) are simultaneously set. Are you sure?")
+            else:
+                raise TypeError(f"Unknown type of r_mincut_nonscalar_sh: {r_mincut_nonscalar_sh}")
+
             
         if isinstance(r_mincut_nonscalar_sh, int) or isinstance(r_mincut_nonscalar_sh, float):
             self.nonscalar_sh_cutoff_ranges = (0.2*float(r_mincut_nonscalar_sh), 1.0*float(r_mincut_nonscalar_sh), None, None)
@@ -85,36 +126,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
             self.irreps_sh = o3.Irreps(irreps_sh)
             self.sh_dim = self.irreps_sh.dim
             self.sh = o3.SphericalHarmonics(irreps_out = self.irreps_sh, normalize = True, normalization='component')
-
-        ######### Length Encoder #########
-        if length_enc_dim is None:
-            if length_enc_type is not None:
-                raise ValueError(f"length_enc_type: {length_enc_type} must be explicitly set to None if length_enc_dim is None.")
-            self.length_enc = None
-            self.length_enc_dim = None
-        else:
-            assert length_enc_type is not None
-            self.requires_length = True
-            self.length_enc_dim = length_enc_dim
-            if length_enc_type == 'SinusoidalPositionEmbeddings':
-                if self.edge_cutoff_ranges is not None:
-                    if self.edge_cutoff_ranges[-1] is not None:
-                        if 'max_val' not in length_enc_kwargs.keys():
-                            length_enc_kwargs['max_val'] = self.edge_cutoff_ranges[-1]
-                self.length_enc = SinusoidalPositionEmbeddings(dim=self.length_enc_dim, **length_enc_kwargs)
-            elif length_enc_type == 'BesselBasisEncoder':
-                if self.edge_cutoff_ranges is not None:
-                    if self.edge_cutoff_ranges[-1] is not None:
-                        if 'max_val' not in length_enc_kwargs.keys():
-                            length_enc_kwargs['max_val'] = self.edge_cutoff_ranges[-1]
-                        if 'max_cutoff' not in length_enc_kwargs.keys():
-                            length_enc_kwargs['max_cutoff'] = True
-                    if self.edge_cutoff_ranges[0] is not None:
-                        if 'min_val' not in length_enc_kwargs.keys():
-                            length_enc_kwargs['min_val'] = self.edge_cutoff_ranges[0]
-                self.length_enc = BesselBasisEncoder(dim=self.length_enc_dim, **length_enc_dim)
-            else:
-                raise ValueError(f"Unknown length encoder type: {length_enc_kwargs['type']}")
+        
         ##################################
         if requires_length is False and requires_length != self.requires_length:
             raise ValueError(f"requires_length is manually set to False, but it seems length is required")
@@ -174,88 +186,96 @@ class GraphEdgeEncoderBase(torch.nn.Module):
                          edge_logits=log_edge_cutoff,)
 
 
-class InfiniteBipartite(GraphEdgeEncoderBase):
-    r_cutoff: Tuple[Optional[float]]
-    sh_dim: Optional[int]
-    edge_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
-    nonscalar_sh_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
-    requires_length: bool
-    requires_encoding: bool
-    length_enc_dim: Optional[int]
-    cutoff_eps: float
 
-    
+
+class InfiniteBipartite(GraphEdgeEncoderBase):
+    @beartype
+    def __init__(self, irreps_sh: Optional[Union[str, o3.Irreps]],
+                 r_mincut_nonscalar_sh: Optional[Union[float, int]],
+                 length_enc_dim: Optional[int],
+                 length_enc_max_r: Optional[Union[float, int]] = None,
+                 length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
+                 ):
+        if length_enc_dim is None:
+            length_enc = None
+        else:
+            assert length_enc_max_r is not None
+            if length_enc_type == 'SinusoidalPositionEmbeddings':
+                length_enc = SinusoidalPositionEmbeddings(dim = length_enc_dim, 
+                                                          max_val=float(length_enc_max_r),
+                                                          n=1000.)
+            elif length_enc_type == 'BesselBasisEncoder':
+                length_enc = BesselBasisEncoder(dim = length_enc_dim,
+                                                max_val = float(length_enc_max_r),
+                                                min_val = 0.,
+                                                max_cutoff = False)
+            else:
+                raise ValueError(f"Unknown length encoder type: {length_enc_type}")
+        
+        super().__init__(r_cutoff=None, 
+                         irreps_sh=irreps_sh,
+                         r_mincut_nonscalar_sh=r_mincut_nonscalar_sh,
+                         length_enc=length_enc)
+        
+    def forward(self, src: FeaturedPoints, dst: FeaturedPoints) -> GraphEdge:
+        assert src.x.ndim == 2
+        assert dst.x.ndim == 2
+
+        edge_src, edge_dst = torch.meshgrid(torch.arange(len(src.x), device = src.x.device), torch.arange(len(dst.x), device = dst.x.device), indexing='ij')
+        edge_src = edge_src.reshape(-1)
+        edge_dst = edge_dst.reshape(-1)
+
+        if not self.requires_encoding:
+            return GraphEdge(edge_src=edge_src, edge_dst=edge_dst)
+        
+        return self._encode_edges(x_src=src.x, x_dst=dst.x, edge_src=edge_src, edge_dst=edge_dst)
 
 
 
 
 class RadiusBipartite(GraphEdgeEncoderBase):
-    max_neighbors: Optional[int]
-    r_cluster: Optional[float]
-    r_maxcut: Optional[float]
-    r_mincut_nonscalar: Optional[float]
-    r_mincut_scalar: Optional[float]
-    #sh_irreps: Optional[o3.Irreps]
-    sh_dim: Optional[int]
-    scalar_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
-    nonscalar_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
-    requires_length: bool
-    requires_encoding: bool
-    length_enc_dim: Optional[int]
-    cutoff_sh: bool
-    cutoff_eps: float
+    r_cluster: float
 
     @beartype
-    def __init__(self, r_cluster: Optional[float],
-                 r_mincut_nonscalar: Optional[float],  # Need to set non-zero r_mincut for continuity
+    def __init__(self, r_cutoff: Union[Union[float, int], Sequence[Union[float, int, None]]],
+                 irreps_sh: Optional[Union[str, o3.Irreps]],
                  length_enc_dim: Optional[int],
-                 r_maxcut: Union[Optional[float], str] = 'default',
-                 length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
-                 length_enc_kwarg: Dict = {}, 
-                 sh_irreps: Optional[Union[str, o3.Irreps]] = None,
-                 r_mincut_scalar: Optional[float] = None,
-                 requires_length: Optional[bool] = None,
-                 max_neighbors: Optional[int] = 1000,
-                 cutoff_sh: bool = False,
-                 cutoff_eps: float = 1e-12):
+                 length_enc_type: Optional[str] = 'BesselBasisEncoder',
+                 r_mincut_nonscalar_sh: Union[str, float, int, None] = 'default',  # Explicitly set this to ensure continuity of nonscalar spherical harmonics.
+                 ):
         
-        self.max_neighbors = max_neighbors
-        self.r_cluster = r_cluster
-        if r_maxcut == 'default':
-            if r_cluster is None:
-                r_maxcut = None
+        if isinstance(r_cutoff, int) or isinstance(r_cutoff, float):
+            self.r_cluster = float(r_cutoff)
+        elif isinstance(r_cutoff, Sequence) and not r_cutoff[-1] is None:
+            self.r_cluster = float(r_cutoff[-1])
+        else:
+            raise TypeError(f"Wrong type for r_cutoff: {r_cutoff}")
+        
+        if length_enc_dim is None:
+            length_enc = None
+        else:
+            if length_enc_type == 'SinusoidalPositionEmbeddings':
+                length_enc = SinusoidalPositionEmbeddings(dim = length_enc_dim, 
+                                                          max_val=self.r_cluster,
+                                                          n=1000.)
+            elif length_enc_type == 'BesselBasisEncoder':
+                length_enc = BesselBasisEncoder(dim = length_enc_dim,
+                                                max_val = self.r_cluster,
+                                                min_val = 0.,
+                                                max_cutoff = True)
             else:
-                raise ValueError("r_maxcut must be explicitly set to Optional[float] if r_cluster is not None")
+                raise ValueError(f"Unknown length encoder type: {length_enc_type}")
 
-        super().__init__(r_maxcut=r_maxcut,
-                         r_mincut_nonscalar=r_mincut_nonscalar,
-                         length_enc_dim=length_enc_dim,
-                         length_enc_type=length_enc_type,
-                         length_enc_kwarg=length_enc_kwarg,
-                         sh_irreps=sh_irreps,
-                         r_mincut_scalar=r_mincut_scalar,
-                         requires_length=requires_length,
-                         cutoff_sh=cutoff_sh,
-                         cutoff_eps=cutoff_eps)
+        super().__init__(r_cutoff=r_cutoff, 
+                         irreps_sh=irreps_sh,
+                         r_mincut_nonscalar_sh=r_mincut_nonscalar_sh,
+                         length_enc=length_enc)
 
-    def forward(self, src: FeaturedPoints, dst: FeaturedPoints, max_neighbors: Optional[int] = None) -> GraphEdge:
+    def forward(self, src: FeaturedPoints, dst: FeaturedPoints, max_neighbors: int = 1000) -> GraphEdge:
         assert src.x.ndim == 2
         assert dst.x.ndim == 2
-        if max_neighbors is None:
-            if self.max_neighbors is None:
-                raise ValueError("max_neighbor must be specified")
-            else:
-                max_neighbors = self.max_neighbors
-        assert max_neighbors is not None
-        if self.r_cluster is None:
-            edge_src, edge_dst = torch.meshgrid(torch.arange(len(src.x), device = src.x.device), torch.arange(len(dst.x), device = dst.x.device), indexing='ij')
-            edge_src = edge_src.reshape(-1)
-            edge_dst = edge_dst.reshape(-1)
-        else:
-            r = self.r_cluster
-            assert isinstance(r, float)
-            edge = radius(x = src.x, y = dst.x, r=r, batch_x=src.b, batch_y=dst.b, max_num_neighbors=max_neighbors)
-            edge_dst, edge_src = edge[0], edge[1]
+        edge = radius(x = src.x, y = dst.x, r=self.r_cluster, batch_x=src.b, batch_y=dst.b, max_num_neighbors=max_neighbors)
+        edge_dst, edge_src = edge[0], edge[1]
 
         if not self.requires_encoding:
             return GraphEdge(edge_src=edge_src, edge_dst=edge_dst)
