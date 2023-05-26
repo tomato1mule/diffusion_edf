@@ -38,16 +38,19 @@ def soft_square_cutoff_2(x: torch.Tensor, ranges: Optional[Tuple[Optional[float]
     if ranges is None:
         return x
     
-    assert len(ranges) == 4
+    if len(ranges) != 4:
+        raise ValueError(f"Wrong ranges armument: {ranges}")
     left_end, left_begin, right_begin, right_end = ranges
     if left_end is None or left_begin is None:
-        assert left_end is None and left_begin is None
+        if not (left_end is None and left_begin is None):
+            raise ValueError(f"Wrong ranges armument: {ranges}")
         div_l: float = 1.
     else:
         div_l: float = left_begin - left_end
 
     if right_end is None or right_begin is None:
-        assert right_end is None and right_begin is None
+        if not (right_end is None and right_begin is None):
+            raise ValueError(f"Wrong ranges armument: {ranges}")
         div_r: float = 1.
     else:
         div_r: float = right_end - right_begin
@@ -58,31 +61,35 @@ def soft_square_cutoff_2(x: torch.Tensor, ranges: Optional[Tuple[Optional[float]
     elif left_end is not None and right_begin is None:
         y = soft_step((x-left_end) / div_l, n=n)
     elif right_begin is not None and left_end is not None and left_begin is not None:
-        assert left_begin <= right_begin
+        if left_begin > right_begin:
+            raise ValueError(f"Wrong ranges armument: {ranges}")
         y = (1-soft_step((x-right_begin) / div_r, n=n)) * (x>0.5*(left_begin+right_begin)) + soft_step((x-left_end) / div_l, n=n) * (x<=0.5*(left_begin+right_begin))
     else:
         y = torch.ones_like(x)
 
-    
-
     return y
 
 class BesselBasisEncoder(torch.nn.Module):
-    def __init__(self, n_basis: int, start: Optional[float] = 0., end: float = 1., cutoff: bool = False) -> None:
+    min_val: float
+    max_val: float
+    max_cutoff: bool
+    dim: int
+    @beartype
+    def __init__(self, dim: int, max_val: Union[float, int], min_val: Optional[Union[float, int]] = 0., max_cutoff: bool = False) -> None:
         super().__init__()
-        self.start = start
-        self.end = end
-        self.c = end - start
-        self.n_basis = n_basis
-        self.register_buffer('bessel_roots', torch.arange(1, self.n_basis + 1) * math.pi)
+        self.max_val = float(max_val)
+        self.min_val = float(min_val)
+        self.c = self.max_val - self.min_val
+        self.dim = dim
+        self.register_buffer('bessel_roots', torch.arange(1, self.dim + 1) * math.pi)
         self.sqrt_two_div_c = math.sqrt(2 / self.c)
-        self.cutoff = cutoff
+        self.max_cutoff = max_cutoff
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x[..., None] - self.start
+        x = x[..., None] - self.min_val
         x_div_c = x / self.c
         out = self.sqrt_two_div_c * torch.sin(self.bessel_roots * x_div_c) / x
-        if not self.cutoff:
+        if not self.max_cutoff:
             return out
         else:
             return out * (x_div_c < 1) * (0 < x)
@@ -156,12 +163,12 @@ class SinusoidalPositionEmbeddings(torch.nn.Module):
     n: The period of each sinusoidal kernel ranges from 2pi~n*2pi
     """
     @beartype
-    def __init__(self, dim: int, max_val: float, n: float = 10000.):
+    def __init__(self, dim: int, max_val: Union[float, int], n: Union[float, int] = 1000.):
         super().__init__()
         self.dim = dim
         assert self.dim % 2 == 0, f"dim must be an even number!"
-        self.n = n
-        self.max_val = max_val
+        self.n = float(n)
+        self.max_val = float(max_val)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x / self.max_val * self.n # time: 0~10000

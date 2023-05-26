@@ -23,6 +23,9 @@ def cutoff_irreps(f: torch.Tensor,
                   cutoff_nonscalar: Optional[torch.Tensor], 
                   irreps: List[Tuple[int, Tuple[int, int]]],
                   log: bool = False) -> torch.Tensor:
+    if edge_cutoff is None and cutoff_scalar is None and cutoff_nonscalar is None:
+        return f
+    
     f_cutoff = []
     last_idx = 0
     for n, (l,p) in irreps:
