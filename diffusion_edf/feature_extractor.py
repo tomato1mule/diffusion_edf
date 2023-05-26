@@ -9,8 +9,7 @@ from e3nn import o3
 from torch_scatter import scatter_log_softmax
 
 from diffusion_edf.equiformer.tensor_product_rescale import LinearRS
-from diffusion_edf import EXTRACTOR_INFO_TYPE, GNN_OUTPUT_TYPE, QUERY_TYPE, EDF_INFO_TYPE
-from diffusion_edf.gnn_data import FeaturedPoints, GraphEdge
+from diffusion_edf.gnn_data import FeaturedPoints
 from diffusion_edf.block import EquiformerBlock
 from diffusion_edf.connectivity import FpsPool, RadiusGraph, RadiusConnect
 from diffusion_edf.radial_func import GaussianRadialBasisLayerFiniteCutoff
@@ -29,7 +28,6 @@ class UnetFeatureExtractor(torch.nn.Module):
         n_layers: List[int],
         pool_ratio: List[float],
         radius: List[Optional[float]],
-        point_weight_emb_dim: Optional[int] = None,
         deterministic: bool = False,
         pool_method: Union[
             Optional[str], 
@@ -45,20 +43,13 @@ class UnetFeatureExtractor(torch.nn.Module):
         drop_path_rate: Union[float, List[float]] = 0.0,
         n_layers_midstream: int = 2,
         n_scales: Optional[int] = None,
-        output_scalespace: int = -1):
+        output_scalespace: Optional[List[int]] = None):
 
         self.log_num_points = math.log(10)
         
         super().__init__()
 
         self.irreps_output: o3.Irreps = o3.Irreps(irreps_output)
-        self.point_weight_emb_dim =  point_weight_emb_dim
-        if point_weight_emb_dim is None:
-            self.point_weight_mlp = None
-        else:
-            assert point_weight_emb_dim >= 2
-            self.point_weight_mlp = torch.nn.Linear(point_weight_emb_dim, 1)
-            self._point_weight_appended_irreps_output: o3.Irreps = o3.Irreps(f"{point_weight_emb_dim}x0e") + self.irreps_output
         self.irreps_emb: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps_emb]
         self.irreps_edge_attr: List[o3.Irreps] = [o3.Irreps(irrep) for irrep in irreps_edge_attr]
         self.num_heads: List[int] = num_heads
@@ -81,10 +72,9 @@ class UnetFeatureExtractor(torch.nn.Module):
             self.n_scales: int = len(self.irreps_emb)
         else:
             self.n_scales: int = n_scales
-        self.output_scalespace: int = output_scalespace
-        if self.output_scalespace < 0:
-            self.output_scalespace = self.n_scales + self.output_scalespace + 1
-
+        if output_scalespace is None:
+            output_scalespace = [n for n in range(self.n_scales)]
+        self.output_scalespace: List[int] = [self.n_scales+n if n<0 else n for n in output_scalespace]
 
         self.radius: List[float] = [radius[0]]
         for n, r in enumerate(radius[1:]):
@@ -261,26 +251,13 @@ class UnetFeatureExtractor(torch.nn.Module):
 
             self.up_blocks.append(block)
 
-
-        output_idx = [0, 1]
-        for n_layers in self.n_layers[:-1]:
-            output_idx.append(output_idx[-1] + n_layers)
-        self.output_idx: Tuple[int] = tuple(output_idx)
-
-        output_edge_idx = [0]
-        for n_layers in self.n_layers[:-1]:
-            output_edge_idx.append(output_edge_idx[-1] + n_layers)
-        self.output_edge_idx: Tuple[int] = tuple(output_edge_idx)
-
-
-
         self.project_outputs = torch.nn.ModuleList()
-        for n in range(self.n_scales + 1):
-            self.project_outputs.append(ProjectIfMismatch(irreps_in=self.irreps_emb[max(0,n-1)],
-                                                          irreps_out=self._point_weight_appended_irreps_output))
+        for n in range(self.n_scales):
+            self.project_outputs.append(ProjectIfMismatch(irreps_in=self.irreps_emb[n],
+                                                          irreps_out=self.irreps_output))
 
     #@beartype
-    def forward_multiscale(self, pcd: FeaturedPoints) -> List[FeaturedPoints]:
+    def forward(self, pcd: FeaturedPoints) -> List[FeaturedPoints]:
 
         node_coord: torch.Tensor = pcd.x    # (N, 3)
         node_feature: torch.Tensor = pcd.f  # (N, F_in)
@@ -305,7 +282,7 @@ class UnetFeatureExtractor(torch.nn.Module):
             node_feature_dst, node_coord_dst, edge_src, edge_dst, degree, batch_dst = pool_graph
             node_feature_dst = block['pool_proj'](node_feature_dst)
             edge_vec: torch.Tensor = node_coord.index_select(0, edge_src) - node_coord_dst.index_select(0, edge_dst)
-            edge_length = edge_vec.norm(dim=1, p=2)
+            edge_length = torch.norm(edge_vec, dim=1, p=2)
             edge_attr = block['spherical_harmonics'](edge_vec)
 
             edge_scalars = block['pool_layer']['radial'](edge_length)
@@ -392,8 +369,10 @@ class UnetFeatureExtractor(torch.nn.Module):
                 node_feature = node_feature_dst
                 node_coord = node_coord_dst
                 batch = batch_dst
-                upstream_outputs.append((node_feature, node_coord, batch))
-                upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
+                # upstream_outputs.append((node_feature, node_coord, batch))
+                # upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
+            upstream_outputs.append((node_feature, node_coord, batch))
+            upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
 
             ##### Unpooling #####
             node_feature_dst, node_coord_dst, batch_dst = downstream_outputs.pop()
@@ -401,58 +380,76 @@ class UnetFeatureExtractor(torch.nn.Module):
             edge_src, edge_dst, edge_attr = edge_dst, edge_src, block['parity_inversion'](edge_attr) # Swap source and destination.
             # node_feature_dst = (node_feature + node_feature_dst) / math.sqrt(2) # Cannot apply skip connection, as node number of input and output is different. Instead, directly use node_feature_dst from downstream output, therefore it serves as skip connection.
 
-            edge_scalars = block['unpool_layer']['radial'](edge_length)
-            node_feature_dst = block['unpool_layer']['gnn'](node_input_src = node_feature,
-                                                            node_input_dst = node_feature_dst,
-                                                            batch_dst = batch_dst,
-                                                            edge_src = edge_src,
-                                                            edge_dst = edge_dst,
-                                                            edge_attr = edge_attr,
-                                                            edge_scalars = edge_scalars)
-            
-            node_feature = node_feature_dst
-            node_coord = node_coord_dst
-            batch = batch_dst
-            upstream_outputs.append((node_feature, node_coord, batch))
-            upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
+            if n == self.n_scales-1:
+                pass
+            else:
+                edge_scalars = block['unpool_layer']['radial'](edge_length)
+                node_feature_dst = block['unpool_layer']['gnn'](node_input_src = node_feature,
+                                                                node_input_dst = node_feature_dst,
+                                                                batch_dst = batch_dst,
+                                                                edge_src = edge_src,
+                                                                edge_dst = edge_dst,
+                                                                edge_attr = edge_attr,
+                                                                edge_scalars = edge_scalars)
+                
+                node_feature = node_feature_dst
+                node_coord = node_coord_dst
+                batch = batch_dst
+                # upstream_outputs.append((node_feature, node_coord, batch))
+                # upstream_edges.append((edge_src, edge_dst, edge_length, edge_attr))
 
         upstream_outputs, upstream_edges = upstream_outputs[::-1], upstream_edges[::-1]
-        upstream_outputs, upstream_edges = [upstream_outputs[n] for n in self.output_idx], [upstream_edges[n] for n in self.output_edge_idx]
 
-        pcd_multiscale: List[FeaturedPoints] = []
-        # edge_edges: List[GraphEdge] = []
-
+        pcds = []
         for scale, projection in enumerate(self.project_outputs):
+            if scale not in self.output_scalespace:
+                continue
             (node_feature, node_coord, batch) = upstream_outputs[scale]
             f = projection(node_feature)
-            if self.point_weight_mlp is None:
-                w = None
-            else:
-                w = self.point_weight_mlp(f[..., :self.point_weight_emb_dim]).squeeze(-1).contiguous()
-                # w = torch.sigmoid(w)
-                w = scatter_log_softmax(src=w, index=batch, dim=-1) + self.log_num_points
-                w = torch.exp(w)
-                f = f[..., self.point_weight_emb_dim:].contiguous()
-
             pcd = FeaturedPoints(
                 x = node_coord,
                 f = f,
                 b = batch,
-                w = w,
+                w = None,
             )
-            pcd_multiscale.append(pcd)
+            pcds.append(pcd)
 
-            if scale >= self.n_scales: # Last layer is self-connecting
-                assert scale == self.n_scales # shouldn't be higher than self.n_scales
-            else:
-                pass
-                # (edge_src, edge_dst, _, _) = upstream_edges[scale]
-                # graph_edge = GraphEdge(edge_src=edge_src, edge_dst=edge_dst)
+        return pcds
+
+    #     pcd_multiscale: List[FeaturedPoints] = []
+    #     # edge_edges: List[GraphEdge] = []
+
+    #     for scale, projection in enumerate(self.project_outputs):
+    #         (node_feature, node_coord, batch) = upstream_outputs[scale]
+    #         f = projection(node_feature)
+    #         if self.point_weight_mlp is None:
+    #             w = None
+    #         else:
+    #             w = self.point_weight_mlp(f[..., :self.point_weight_emb_dim]).squeeze(-1).contiguous()
+    #             # w = torch.sigmoid(w)
+    #             w = scatter_log_softmax(src=w, index=batch, dim=-1) + self.log_num_points
+    #             w = torch.exp(w)
+    #             f = f[..., self.point_weight_emb_dim:].contiguous()
+
+    #         pcd = FeaturedPoints(
+    #             x = node_coord,
+    #             f = f,
+    #             b = batch,
+    #             w = w,
+    #         )
+    #         pcd_multiscale.append(pcd)
+
+    #         if scale >= self.n_scales: # Last layer is self-connecting
+    #             assert scale == self.n_scales # shouldn't be higher than self.n_scales
+    #         else:
+    #             pass
+    #             # (edge_src, edge_dst, _, _) = upstream_edges[scale]
+    #             # graph_edge = GraphEdge(edge_src=edge_src, edge_dst=edge_dst)
         
-        return pcd_multiscale #, graph_edge
+    #     return pcd_multiscale #, graph_edge
     
-    def forward(self, pcd: FeaturedPoints) -> FeaturedPoints:
-        scale_space: int = self.output_scalespace-1
-        assert scale_space >= 0
+    # def forward(self, pcd: FeaturedPoints) -> FeaturedPoints:
+    #     scale_space: int = self.output_scalespace-1
+    #     assert scale_space >= 0
         
-        return self.forward_multiscale(pcd=pcd)[scale_space]
+    #     return self.forward_multiscale(pcd=pcd)[scale_space]

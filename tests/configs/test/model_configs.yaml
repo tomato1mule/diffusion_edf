@@ -7,10 +7,10 @@ key_kwargs:
     irreps_input: '3x0e'
     irreps_output: '64x0e+32x1e+16x2e'
     n_scales: 4
-    output_scalespace: 3
+    output_scalespace: [-1]
     irreps_emb:           # mutiscale -> list length must match n_scales
       - '32x0e+16x1e+8x2e'
-      - '32x0e+32x1e+16x2e'
+      - '32x0e+16x1e+8x2e'
       - '64x0e+32x1e+16x2e'
       - '64x0e+32x1e+16x2e'
     irreps_edge_attr:     # mutiscale -> list length must match n_scales
@@ -34,16 +34,15 @@ key_kwargs:
       - 2
       - 2
     pool_ratio:           # Pooling ratio. For example, p=0.5 means the number of points are halved.
-      - 0.35
-      - 0.35
-      - 0.5
-      - 0.5
+      - 0.25
+      - 0.25
+      - 0.25
+      - 0.25
     radius:               # Maximum radius to connect neighboring nodes. If set to None, it will be set to 1/sqrt(p) of the previous layer's radius. Typically, this results in the number of edges being reduced by ratio p.
       - 3.                # Base radius must not be None
       - null
       - null
       - null
-    point_weight_emb_dim: 64
     irreps_mlp_mid: 3     # irreps multiplier for mlp, like that of transformers.
     pool_method: 'fps'
     attn_type: 'mlp'
@@ -71,7 +70,7 @@ query_kwargs:
     irreps_input: '3x0e'
     irreps_output: '64x0e+32x1e+16x2e'
     n_scales: 4
-    output_scalespace: 4
+    output_scalespace: [-1]
     irreps_emb:           # mutiscale -> list length must match n_scales
       - '32x0e+16x1e+8x2e'
       - '32x0e+16x1e+8x2e'
@@ -101,13 +100,12 @@ query_kwargs:
       - 0.25
       - 0.25
       - 0.25
-      - 0.5
+      - 0.25
     radius:               # Maximum radius to connect neighboring nodes. If set to None, it will be set to 1/sqrt(p) of the previous layer's radius. Typically, this results in the number of edges being reduced by ratio p.
       - 3.                # Base radius must not be None
       - null
       - null
       - null
-    point_weight_emb_dim: 64
     irreps_mlp_mid: 3     # irreps multiplier for mlp, like that of transformers.
     pool_method: 'fps'
     attn_type: 'mlp'
