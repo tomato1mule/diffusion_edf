@@ -35,7 +35,7 @@ def set_featured_points_attribute(points: FeaturedPoints, x: Optional[torch.Tens
     if b is None:
         b = points.b
     if isinstance(w, str):
-        assert w == ''
+        # assert w == ''
         w = points.w
     return FeaturedPoints(x=x, f=f, b=b, w=w)
 
@@ -129,3 +129,42 @@ class GraphEdge(NamedTuple):
     edge_scalars: Optional[torch.Tensor] = None
     edge_weights: Optional[torch.Tensor] = None
     edge_logits: Optional[torch.Tensor] = None
+
+
+@torch.jit.script
+def set_graph_edge_attribute(graph_edge: GraphEdge, 
+                             edge_src: Optional[torch.Tensor] = None, 
+                             edge_dst: Optional[torch.Tensor] = None, 
+                             edge_length: Union[str,Optional[torch.Tensor]] = '',
+                             edge_attr: Union[str,Optional[torch.Tensor]] = '',
+                             edge_scalars: Union[str,Optional[torch.Tensor]] = '',
+                             edge_weights: Union[str,Optional[torch.Tensor]] = '',
+                             edge_logits: Union[str,Optional[torch.Tensor]] = '',) -> GraphEdge:
+    if edge_src is None:
+        edge_src = graph_edge.edge_src
+    if edge_dst is None:
+        edge_dst = graph_edge.edge_dst
+    if isinstance(edge_length, str):
+        # assert edge_length == ''
+        edge_length = graph_edge.edge_length
+    if isinstance(edge_attr, str):
+        # assert edge_attr == ''
+        edge_attr = graph_edge.edge_attr
+    if isinstance(edge_scalars, str):
+        # assert edge_scalars == ''
+        edge_scalars = graph_edge.edge_scalars
+    if isinstance(edge_weights, str):
+        # assert edge_weights == ''
+        edge_weights = graph_edge.edge_weights
+    if isinstance(edge_logits, str):
+        # assert edge_logits == ''
+        edge_logits = graph_edge.edge_logits
+    
+
+    return GraphEdge(edge_src=edge_src, 
+                     edge_dst=edge_dst, 
+                     edge_length=edge_length,
+                     edge_attr=edge_attr,
+                     edge_scalars=edge_scalars,
+                     edge_weights=edge_weights,
+                     edge_logits=edge_logits)
