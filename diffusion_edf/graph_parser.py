@@ -22,6 +22,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
     requires_length: bool
     requires_encoding: bool
     cutoff_eps: float
+    offset: Optional[float]
 
     @beartype
     def __init__(self, r_cutoff: Optional[Union[Union[float, int], Sequence[Union[float, int, None]]]],
@@ -81,6 +82,10 @@ class GraphEdgeEncoderBase(torch.nn.Module):
         else:
             raise TypeError(f"Unknown type of r_cutoff: {r_cutoff}")
         
+        self.offset = None
+        if self.edge_cutoff_ranges is not None:
+            if self.edge_cutoff_ranges[0] is not None:
+                self.offset = float(self.edge_cutoff_ranges[0])
 
         ######### nonscalar spherical harmonics cutoff #########
         if self.edge_cutoff_ranges is None:
@@ -146,6 +151,12 @@ class GraphEdgeEncoderBase(torch.nn.Module):
 
         edge_vec = x_src.index_select(0, edge_src) - x_dst.index_select(0, edge_dst) # (Nedge, 3)
         edge_length = edge_vec.norm(dim=1, p=2)                                      # (Nedge, )
+
+        offset = self.offset
+        if offset is not None:
+            in_range_idx = (edge_length >= offset).nonzero().squeeze(-1)
+            edge_src, edge_dst, edge_vec, edge_length = edge_src[in_range_idx], edge_dst[in_range_idx], edge_vec[in_range_idx], edge_length[in_range_idx]
+
         if self.edge_cutoff_ranges is None:
             edge_cutoff = None
         else:
@@ -217,7 +228,10 @@ class InfiniteBipartite(GraphEdgeEncoderBase):
                          r_mincut_nonscalar_sh=r_mincut_nonscalar_sh,
                          length_enc=length_enc)
         
-    def forward(self, src: FeaturedPoints, dst: FeaturedPoints) -> GraphEdge:
+    def forward(self, src: FeaturedPoints, 
+                dst: FeaturedPoints, 
+                max_neighbors: Optional[int] = None       # just a placeholder
+                ) -> GraphEdge:
         assert src.x.ndim == 2
         assert dst.x.ndim == 2
 
