@@ -10,7 +10,7 @@ from torch_scatter import scatter_add, scatter_mean
 from e3nn import o3
 
 from diffusion_edf.gnn_data import FeaturedPoints, GraphEdge
-from diffusion_edf.radial_func import soft_square_cutoff_2, SinusoidalPositionEmbeddings, BesselBasisEncoder
+from diffusion_edf.radial_func import soft_square_cutoff_2, SinusoidalPositionEmbeddings, BesselBasisEncoder, GaussianRadialBasis
 from diffusion_edf.irreps_utils import cutoff_irreps
 
 
@@ -139,6 +139,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
         else:
             self.requires_encoding = True
             
+    @torch.autocast(device_type='cuda', enabled=False)
     def _encode_edges(self, x_src: torch.Tensor, x_dst: torch.Tensor, edge_src: torch.Tensor, edge_dst: torch.Tensor) -> GraphEdge:
         if not self.requires_encoding:
             raise ValueError("You don't have to encode the graph.")
@@ -227,6 +228,8 @@ class InfiniteBipartite(GraphEdgeEncoderBase):
                                        max_cutoff = False),
                     torch.nn.Linear(8, length_enc_dim)
                 )
+            elif length_enc_type == 'GaussianRadialBasis':
+                length_enc = GaussianRadialBasis(dim = length_enc_dim, max_val=float(length_enc_max_r))
             else:
                 raise ValueError(f"Unknown length encoder type: {length_enc_type}")
         
@@ -261,7 +264,7 @@ class RadiusBipartite(GraphEdgeEncoderBase):
     def __init__(self, r_cutoff: Union[Union[float, int], Sequence[Union[float, int, None]]],
                  irreps_sh: Optional[Union[str, o3.Irreps]],
                  length_enc_dim: Optional[int],
-                 length_enc_type: Optional[str] = 'BesselBasisEncoder',
+                 length_enc_type: Optional[str] = 'GaussianRadialBasis',
                  r_mincut_nonscalar_sh: Union[str, float, int, None] = 'default',  # Explicitly set this to ensure continuity of nonscalar spherical harmonics.
                  ):
         
@@ -287,6 +290,8 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                                        max_cutoff = True),
                     torch.nn.Linear(8, length_enc_dim)
                 )
+            elif length_enc_type == 'GaussianRadialBasis':
+                length_enc = GaussianRadialBasis(dim = length_enc_dim, max_val=self.r_cluster)
             else:
                 raise ValueError(f"Unknown length encoder type: {length_enc_type}")
 

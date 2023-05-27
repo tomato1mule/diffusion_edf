@@ -104,6 +104,7 @@ class BesselBasisEncoder(torch.nn.Module):
         if self.dim > 10:
             raise ValueError(f"Too may dims for bessel is unstable. Current dim {self.dim}")
 
+    @torch.autocast(device_type='cuda', enabled=False)
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x[..., None] - self.min_val
         x_div_c = (x / self.c)
@@ -123,6 +124,46 @@ class BesselBasisEncoder(torch.nn.Module):
             return out
         else:
             return out * (x_div_c < 1) # * (0 < x_div_c)
+        
+class GaussianRadialBasis(torch.nn.Module):
+    @beartype
+    def __init__(self, dim: int, max_val: Union[float, int], min_val: Union[float, int] = 0.):
+        super().__init__()
+        self.dim: int = dim
+        self.max_val: float = float(max_val)
+        self.min_val: float = float(min_val)
+        if self.min_val < 0.:
+            warnings.warn(f"Negative min_val ({self.min_val}) is provided for radial basis encoder. Are you sure?")
+
+        self.mean_init_max = 1.0
+        self.mean_init_min = 0
+        mean = torch.linspace(self.mean_init_min, self.mean_init_max, self.dim+2)[1:-1].unsqueeze(0)
+        self.mean = torch.nn.Parameter(mean)
+
+        self.std_logit = torch.nn.Parameter(torch.zeros(1, self.dim))        # Softplus logit
+        self.weight_logit = torch.nn.Parameter(torch.zeros(1, self.dim))     # Sigmoid logit
+
+        init_std = 2.0 / self.dim
+        torch.nn.init.constant_(self.std_logit, math.log(math.exp((init_std)) -1)) # Inverse Softplus
+
+        self.max_weight = 4.
+        torch.nn.init.constant_(self.weight_logit, -math.log(self.max_weight/1. - 1)) # Inverse Softplus
+
+        self.normalizer = math.sqrt(self.dim)
+        
+
+    def forward(self, dist: torch.Tensor) -> torch.Tensor:
+        dist = (dist - self.min_val) / (self.max_val - self.min_val)
+        dist = dist.unsqueeze(-1)
+        
+        x = dist.expand(-1, self.dim)
+        mean = self.mean
+        std = F.softplus(self.std_logit) + 1e-5
+        x = gaussian(x, mean, std)
+        x = torch.sigmoid(self.weight_logit) * self.max_weight * x
+        
+        return x * self.normalizer
+
 
 class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
     def __init__(self, num_basis: int, cutoff: float, soft_cutoff: bool = True, offset: Optional[float] = None, cutoff_thr_ratio: float = 0.8, infinite: bool = False):

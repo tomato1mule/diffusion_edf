@@ -89,7 +89,7 @@ class MultiscaleTensorField(torch.nn.Module):
                     r_cutoff=self.r_cluster_multiscale[n],
                     irreps_sh=self.irreps_sh,
                     length_enc_dim=self.length_emb_dim,
-                    length_enc_type='SinusoidalPositionEmbeddings',
+                    length_enc_type='GaussianRadialBasis',
                     r_mincut_nonscalar_sh=0.01 * self.r_cluster_multiscale[0]
                 )
             )
