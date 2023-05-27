@@ -34,7 +34,9 @@ class MultiscaleTensorField(torch.nn.Module):
         attn_type: str = 'mlp',
         alpha_drop: float = 0.1,
         proj_drop: float = 0.1,
-        drop_path_rate: float = 0.0):
+        drop_path_rate: float = 0.0,
+        use_src_point_attn: bool = False,
+        use_dst_point_attn: bool = False,):
 
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -98,8 +100,8 @@ class MultiscaleTensorField(torch.nn.Module):
                 )
             )
         
-        assert self.n_layers >= 1
         self.n_layers = n_layers
+        assert self.n_layers >= 1
         self.gnn_block_init = EquiformerBlock(irreps_src = self.irreps_input, 
                                               irreps_dst = self.irreps_query, 
                                               irreps_emb = self.irreps_input, 
@@ -115,8 +117,9 @@ class MultiscaleTensorField(torch.nn.Module):
                                               use_dst_feature = self.use_dst_feature,
                                               skip_connection = True,
                                               bias = True,
-                                              use_src_w = True,
-                                              use_dst_w = False)
+                                              use_src_point_attn=use_src_point_attn,
+                                              use_dst_point_attn=use_dst_point_attn,
+                                              use_edge_weights=True)
         
         self.gnn_blocks = torch.nn.ModuleList()
         for n in range(self.n_layers-1):
@@ -136,8 +139,9 @@ class MultiscaleTensorField(torch.nn.Module):
                                 use_dst_feature = True,
                                 skip_connection = True,
                                 bias = True,
-                                use_src_w = True,
-                                use_dst_w = False)
+                                use_src_point_attn=use_src_point_attn,
+                                use_dst_point_attn=use_dst_point_attn,
+                                use_edge_weights=True)
             )
         
     def forward(self, query_points: FeaturedPoints,
@@ -155,9 +159,9 @@ class MultiscaleTensorField(torch.nn.Module):
         n_total_points: int = 0
         graph_edges_flattend: Optional[GraphEdge] = None
         input_points_flattend: Optional[FeaturedPoints] = None
-        for n, graph_parser, edge_scalars_pre_linear in enumerate(self.graph_parsers, self.edge_scalars_pre_linears):
+        for n, (graph_parser, edge_scalars_pre_linear) in enumerate(zip(self.graph_parsers, self.edge_scalars_pre_linears)):
             input_points: FeaturedPoints = input_points_multiscale[n]
-            assert input_points.ndim == 2 and input_points.shape[-1] == 3, f"{input_points.x.shape}"
+            assert input_points.x.ndim == 2 and input_points.x.shape[-1] == 3, f"{input_points.x.shape}"
 
             ### Parse Graph ###
             graph_edge: GraphEdge = graph_parser(src=input_points, dst=query_points, max_neighbors=max_neighbors)
@@ -172,7 +176,6 @@ class MultiscaleTensorField(torch.nn.Module):
             else:
                 edge_scalars = graph_edge.edge_scalars                                    # (nEdge, Emb = lEmb)
             edge_scalars = edge_scalars_pre_linear(edge_scalars)                          # (nEdge, Emb)
-
             ### Flatten graph ###
             graph_edge = set_graph_edge_attribute(graph_edge=graph_edge, 
                                                   edge_scalars=edge_scalars, 
@@ -183,7 +186,7 @@ class MultiscaleTensorField(torch.nn.Module):
                 graph_edges_flattend = graph_edge
                 input_points_flattend = input_points
             else:
-                assert isinstance(graph_edges_flattend, GraphEdge) and isinstance(input_points_flattend, FeaturedPoints)
+                assert graph_edges_flattend is not None and input_points_flattend is not None
                 graph_edges_flattend = cat_graph_edges(graph_edges_flattend, graph_edge)
                 input_points_flattend = cat_featured_points(input_points_flattend, input_points)
             

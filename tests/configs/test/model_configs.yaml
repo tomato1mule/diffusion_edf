@@ -1,8 +1,10 @@
-max_time: 5.
-time_emb_mlp: [64, 32, 32]
-lin_mult: 10.
+diffusion_kwargs:
+  max_time: 5.
+  time_emb_mlp: [64, 32, 32]
+  lin_mult: 10.
+  edge_time_encoding: False
+  query_time_encoding: True
 key_kwargs:
-  use_time_emb_for_edge_encoding: False
   feature_extractor_configs:
     irreps_input: '3x0e'
     irreps_output: '64x0e+32x1e+16x2e'

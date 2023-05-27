@@ -218,7 +218,8 @@ class GraphAttentionMLP2(torch.nn.Module):
     def forward(self, message: torch.Tensor,
                 graph_edge: GraphEdge,
                 n_nodes_dst: int,
-                edge_attention: Optional[torch.Tensor] = None) -> torch.Tensor:
+                edge_pre_attn_logit: Optional[torch.Tensor] = None,
+                edge_post_attn: Optional[torch.Tensor] = None) -> torch.Tensor:
         assert isinstance(graph_edge.edge_attr, torch.Tensor)
         assert isinstance(graph_edge.edge_scalars, torch.Tensor)
         assert message.ndim == 2 # (nEdge, F_in)
@@ -233,28 +234,21 @@ class GraphAttentionMLP2(torch.nn.Module):
                                              edge_attr=graph_edge.edge_attr, 
                                              edge_scalars=graph_edge.edge_scalars)  # (nEdge, F_attn)          
         # inner product
-        log_alpha = self.alpha_act(log_alpha) # (nEdge, nHead, mul_alpha//nHead)         # Leaky ReLU
+        log_alpha = self.alpha_act(log_alpha)                 # (nEdge, nHead, mul_alpha//nHead)         # Leaky ReLU
         log_alpha = torch.einsum('ehk, hk -> eh',             # Linear layer: (N_edge, N_head, mul_alpha//nHead) -> (N_edge, N_head)
                                  log_alpha,                    
                                  self.alpha_dot.squeeze(0))   # (N_edge, N_head)
-
-        if graph_edge.edge_log_weight is not None:
-            log_alpha = log_alpha + graph_edge.edge_log_weight_scalar.unsqueeze(-1) # Turn off attention for small edge weights
-        value = cutoff_irreps(f=value, 
-                              edge_cutoff=None, # Because already cutoffed in attention
-                              cutoff_scalar=graph_edge.edge_log_weight_scalar, 
-                              cutoff_nonscalar=graph_edge.edge_log_weight_nonscalar, 
-                              irreps=self.irreps_attn_heads,
-                              log = True) # (nEdge, F_attn)
-        value: torch.Tensor = self.vec2heads_value(value)                           # reshape (nEdge, F_attn) -> (nEdge, nHead, F_attn//nHead)
+        if edge_pre_attn_logit is not None:
+            log_alpha = log_alpha + edge_pre_attn_logit.unsqueeze(-1)    # For continuity of attention, pre_attn acts on attention logits.
+        value: torch.Tensor = self.vec2heads_value(value)                # reshape (nEdge, F_attn) -> (nEdge, nHead, F_attn//nHead)
             
         if False: # torch.are_deterministic_algorithms_enabled():
             log_Z = scatter_logsumexp(log_alpha, graph_edge.edge_dst, dim=-2, dim_size = n_nodes_dst) # (NodeNum,1)
         else:
             log_Z = scatter_logsumexp(log_alpha, graph_edge.edge_dst, dim=-2, dim_size = n_nodes_dst) # (NodeNum,1)
         alpha = torch.exp(log_alpha - log_Z[graph_edge.edge_dst]) # (N_edge, N_head)
-        if edge_attention is not None:
-            alpha = alpha * edge_attention.unsqueeze(-1)          # (N_edge, N_head)
+        if edge_post_attn is not None:
+            alpha = alpha * edge_post_attn.unsqueeze(-1)          # (N_edge, N_head)
 
         alpha: torch.Tensor = alpha.unsqueeze(-1)                              # (N_edge, N_head, 1)
         if self.alpha_dropout is not None:

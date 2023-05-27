@@ -63,8 +63,9 @@ class FeedForwardNetwork(torch.nn.Module):
 
 #@compile_mode('script')
 class EquiformerBlock(torch.nn.Module):
-    use_src_w: bool
-    use_dst_w: bool
+    use_src_point_attn: bool
+    use_dst_point_attn: bool
+    use_edge_weights: bool
 
     @beartype
     def __init__(self,
@@ -83,8 +84,9 @@ class EquiformerBlock(torch.nn.Module):
         use_dst_feature: bool = True,
         skip_connection: bool = True, 
         bias: bool = True,
-        use_src_w: bool = True,
-        use_dst_w: bool = False):
+        use_src_point_attn: bool = False,
+        use_dst_point_attn: bool = False,
+        use_edge_weights: bool = True):
         
         super().__init__()
         self.irreps_src: o3.Irreps = o3.Irreps(irreps_src)
@@ -117,8 +119,9 @@ class EquiformerBlock(torch.nn.Module):
 
         if not self.use_dst_feature:
             assert self.skip_1 is None
-        self.use_src_w = use_src_w
-        self.use_dst_w = use_dst_w
+        self.use_src_point_attn = use_src_point_attn
+        self.use_dst_point_attn = use_dst_point_attn
+        self.use_edge_weights = use_edge_weights
 
         if self.use_dst_feature:
             self.prenorm_src = EquivariantLayerNormV2(self.irreps_src, affine=True)
@@ -177,18 +180,26 @@ class EquiformerBlock(torch.nn.Module):
         if message_dst is not None:
             message = message + message_dst[graph_edge.edge_dst]         # Shape: (N_edge, F_emb)
 
-        if self.use_src_w:
-            assert isinstance(src_points.w, torch.Tensor)
-            edge_attention = (src_points.w)[graph_edge.edge_src]         # Shape: (N_edge,)
+        ### Edge Pre Attention (for edge cutoff) ###
+        if self.use_edge_weights:
+            edge_pre_attn_logit = graph_edge.edge_logits
         else:
-            edge_attention = None
-        if self.use_dst_w:
+            edge_pre_attn_logit = None
+
+        ### Edge Post Attention (for point attention) ###
+        if self.use_src_point_attn:
+            assert isinstance(src_points.w, torch.Tensor)
+            edge_post_attn = (src_points.w)[graph_edge.edge_src]         # Shape: (N_edge,)
+        else:
+            edge_post_attn = None
+        if self.use_dst_point_attn:
             raise NotImplementedError
         
         emb_features: torch.Tensor = self.ga(message=message, 
                                              graph_edge=graph_edge,
                                              n_nodes_dst = len(dst_points.x),
-                                             edge_attention = edge_attention) # Shape: (N_dst, F_emb)
+                                             edge_pre_attn_logit = edge_pre_attn_logit,
+                                             edge_post_attn = edge_post_attn) # Shape: (N_dst, F_emb)
         
         if self.drop_path is not None:
             emb_features = self.drop_path(x=emb_features, batch=dst_points.b) # Shape: (N_dst, F_emb)

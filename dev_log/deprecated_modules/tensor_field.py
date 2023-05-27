@@ -26,17 +26,16 @@ class TensorField(torch.nn.Module):
     def __init__(self,
         irreps_input: Union[str, o3.Irreps], 
         irreps_output: Union[str, o3.Irreps], 
-        irreps_query: Optional[Union[str, o3.Irreps]],
         irreps_sh: Union[str, o3.Irreps], 
         num_heads: int, 
         fc_neurons: List[int],
         length_emb_dim: int,
         r_mincut_nonscalar: Optional[float],
-        time_emb_dim: Optional[int] = None,
-        r_cluster: Optional[float] = None,
-        r_maxcut: Optional[float] = 'default',
-        r_mincut_scalar: Optional[float] = None,
+        irreps_query: Optional[Union[str, o3.Irreps]],      # Explicitly set to None if not want to use query features
+        time_emb_dim: Optional[int],                        # Explicitly set to None if not want to use time embedding
+        r_cluster: Optional[float],
         n_layers: int = 1,
+        r_maxcut: Optional[float] = 'default',
         length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
         length_enc_kwargs: Dict =  {}, # {'max_val': <max length to encode>, 'n': 10000},
         max_neighbor: Optional[int] = None,
@@ -46,8 +45,6 @@ class TensorField(torch.nn.Module):
         proj_drop: float = 0.1,
         drop_path_rate: float = 0.0):
 
-        # if time_emb_dim is not None:
-        #     warnings.warn("time_emb_dim in TensorField module is deprecated. Please set it to None.")
         
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -61,27 +58,29 @@ class TensorField(torch.nn.Module):
             self.irreps_query = None
         self.num_heads: int = num_heads
         self.fc_neurons: List[int] = fc_neurons
-        self.r_cluster = r_cluster
-        self.r_maxcut = r_maxcut
-        self.r_mincut_nonscalar = r_mincut_nonscalar
-        self.r_mincut_scalar = r_mincut_scalar
-        self.n_layers = n_layers
-        assert self.n_layers >= 1
+        
 
         self.length_emb_dim = length_emb_dim
         self.time_emb_dim = time_emb_dim
         assert self.length_emb_dim > 0, f"{self.length_emb_dim}"
+
         if self.fc_neurons[0] == -1:
             if self.time_emb_dim is None:
                 self.fc_neurons[0] = self.length_emb_dim
             else:
                 self.fc_neurons[0] = self.length_emb_dim + self.time_emb_dim
+
         if self.time_emb_dim is None:
-            assert fc_neurons[0] == self.length_emb_dim, f"{fc_neurons[0]}"
+            assert fc_neurons[0] == self.length_emb_dim, f"{fc_neurons[0]} != {self.length_emb_dim}"
         else:
             assert self.time_emb_dim > 0, f"{self.time_emb_dim}"
-            assert fc_neurons[0] == self.length_emb_dim + self.time_emb_dim, f"{fc_neurons[0]}"
+            assert fc_neurons[0] == self.length_emb_dim + self.time_emb_dim, f"{fc_neurons[0]} != {self.length_emb_dim} + {self.time_emb_dim}"
 
+
+
+        self.r_cluster = r_cluster
+        self.r_maxcut = r_maxcut
+        self.r_mincut_nonscalar = r_mincut_nonscalar
         self.graph_parser = RadiusBipartite(r_cluster=self.r_cluster,
                                             r_maxcut=self.r_maxcut,
                                             r_mincut_nonscalar=self.r_mincut_nonscalar,
@@ -93,7 +92,8 @@ class TensorField(torch.nn.Module):
                                             max_neighbors=max_neighbor,
                                             cutoff_sh=False)
         
-        
+        assert self.n_layers >= 1
+        self.n_layers = n_layers
         self.gnn_block_init = EquiformerBlock(irreps_src = self.irreps_input, 
                                          irreps_dst = self.irreps_query, 
                                          irreps_emb = self.irreps_input, 

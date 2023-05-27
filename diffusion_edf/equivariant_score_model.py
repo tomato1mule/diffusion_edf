@@ -11,10 +11,9 @@ from e3nn import o3
 from diffusion_edf import transforms
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
 from diffusion_edf.feature_extractor import UnetFeatureExtractor
-from diffusion_edf.tensor_field import TensorField
-from diffusion_edf.gnn_data import FeaturedPoints, GraphEdge, TransformPcd, set_featured_points_attribute, flatten_featured_points, detach_featured_points
+from diffusion_edf.multiscale_tensor_field import MultiscaleTensorField
+from diffusion_edf.gnn_data import FeaturedPoints, TransformPcd, set_featured_points_attribute, flatten_featured_points, detach_featured_points
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
-from diffusion_edf.wigner import TransformFeatureQuaternion
 
 
 class ScoreModelHead(torch.nn.Module):
@@ -25,7 +24,8 @@ class ScoreModelHead(torch.nn.Module):
     n_irreps_prescore: int
     lin_mult: float
     ang_mult: float
-    use_time_emb_for_edge_encoding: bool
+    edge_time_encoding: bool
+    query_time_encoding: bool
 
     @beartype
     def __init__(self, 
@@ -35,7 +35,8 @@ class ScoreModelHead(torch.nn.Module):
                  irreps_query_edf: Union[str, o3.Irreps],
                  lin_mult: float,
                  ang_mult: float = math.sqrt(2),
-                 use_time_emb_for_edge_encoding: bool = False):
+                 edge_time_encoding: bool = False,
+                 query_time_encoding: bool = True):
         super().__init__()
         self.lin_mult = lin_mult
         self.ang_mult = ang_mult
@@ -49,14 +50,28 @@ class ScoreModelHead(torch.nn.Module):
             time_enc.append(torch.nn.Linear(self.time_emb_mlp[i-1], self.time_emb_mlp[i]))
         time_enc.append(torch.nn.SiLU(inplace=True)) # because there is another mlp in the key_tensor_field
         self.time_enc = torch.nn.Sequential(*time_enc)
-        self.use_time_emb_for_edge_encoding = use_time_emb_for_edge_encoding
+        self.edge_time_encoding = edge_time_encoding
+        self.query_time_encoding = query_time_encoding
+        if self.edge_time_encoding is None and self.query_time_encoding is None:
+            raise NotImplementedError("No time conditioning! Are you sure?")
 
         ################# Key field ########################
-        if 'irreps_query' not in key_tensor_field_kwargs.keys():
+        if self.query_time_encoding:
+            assert 'irreps_query' not in key_tensor_field_kwargs.keys()
             key_tensor_field_kwargs['irreps_query'] = str(self.irreps_time_emb)
-        assert o3.Irreps(key_tensor_field_kwargs['irreps_query']) == self.irreps_time_emb, f"{key_tensor_field_kwargs['irreps_query']}"
+        if self.edge_time_encoding:
+            if 'edge_context_emb_dim' not in key_tensor_field_kwargs.keys():
+                key_tensor_field_kwargs['edge_context_emb_dim'] = self.time_emb_mlp[-1]
+            assert key_tensor_field_kwargs['edge_context_emb_dim'] == self.time_emb_mlp[-1]
+        else:
+            if 'edge_context_emb_dim' not in key_tensor_field_kwargs.keys():
+                key_tensor_field_kwargs['edge_context_emb_dim'] = None
+            assert key_tensor_field_kwargs['edge_context_emb_dim'] is None
 
-        self.key_tensor_field = TensorField(**key_tensor_field_kwargs)
+        self.key_tensor_field = MultiscaleTensorField(**key_tensor_field_kwargs)
+        if self.query_time_encoding:
+            assert self.key_tensor_field.use_dst_feature is True
+
         self.irreps_key_edf = self.key_tensor_field.irreps_output
         self.key_edf_dim = self.irreps_key_edf.dim
 
@@ -96,8 +111,6 @@ class ScoreModelHead(torch.nn.Module):
                                         norm_layer = None,
                                         internal_weights = True)
         #self.ang_vel_proj = LinearRS(irreps_in = self.irreps_prescore, irreps_out = o3.Irreps("1x1e"), bias=False, rescale=False).to(device)
-        if not self.use_time_emb_for_edge_encoding:
-            assert self.key_tensor_field.use_dst_feature is True
 
     @torch.jit.ignore()
     def to(self, *args, **kwargs):
@@ -172,14 +185,12 @@ class ScoreModelHead(torch.nn.Module):
 
 
 class ScoreModel(torch.nn.Module):
+
     @beartype
     def __init__(self, 
-                 max_time: float,
-                 time_emb_mlp: List[int],
+                 diffusion_kwargs: Dict,
                  key_kwargs: Dict,
                  query_kwargs: Dict,
-                 lin_mult: float,
-                 ang_mult: float = math.sqrt(2),
                  deterministic: bool = False):
         super().__init__()
 
@@ -187,17 +198,29 @@ class ScoreModel(torch.nn.Module):
         key_tensor_field_kwargs = key_kwargs['tensor_field_configs']
         key_tensor_field_kwargs['irreps_input'] = key_feature_extractor_kwargs['irreps_output']
         query_feature_extractor_kwargs = query_kwargs['feature_extractor_configs']
-        use_time_emb_for_edge_encoding = key_kwargs['use_time_emb_for_edge_encoding']
+        
+        max_time: float = float(diffusion_kwargs['max_time'])
+        time_emb_mlp: List[int] = diffusion_kwargs['time_emb_mlp']
+        if 'lin_mult' in diffusion_kwargs.keys():
+            lin_mult: float = float(diffusion_kwargs['lin_mult'])
+        else:
+            lin_mult: float = float(1.)
+        if 'ang_mult' in diffusion_kwargs.keys():
+            ang_mult: float = float(diffusion_kwargs['ang_mult'])
+        else:
+            ang_mult: float = math.sqrt(2.)
+        edge_time_encoding: bool = diffusion_kwargs['edge_time_encoding']
+        query_time_encoding: bool = diffusion_kwargs['query_time_encoding']
 
         print("ScoreModel: Initializing Score Head")
         self.score_head = ScoreModelHead(max_time=max_time, 
                                          time_emb_mlp=time_emb_mlp,
                                          key_tensor_field_kwargs=key_tensor_field_kwargs,
-                                         # irreps_query_edf=self.query_feature_extractor.irreps_output,
                                          irreps_query_edf=query_feature_extractor_kwargs['irreps_output'],
                                          lin_mult=lin_mult,
                                          ang_mult=ang_mult,
-                                         use_time_emb_for_edge_encoding = use_time_emb_for_edge_encoding
+                                         edge_time_encoding=edge_time_encoding,
+                                         query_time_encoding=query_time_encoding,
                                          )
 
         print("ScoreModel: Initializing Key Feature Extractor")
@@ -206,11 +229,11 @@ class ScoreModel(torch.nn.Module):
             deterministic=deterministic
         )
 
-        print("ScoreModel: Initializing Query Feature Extractor")
-        self.query_feature_extractor = UnetFeatureExtractor(
-            **(query_feature_extractor_kwargs),
-            deterministic=deterministic
-        )
+        # print("ScoreModel: Initializing Query Feature Extractor")
+        # self.query_feature_extractor = UnetFeatureExtractor(
+        #     **(query_feature_extractor_kwargs),
+        #     deterministic=deterministic
+        # )
 
         self.lin_mult = self.score_head.lin_mult
         self.ang_mult = self.score_head.ang_mult
