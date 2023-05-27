@@ -91,16 +91,15 @@ class BesselBasisEncoder(torch.nn.Module):
         self.max_cutoff = max_cutoff
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        eps = 1e-12
-        x = (x[..., None] - self.min_val).abs()
+        x = (x[..., None] - self.min_val).abs() + 1e-8
         x_div_c = x / self.c
-        out = self.sqrt_two_div_c * (torch.sin(self.bessel_roots * x_div_c) + eps*self.bessel_roots / x_div_c) / (x+eps)
+        out = self.sqrt_two_div_c * torch.sin(self.bessel_roots * x_div_c) / x
         if not self.max_cutoff:
             return out
         else:
             return out * (x_div_c < 1) * (0 < x)
 
-
+from e3nn.math import soft_one_hot_linspace
 
 class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
     def __init__(self, num_basis: int, cutoff: float, soft_cutoff: bool = True, offset: Optional[float] = None, cutoff_thr_ratio: float = 0.8, infinite: bool = False):
