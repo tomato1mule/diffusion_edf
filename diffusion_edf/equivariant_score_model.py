@@ -162,7 +162,9 @@ class ScoreModelHead(torch.nn.Module):
                 time_mlp(time_enc).unsqueeze(-2).expand(-1, nQ, -1).reshape(nT*nQ, self.time_emb_dim)        # (nT, time_emb_D) -> # (nT, nQ, time_emb_D)
             )        
 
+        ################# TODO: SCRUTINIZE THIS CODE ########################
         query_transformed: FeaturedPoints = self.query_transform(pcd = query_pcd, Ts = Ts)                                     # (nT, nQ, 3), (nT, nQ, F), (nT, nQ,), (nT, nQ,)
+        query_features_transformed: torch.Tensor = query_transformed.f.clone()                                                 # (nT, nQ, F)         
         if self.query_time_encoding:
             raise NotImplementedError
             query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=time_emb, w=None)    # (nT, nQ, 3), (nT, nQ, time_emb), (nT, nQ,), None
@@ -178,9 +180,11 @@ class ScoreModelHead(torch.nn.Module):
             raise PermissionError
             query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
                                                                       input_points_multiscale = key_pcd_multiscale,
-                                                                      context_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
-        query_features_transformed: torch.Tensor = query_transformed.f                                                         # (nT*nQ, F)
-        key_features: torch.Tensor = query_transformed.f                                                                       # (nT*nQ, F)
+                                                                      context_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)                                                         # (nT*nQ, F)
+        key_features: torch.Tensor = query_transformed.f
+        query_features_transformed = query_features_transformed.view(-1, query_features_transformed.shape[-1])                    # (nT*nQ, F)
+
+        ######################################################################
 
         lin_vel: torch.Tensor = self.lin_vel_tp(query_features_transformed, key_features,   # (nT*nQ, 1+F_prescore)
                                                 edge_scalars = None, batch=None,)           # batch does nothing unless you use batchnorm
