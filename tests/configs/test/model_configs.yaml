@@ -7,7 +7,6 @@ key_kwargs:
     irreps_input: '3x0e'
     irreps_output: '64x0e+32x1e+16x2e'
     n_scales: 4
-    output_scalespace: [-1]
     irreps_emb:           # mutiscale -> list length must match n_scales
       - '32x0e+16x1e+8x2e'
       - '32x0e+16x1e+8x2e'
@@ -56,14 +55,12 @@ key_kwargs:
     num_heads: 4
     fc_neurons: [-1, 32, 32]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
     length_emb_dim: 64          
-    r_cluster: null
-    r_maxcut: null
-    r_mincut_nonscalar: 0.5
-    r_mincut_scalar: null
+    r_cluster_multiscale: 
+      - 5.
+      - 10.
+      - 20.
+      - 40.
     n_layers: 1
-    length_enc_type: 'SinusoidalPositionEmbeddings'
-    length_enc_kwargs: {'max_val': 200.}
-    max_neighbor: null
     irreps_mlp_mid: 3
 query_kwargs:
   feature_extractor_configs:

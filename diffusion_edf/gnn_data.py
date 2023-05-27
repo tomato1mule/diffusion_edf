@@ -168,3 +168,77 @@ def set_graph_edge_attribute(graph_edge: GraphEdge,
                      edge_scalars=edge_scalars,
                      edge_weights=edge_weights,
                      edge_logits=edge_logits)
+
+@torch.jit.script
+def cat_graph_edges(graph_edge_1: GraphEdge, graph_edge_2: GraphEdge) -> GraphEdge:
+    edge_src = torch.cat([graph_edge_1.edge_src, graph_edge_2.edge_src], dim=0)
+    edge_dst = torch.cat([graph_edge_1.edge_dst, graph_edge_2.edge_dst], dim=0)
+
+    edge_length_1, edge_length_2 = graph_edge_1.edge_length, graph_edge_2.edge_length
+    if edge_length_1 is None or edge_length_2 is None:
+        assert edge_length_1 is None and edge_length_2 is None
+        edge_length = None
+    else:
+        assert isinstance(edge_length_1, torch.Tensor) and isinstance(edge_length_2, torch.Tensor)
+        edge_length = torch.cat([edge_length_1, edge_length_2], dim=0)
+
+    edge_attr_1, edge_attr_2 = graph_edge_1.edge_attr, graph_edge_2.edge_attr
+    if edge_attr_1 is None or edge_attr_2 is None:
+        assert edge_attr_1 is None and edge_attr_2 is None
+        edge_attr = None
+    else:
+        assert isinstance(edge_attr_1, torch.Tensor) and isinstance(edge_attr_2, torch.Tensor)
+        edge_attr = torch.cat([edge_attr_1, edge_attr_2], dim=0)
+
+    edge_scalars_1, edge_scalars_2 = graph_edge_1.edge_scalars, graph_edge_2.edge_scalars
+    if edge_scalars_1 is None or edge_scalars_2 is None:
+        assert edge_scalars_1 is None and edge_scalars_2 is None
+        edge_scalars = None
+    else:
+        assert isinstance(edge_scalars_1, torch.Tensor) and isinstance(edge_scalars_2, torch.Tensor)
+        edge_scalars = torch.cat([edge_scalars_1, edge_scalars_2], dim=0)
+
+    edge_weights_1, edge_weights_2 = graph_edge_1.edge_weights, graph_edge_2.edge_weights
+    if edge_weights_1 is None or edge_weights_2 is None:
+        assert edge_weights_1 is None and edge_weights_2 is None
+        edge_weights = None
+    else:
+        assert isinstance(edge_weights_1, torch.Tensor) and isinstance(edge_weights_2, torch.Tensor)
+        edge_weights = torch.cat([edge_weights_1, edge_weights_2], dim=0)
+
+    edge_logits_1, edge_logits_2 = graph_edge_1.edge_logits, graph_edge_2.edge_logits
+    if edge_logits_1 is None or edge_logits_2 is None:
+        assert edge_logits_1 is None and edge_logits_2 is None
+        edge_logits = None
+    else:
+        assert isinstance(edge_logits_1, torch.Tensor) and isinstance(edge_logits_2, torch.Tensor)
+        edge_logits = torch.cat([edge_logits_1, edge_logits_2], dim=0)
+
+
+    return GraphEdge(edge_src=edge_src, 
+                     edge_dst=edge_dst, 
+                     edge_length=edge_length,
+                     edge_attr=edge_attr,
+                     edge_scalars=edge_scalars,
+                     edge_weights=edge_weights,
+                     edge_logits=edge_logits)
+
+
+@torch.jit.script
+def cat_featured_points(fp1: FeaturedPoints, fp2: FeaturedPoints) -> FeaturedPoints:
+    x = torch.cat([fp1.x, fp2.x], dim=0)
+    f = torch.cat([fp1.f, fp2.f], dim=0)
+    b = torch.cat([fp1.b, fp2.b], dim=0)
+
+    w1, w2 = fp1.w, fp2.w
+    if w1 is None or w2 is None:
+        assert w1 is None and w2 is None
+        w = None
+    else:
+        assert isinstance(w1, torch.Tensor) and isinstance(w2, torch.Tensor)
+        w = torch.cat([w1, w2], dim=0)
+
+    return FeaturedPoints(x=x, f=f, b=b, w=w)
+
+
+
