@@ -75,10 +75,19 @@ class BesselBasisEncoder(torch.nn.Module):
     max_cutoff: bool
     dim: int
     c: float
-    sqrt_two_div_c: float
+    sqrt_two_div_c_cube: float
     max_cutoff: float
+    dimensionless: bool
+    normalize: bool
+
     @beartype
-    def __init__(self, dim: int, max_val: Union[float, int], min_val: Union[float, int] = 0., max_cutoff: bool = False) -> None:
+    def __init__(self, dim: int, 
+                 max_val: Union[float, int], 
+                 min_val: Union[float, int] = 0., 
+                 max_cutoff: bool = False, 
+                 dimensionless: bool = True,
+                 normalize: bool = False,
+                 eps: Union[float, int] = 1e-3) -> None:
         super().__init__()
         self.max_val = float(max_val)
         self.min_val = float(min_val)
@@ -87,19 +96,33 @@ class BesselBasisEncoder(torch.nn.Module):
         self.c = self.max_val - self.min_val
         self.dim = dim
         self.register_buffer('bessel_roots', torch.arange(1, self.dim + 1) * math.pi)
-        self.sqrt_two_div_c = math.sqrt(2 / self.c)
+        self.register_buffer('eps', torch.tensor(float(eps)))
+        self.sqrt_two_div_c_cube = math.sqrt(2 / (self.c**3))
         self.max_cutoff = max_cutoff
+        self.dimensionless = dimensionless
+        self.normalize = normalize
+        if self.dim > 10:
+            raise ValueError(f"Too may dims for bessel is unstable. Current dim {self.dim}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = (x[..., None] - self.min_val).abs() + 1e-8
-        x_div_c = x / self.c
-        out = self.sqrt_two_div_c * torch.sin(self.bessel_roots * x_div_c) / x
+        x = x[..., None] - self.min_val
+        x_div_c = (x / self.c)
+        if x_div_c.requires_grad:
+            x_div_c = torch.where(x_div_c >= self.eps, x_div_c, self.eps + x_div_c - x_div_c.detach()) # Straight-through gradient estimation trick
+        else:
+            x_div_c = torch.max(x_div_c, self.eps)
+        if self.normalize:
+            out = self.bessel_roots * x_div_c
+            out = torch.sin(out) / out
+        else:
+            out = torch.sin(self.bessel_roots * x_div_c) / (x_div_c)
+        if not self.dimensionless:
+            out = self.sqrt_two_div_c_cube * out
+
         if not self.max_cutoff:
             return out
         else:
-            return out * (x_div_c < 1) * (0 < x)
-
-from e3nn.math import soft_one_hot_linspace
+            return out * (x_div_c < 1) # * (0 < x_div_c)
 
 class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
     def __init__(self, num_basis: int, cutoff: float, soft_cutoff: bool = True, offset: Optional[float] = None, cutoff_thr_ratio: float = 0.8, infinite: bool = False):

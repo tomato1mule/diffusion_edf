@@ -216,10 +216,13 @@ class InfiniteBipartite(GraphEdgeEncoderBase):
                                                           max_val=float(length_enc_max_r),
                                                           n=1000.)
             elif length_enc_type == 'BesselBasisEncoder':
-                length_enc = BesselBasisEncoder(dim = length_enc_dim,
-                                                max_val = float(length_enc_max_r),
-                                                min_val = 0.,
-                                                max_cutoff = False)
+                length_enc = torch.nn.Sequential(
+                    BesselBasisEncoder(dim = 8,
+                                       max_val = float(length_enc_max_r),
+                                       min_val = 0.,
+                                       max_cutoff = False),
+                    torch.nn.Linear(8, length_enc_dim)
+                )
             else:
                 raise ValueError(f"Unknown length encoder type: {length_enc_type}")
         
@@ -273,10 +276,13 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                                                           max_val=self.r_cluster,
                                                           n=1000.)
             elif length_enc_type == 'BesselBasisEncoder':
-                length_enc = BesselBasisEncoder(dim = length_enc_dim,
-                                                max_val = self.r_cluster,
-                                                min_val = 0.,
-                                                max_cutoff = True)
+                length_enc = torch.nn.Sequential(
+                    BesselBasisEncoder(dim = 8,
+                                       max_val = self.r_cluster,
+                                       min_val = 0.,
+                                       max_cutoff = True),
+                    torch.nn.Linear(8, length_enc_dim)
+                )
             else:
                 raise ValueError(f"Unknown length encoder type: {length_enc_type}")
 
