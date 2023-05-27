@@ -12,6 +12,7 @@ from diffusion_edf import transforms
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
 from diffusion_edf.feature_extractor import UnetFeatureExtractor
 from diffusion_edf.multiscale_tensor_field import MultiscaleTensorField
+from diffusion_edf.keypoint_extractor import KeypointExtractor
 from diffusion_edf.gnn_data import FeaturedPoints, TransformPcd, set_featured_points_attribute, flatten_featured_points, detach_featured_points
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
 
@@ -44,7 +45,7 @@ class ScoreModelHead(torch.nn.Module):
         ########### Time Encoder #############
         self.time_emb_mlp = time_emb_mlp
         self.irreps_time_emb = o3.Irreps(f"{self.time_emb_mlp[-1]}x0e")
-        time_enc = [SinusoidalPositionEmbeddings(dim=self.time_emb_mlp[0], max_val=max_time, n=10000.)]
+        time_enc = [SinusoidalPositionEmbeddings(dim=self.time_emb_mlp[0], max_val=max_time, n=1000.)]
         for i in range(1,len(time_emb_mlp)):
             time_enc.append(torch.nn.SiLU(inplace=True))
             time_enc.append(torch.nn.Linear(self.time_emb_mlp[i-1], self.time_emb_mlp[i]))
@@ -75,7 +76,12 @@ class ScoreModelHead(torch.nn.Module):
         self.irreps_key_edf = self.key_tensor_field.irreps_output
         self.key_edf_dim = self.irreps_key_edf.dim
 
-        ##################### Query Transform ########################
+        ##################### Query Transform ##
+
+        
+
+
+######################
         self.irreps_query_edf = o3.Irreps(irreps_query_edf)
         self.query_edf_dim = self.irreps_query_edf.dim
         self.query_transform = TransformPcd(irreps = self.irreps_query_edf)
@@ -194,10 +200,10 @@ class ScoreModel(torch.nn.Module):
                  deterministic: bool = False):
         super().__init__()
 
-        key_feature_extractor_kwargs = key_kwargs['feature_extractor_configs']
-        key_tensor_field_kwargs = key_kwargs['tensor_field_configs']
+        key_feature_extractor_kwargs = key_kwargs['feature_extractor_kwargs']
+        key_tensor_field_kwargs = key_kwargs['tensor_field_kwargs']
+        assert 'irreps_input' not in key_tensor_field_kwargs.keys()
         key_tensor_field_kwargs['irreps_input'] = key_feature_extractor_kwargs['irreps_output']
-        query_feature_extractor_kwargs = query_kwargs['feature_extractor_configs']
         
         max_time: float = float(diffusion_kwargs['max_time'])
         time_emb_mlp: List[int] = diffusion_kwargs['time_emb_mlp']
@@ -212,28 +218,28 @@ class ScoreModel(torch.nn.Module):
         edge_time_encoding: bool = diffusion_kwargs['edge_time_encoding']
         query_time_encoding: bool = diffusion_kwargs['query_time_encoding']
 
-        print("ScoreModel: Initializing Score Head")
-        self.score_head = ScoreModelHead(max_time=max_time, 
-                                         time_emb_mlp=time_emb_mlp,
-                                         key_tensor_field_kwargs=key_tensor_field_kwargs,
-                                         irreps_query_edf=query_feature_extractor_kwargs['irreps_output'],
-                                         lin_mult=lin_mult,
-                                         ang_mult=ang_mult,
-                                         edge_time_encoding=edge_time_encoding,
-                                         query_time_encoding=query_time_encoding,
-                                         )
-
         print("ScoreModel: Initializing Key Feature Extractor")
         self.key_feature_extractor = UnetFeatureExtractor(
             **(key_feature_extractor_kwargs),
             deterministic=deterministic
         )
 
-        # print("ScoreModel: Initializing Query Feature Extractor")
-        # self.query_feature_extractor = UnetFeatureExtractor(
-        #     **(query_feature_extractor_kwargs),
-        #     deterministic=deterministic
-        # )
+        print("ScoreModel: Initializing Query Model")
+        self.query_model = KeypointExtractor(
+            **(query_kwargs),
+            deterministic=deterministic
+        )
+
+        print("ScoreModel: Initializing Score Head")
+        self.score_head = ScoreModelHead(max_time=max_time, 
+                                         time_emb_mlp=time_emb_mlp,
+                                         key_tensor_field_kwargs=key_tensor_field_kwargs,
+                                         irreps_query_edf=self.query_model.irreps_output,
+                                         lin_mult=lin_mult,
+                                         ang_mult=ang_mult,
+                                         edge_time_encoding=edge_time_encoding,
+                                         query_time_encoding=query_time_encoding,
+                                         )
 
         self.lin_mult = self.score_head.lin_mult
         self.ang_mult = self.score_head.ang_mult

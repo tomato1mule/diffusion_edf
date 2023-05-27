@@ -103,7 +103,7 @@ class MultiscaleTensorField(torch.nn.Module):
         self.n_layers = n_layers
         assert self.n_layers >= 1
         self.gnn_block_init = EquiformerBlock(irreps_src = self.irreps_input, 
-                                              irreps_dst = self.irreps_query, 
+                                              irreps_dst = self.irreps_query if self.use_dst_feature else self.irreps_input, 
                                               irreps_emb = self.irreps_input, 
                                               irreps_output = self.irreps_output if self.n_layers == 1 else self.irreps_input, 
                                               irreps_edge_attr = self.irreps_sh, 
