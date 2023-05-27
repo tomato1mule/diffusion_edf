@@ -108,7 +108,7 @@ class BesselBasisEncoder(torch.nn.Module):
         x = x[..., None] - self.min_val
         x_div_c = (x / self.c)
         if x_div_c.requires_grad:
-            x_div_c = torch.where(x_div_c >= self.eps, x_div_c, self.eps + x_div_c - x_div_c.detach()) # Straight-through gradient estimation trick
+            x_div_c = torch.where(x_div_c >= self.eps, x_div_c, self.eps + (x_div_c - x_div_c.detach())) # Straight-through gradient estimation trick
         else:
             x_div_c = torch.max(x_div_c, self.eps)
         if self.normalize:

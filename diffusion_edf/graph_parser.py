@@ -21,7 +21,6 @@ class GraphEdgeEncoderBase(torch.nn.Module):
     nonscalar_sh_cutoff_ranges: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]]
     requires_length: bool
     requires_encoding: bool
-    cutoff_eps: float
     offset: Optional[float]
 
     @beartype
@@ -33,7 +32,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
                  cutoff_eps: float = 1e-12):
         super().__init__()
         self.requires_length = True if requires_length else False
-        self.cutoff_eps = cutoff_eps
+        self.register_buffer('cutoff_eps', torch.tensor(cutoff_eps))
 
         ######### Length Encoder ##############
         self.length_enc = length_enc
@@ -186,7 +185,12 @@ class GraphEdgeEncoderBase(torch.nn.Module):
         if edge_cutoff is None:
             log_edge_cutoff = None
         else:
-            log_edge_cutoff = torch.log(edge_cutoff + self.cutoff_eps)
+            if edge_cutoff.requires_grad:
+                edge_cutoff = torch.where(edge_cutoff >= self.cutoff_eps, edge_cutoff, self.cutoff_eps + (edge_cutoff - edge_cutoff.detach())) # Straight-through gradient estimation trick
+                log_edge_cutoff = torch.log(edge_cutoff)
+            else:
+                edge_cutoff = torch.max(edge_cutoff, self.cutoff_eps)
+                log_edge_cutoff = torch.log(edge_cutoff)
 
         return GraphEdge(edge_src=edge_src, 
                          edge_dst=edge_dst, 
