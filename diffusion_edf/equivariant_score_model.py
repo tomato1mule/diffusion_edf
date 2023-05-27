@@ -76,12 +76,7 @@ class ScoreModelHead(torch.nn.Module):
         self.irreps_key_edf = self.key_tensor_field.irreps_output
         self.key_edf_dim = self.irreps_key_edf.dim
 
-        ##################### Query Transform ##
-
-        
-
-
-######################
+        ##################### Query Transform ########################
         self.irreps_query_edf = o3.Irreps(irreps_query_edf)
         self.query_edf_dim = self.irreps_query_edf.dim
         self.query_transform = TransformPcd(irreps = self.irreps_query_edf)
@@ -126,7 +121,7 @@ class ScoreModelHead(torch.nn.Module):
         return super().to(*args, **kwargs)
 
     def forward(self, Ts: torch.Tensor,
-                key_pcd: FeaturedPoints,
+                key_pcd_multiscale: List[FeaturedPoints],
                 query_pcd: FeaturedPoints,
                 time: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         # !!!!!!!!!!!!!!!! Warning !!!!!!!!!!!!!!
@@ -145,16 +140,21 @@ class ScoreModelHead(torch.nn.Module):
         
 
         query_transformed: FeaturedPoints = self.query_transform(pcd = query_pcd, Ts = Ts)                                     # (nT, nQ, 3), (nT, nQ, F), (nT, nQ,), (nT, nQ,)
-        query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=time_emb, w=None)        # (nT, nQ, 3), (nT, nQ, time_emb), (nT, nQ,), None
+        if self.query_time_encoding:
+            query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=time_emb, w=None)    # (nT, nQ, 3), (nT, nQ, time_emb), (nT, nQ,), None
+        else:
+            raise NotImplementedError
+            query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=torch.empty_like(query_transformed.f), w=None)   # (nT, nQ, 3), (nT, nQ, -), (nT, nQ,), None
+
         query_transformed: FeaturedPoints = flatten_featured_points(query_transformed)                                         # (nT*nQ, 3), (nT*nQ, time_emb), (nT*nQ,), None
-        if self.use_time_emb_for_edge_encoding:
+        if self.edge_time_encoding:
             query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
-                                                                      input_points = key_pcd,
-                                                                      time_emb = query_transformed.f)                          # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
+                                                                      input_points_multiscale = key_pcd_multiscale,
+                                                                      context_emb = query_transformed.f)                          # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
         else:
             query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
-                                                                      input_points = key_pcd,
-                                                                      time_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
+                                                                      input_points_multiscale = key_pcd_multiscale,
+                                                                      context_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
         query_features_transformed: torch.Tensor = query_transformed.f                                                         # (nT*nQ, F)
         key_features: torch.Tensor = query_transformed.f                                                                       # (nT*nQ, F)
 
@@ -261,17 +261,20 @@ class ScoreModel(torch.nn.Module):
                        query_pcd: FeaturedPoints, 
                        target_ang_score: torch.Tensor,
                        target_lin_score: torch.Tensor,
-                       ) -> Tuple[torch.Tensor, Dict[str, FeaturedPoints], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+                       ) -> Tuple[torch.Tensor, 
+                                  Dict[str, Optional[FeaturedPoints]], 
+                                  Dict[str, torch.Tensor], 
+                                  Dict[str, torch.Tensor]]:
         assert target_ang_score.ndim == 2 and target_ang_score.shape[-1] == 3, f"{target_ang_score.shape}"
         assert target_lin_score.ndim == 2 and target_lin_score.shape[-1] == 3, f"{target_lin_score.shape}"
         assert time.ndim == 1 and target_ang_score.shape[-1] == 3, f"{target_ang_score.shape}"
         assert len(time) == len(target_ang_score) == len(target_lin_score)
 
-        key_pcd: FeaturedPoints = self.key_feature_extractor(key_pcd)
-        query_pcd: FeaturedPoints = self.query_feature_extractor(query_pcd)
+        key_pcd_multiscale: List[FeaturedPoints] = self.key_feature_extractor(key_pcd)
+        query_pcd: FeaturedPoints = self.query_model(query_pcd)
 
         ang_score, lin_score = self.score_head(Ts = Ts, 
-                                               key_pcd = key_pcd, 
+                                               key_pcd_multiscale = key_pcd_multiscale, 
                                                query_pcd = query_pcd,
                                                time = time)
         
@@ -306,8 +309,9 @@ class ScoreModel(torch.nn.Module):
             "alignment/normalized/lin": dp_align_lin_normalized.mean(dim=-1).item(),
         }
 
-        fp_info: Dict[str, FeaturedPoints] = {
-            "key_fp": detach_featured_points(key_pcd),
+        fp_info: Dict[str, Optional[FeaturedPoints]] = {
+            #"key_fp": detach_featured_points(key_pcd),
+            "key_fp": None,
             "query_fp": detach_featured_points(query_pcd),
         }
 
@@ -324,19 +328,18 @@ class ScoreModel(torch.nn.Module):
                 time: torch.Tensor, 
                 key_pcd: FeaturedPoints, 
                 query_pcd: FeaturedPoints, 
-                extract_features: bool = True,
                 debug: bool = False) -> Tuple[Tuple[torch.Tensor, torch.Tensor], 
-                                             Optional[Tuple[FeaturedPoints, FeaturedPoints]]]:
-        if extract_features:
-            key_pcd: FeaturedPoints = self.key_feature_extractor(key_pcd)
-            query_pcd: FeaturedPoints = self.query_feature_extractor(query_pcd)
+                                              Optional[Tuple[List[FeaturedPoints], FeaturedPoints]]]:
+
+        key_pcd_multiscale: List[FeaturedPoints] = self.key_feature_extractor(key_pcd)
+        query_pcd: FeaturedPoints = self.query_model(query_pcd)
 
         score: Tuple[torch.Tensor, torch.Tensor] = self.score_head(Ts = Ts, 
-                                                                   key_pcd = key_pcd, 
+                                                                   key_pcd_multiscale = key_pcd_multiscale, 
                                                                    query_pcd = query_pcd,
                                                                    time = time)
         if debug:
-            debug_output = (detach_featured_points(key_pcd), detach_featured_points(query_pcd))
+            debug_output = ([detach_featured_points(key_pcd) for key_pcd in key_pcd_multiscale], detach_featured_points(query_pcd))
         else:
             debug_output = None
                                                                    
