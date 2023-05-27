@@ -182,6 +182,11 @@ class GraphEdgeEncoderBase(torch.nn.Module):
                                     cutoff_scalar=None, 
                                     cutoff_nonscalar=cutoff_nonscalar,
                                     irreps=self.irreps_sh)
+            edge_sh = cutoff_irreps(f=edge_sh, 
+                                    edge_cutoff=edge_cutoff,
+                                    cutoff_scalar=None, 
+                                    cutoff_nonscalar=cutoff_nonscalar,
+                                    irreps=self.irreps_sh)
                 
         if edge_cutoff is None:
             log_edge_cutoff = None

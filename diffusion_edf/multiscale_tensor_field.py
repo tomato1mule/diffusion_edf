@@ -119,7 +119,8 @@ class MultiscaleTensorField(torch.nn.Module):
                                               bias = True,
                                               use_src_point_attn=use_src_point_attn,
                                               use_dst_point_attn=use_dst_point_attn,
-                                              use_edge_weights=True)
+                                              # use_edge_weights=True)
+                                              use_edge_weights=False)
         
         self.gnn_blocks = torch.nn.ModuleList()
         for n in range(self.n_layers-1):
@@ -141,7 +142,8 @@ class MultiscaleTensorField(torch.nn.Module):
                                 bias = True,
                                 use_src_point_attn=use_src_point_attn,
                                 use_dst_point_attn=use_dst_point_attn,
-                                use_edge_weights=True)
+                                # use_edge_weights=True)
+                                use_edge_weights=False)
             )
         
     def forward(self, query_points: FeaturedPoints,
