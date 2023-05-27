@@ -15,10 +15,10 @@ n_batches: 1
 max_epochs: 200
 n_epochs_per_checkpoint: 20
 n_samples_x_ref: 10
-# task_type: 'pick'
-# contact_radius: 5.
-task_type: 'place'
-contact_radius: 3.
+task_type: 'pick'
+contact_radius: 5.
+# task_type: 'place'
+# contact_radius: 3.
 
 
 optimizer_kwargs:
