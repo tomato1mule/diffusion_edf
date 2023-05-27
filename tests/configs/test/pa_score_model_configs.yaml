@@ -14,6 +14,7 @@ score_head_kwargs:
       - null
     n_layers: 1
     irreps_mlp_mid: 3
+    cutoff_method: 'edge_attn'
 
 key_kwargs:
   keypoint_kwargs: 
@@ -78,6 +79,7 @@ key_kwargs:
       - 40.
     n_layers: 1
     irreps_mlp_mid: 3
+    cutoff_method: 'edge_attn'
 
 query_kwargs:
   keypoint_kwargs: 
@@ -142,3 +144,4 @@ query_kwargs:
       - 40.
     n_layers: 1
     irreps_mlp_mid: 3
+    cutoff_method: 'edge_attn'

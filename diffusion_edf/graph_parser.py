@@ -22,6 +22,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
     requires_length: bool
     requires_encoding: bool
     offset: Optional[float]
+    sh_cutoff: bool
 
     @beartype
     def __init__(self, r_cutoff: Optional[Union[Union[float, int], Sequence[Union[float, int, None]]]],
@@ -29,7 +30,8 @@ class GraphEdgeEncoderBase(torch.nn.Module):
                  length_enc: Optional[torch.nn.Module],
                  r_mincut_nonscalar_sh: Union[str, float, int, None] = 'default',  # Explicitly set this to ensure continuity of nonscalar spherical harmonics.
                  requires_length: Optional[bool] = None,  # Set to True if explicitly want length.
-                 cutoff_eps: float = 1e-12):
+                 cutoff_eps: float = 1e-12,
+                 sh_cutoff: bool = False):
         super().__init__()
         self.requires_length = True if requires_length else False
         self.register_buffer('cutoff_eps', torch.tensor(cutoff_eps))
@@ -85,6 +87,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
         if self.edge_cutoff_ranges is not None:
             if self.edge_cutoff_ranges[0] is not None:
                 self.offset = float(self.edge_cutoff_ranges[0])
+        self.sh_cutoff = sh_cutoff
 
         ######### nonscalar spherical harmonics cutoff #########
         if self.edge_cutoff_ranges is None:
@@ -177,16 +180,18 @@ class GraphEdgeEncoderBase(torch.nn.Module):
             edge_sh = None
 
         if isinstance(edge_sh, torch.Tensor):
-            # edge_sh = cutoff_irreps(f=edge_sh, 
-            #                         edge_cutoff=None,
-            #                         cutoff_scalar=None, 
-            #                         cutoff_nonscalar=cutoff_nonscalar,
-            #                         irreps=self.irreps_sh)
-            edge_sh = cutoff_irreps(f=edge_sh, 
-                                    edge_cutoff=edge_cutoff,
-                                    cutoff_scalar=None, 
-                                    cutoff_nonscalar=cutoff_nonscalar,
-                                    irreps=self.irreps_sh)
+            if self.sh_cutoff:
+                edge_sh = cutoff_irreps(f=edge_sh, 
+                                        edge_cutoff=edge_cutoff,
+                                        cutoff_scalar=None, 
+                                        cutoff_nonscalar=cutoff_nonscalar,
+                                        irreps=self.irreps_sh)
+            else:
+                edge_sh = cutoff_irreps(f=edge_sh, 
+                                        edge_cutoff=None,
+                                        cutoff_scalar=None, 
+                                        cutoff_nonscalar=cutoff_nonscalar,
+                                        irreps=self.irreps_sh)
                 
         if edge_cutoff is None:
             log_edge_cutoff = None
@@ -216,6 +221,7 @@ class InfiniteBipartite(GraphEdgeEncoderBase):
                  length_enc_dim: Optional[int],
                  length_enc_max_r: Optional[Union[float, int]] = None,
                  length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
+                 sh_cutoff: bool = False,
                  ):
         if length_enc_dim is None:
             length_enc = None
@@ -241,7 +247,8 @@ class InfiniteBipartite(GraphEdgeEncoderBase):
         super().__init__(r_cutoff=None, 
                          irreps_sh=irreps_sh,
                          r_mincut_nonscalar_sh=r_mincut_nonscalar_sh,
-                         length_enc=length_enc)
+                         length_enc=length_enc,
+                         sh_cutoff=sh_cutoff)
         
     def forward(self, src: FeaturedPoints, 
                 dst: FeaturedPoints, 
@@ -271,6 +278,7 @@ class RadiusBipartite(GraphEdgeEncoderBase):
                  length_enc_dim: Optional[int],
                  length_enc_type: Optional[str] = 'GaussianRadialBasis',
                  r_mincut_nonscalar_sh: Union[str, float, int, None] = 'default',  # Explicitly set this to ensure continuity of nonscalar spherical harmonics.
+                 sh_cutoff: bool = False,
                  ):
         
         if isinstance(r_cutoff, int) or isinstance(r_cutoff, float):
@@ -303,7 +311,8 @@ class RadiusBipartite(GraphEdgeEncoderBase):
         super().__init__(r_cutoff=r_cutoff, 
                          irreps_sh=irreps_sh,
                          r_mincut_nonscalar_sh=r_mincut_nonscalar_sh,
-                         length_enc=length_enc)
+                         length_enc=length_enc,
+                         sh_cutoff=sh_cutoff)
 
     def forward(self, src: FeaturedPoints, dst: FeaturedPoints, max_neighbors: int = 1000) -> GraphEdge:
         assert src.x.ndim == 2

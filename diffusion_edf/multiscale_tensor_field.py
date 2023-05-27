@@ -10,12 +10,13 @@ from e3nn import o3
 from diffusion_edf.gnn_block import EquiformerBlock
 from diffusion_edf.utils import multiply_irreps
 from diffusion_edf.gnn_data import FeaturedPoints, GraphEdge, set_graph_edge_attribute, cat_graph_edges, cat_featured_points
-from diffusion_edf.graph_parser import RadiusBipartite
+from diffusion_edf.graph_parser import RadiusBipartite, InfiniteBipartite
 
 
 class MultiscaleTensorField(torch.nn.Module):
-    r_cluster_multiscale: List[float]
+    r_cluster_multiscale: List[Optional[float]]
     n_scales: int
+    cutoff_method: str
 
     @beartype
     def __init__(self,
@@ -26,8 +27,10 @@ class MultiscaleTensorField(torch.nn.Module):
         fc_neurons: List[int],
         length_emb_dim: int,
         irreps_query: Optional[Union[str, o3.Irreps]],      # Explicitly set to None if not want to use query features
-        r_cluster_multiscale: List[float],
+        r_cluster_multiscale: List[Optional[float]],
         edge_context_emb_dim: Optional[int],                # Encode context to edge scalars. Set to None if not want to encode context to the edges      
+        r_mincut_nonscalar_sh: Optional[float] = None,
+        length_enc_max_r: Optional[float] = None,
         n_scales: Optional[int] = None,                     # This parameter is just for double checking. If set to None, it will be automatically set to r_cluster_multiscale.
         n_layers: int = 1,
         irreps_mlp_mid: Union[str, o3.Irreps, int] = 3,
@@ -36,7 +39,8 @@ class MultiscaleTensorField(torch.nn.Module):
         proj_drop: float = 0.1,
         drop_path_rate: float = 0.0,
         use_src_point_attn: bool = False,
-        use_dst_point_attn: bool = False,):
+        use_dst_point_attn: bool = False,
+        cutoff_method: str = 'edge_attn'):
 
         super().__init__()
         self.irreps_input = o3.Irreps(irreps_input)
@@ -69,12 +73,31 @@ class MultiscaleTensorField(torch.nn.Module):
             assert fc_neurons[0] == self.length_emb_dim + self.context_emb_dim, f"{fc_neurons[0]} != {self.length_emb_dim} + {self.context_emb_dim}"
 
 
+        self.cutoff_method = cutoff_method
+        if self.cutoff_method == 'edge_attn': # It has better continuity, but slow.
+            use_edge_weights = True
+            sh_cutoff = False
+        elif self.cutoff_method == 'sh':      # It has worse continuity, but fast.
+            use_edge_weights = False
+            sh_cutoff = True
+        else:
+            raise ValueError(f"Unknown cutoff method: {cutoff_method}")
+        
+
+
         self.r_cluster_multiscale = r_cluster_multiscale
         if n_scales is None:
             self.n_scales = len(self.r_cluster_multiscale)
         else:
             assert n_scales == len(self.r_cluster_multiscale)
             self.n_scales = n_scales
+        if r_mincut_nonscalar_sh is None:
+            assert self.r_cluster_multiscale[0] is not None
+            r_mincut_nonscalar_sh = 0.01 * self.r_cluster_multiscale[0]
+        if length_enc_max_r is None:
+            assert self.r_cluster_multiscale[-1] is not None
+        else:
+            assert self.r_cluster_multiscale[-1] is None, "You don't need to provide length_enc_max_r"
 
         # !!!!!!!!!!!!!!TODO!!!!!!!!!!!! 
         # min_offset = self.r_cluster_multiscale[0] * 0.01
@@ -83,16 +106,30 @@ class MultiscaleTensorField(torch.nn.Module):
         self.graph_parsers = torch.nn.ModuleList()
         self.edge_scalars_pre_linears = torch.nn.ModuleList()
         for n in range(self.n_scales):
-            self.graph_parsers.append(
-                RadiusBipartite(
-                    # r_cutoff=[self.mincut_offsets[n], ??, ?? , self.r_cluster_multiscale[n]],
-                    r_cutoff=self.r_cluster_multiscale[n],
-                    irreps_sh=self.irreps_sh,
-                    length_enc_dim=self.length_emb_dim,
-                    length_enc_type='GaussianRadialBasis',
-                    r_mincut_nonscalar_sh=0.01 * self.r_cluster_multiscale[0]
+            r_cutoff = self.r_cluster_multiscale[n]
+            if r_cutoff is None:
+                self.graph_parsers.append(
+                    InfiniteBipartite(
+                        length_enc_max_r=length_enc_max_r,
+                        irreps_sh=self.irreps_sh,
+                        length_enc_dim=self.length_emb_dim,
+                        length_enc_type='SinusoidalPositionEmbeddings',
+                        r_mincut_nonscalar_sh=r_mincut_nonscalar_sh,
+                        sh_cutoff = sh_cutoff
+                    )
                 )
-            )
+            else:
+                self.graph_parsers.append(
+                    RadiusBipartite(
+                        # r_cutoff=[self.mincut_offsets[n], ??, ?? , self.r_cluster_multiscale[n]],
+                        r_cutoff=self.r_cluster_multiscale[n],
+                        irreps_sh=self.irreps_sh,
+                        length_enc_dim=self.length_emb_dim,
+                        length_enc_type='GaussianRadialBasis',
+                        r_mincut_nonscalar_sh=r_mincut_nonscalar_sh,
+                        sh_cutoff = sh_cutoff
+                    )
+                )
             self.edge_scalars_pre_linears.append(
                 torch.nn.Sequential(
                     torch.nn.Linear(fc_neurons[0], fc_neurons[0]),
@@ -119,8 +156,7 @@ class MultiscaleTensorField(torch.nn.Module):
                                               bias = True,
                                               use_src_point_attn=use_src_point_attn,
                                               use_dst_point_attn=use_dst_point_attn,
-                                              # use_edge_weights=True)
-                                              use_edge_weights=False)
+                                              use_edge_weights=use_edge_weights)
         
         self.gnn_blocks = torch.nn.ModuleList()
         for n in range(self.n_layers-1):
@@ -142,8 +178,7 @@ class MultiscaleTensorField(torch.nn.Module):
                                 bias = True,
                                 use_src_point_attn=use_src_point_attn,
                                 use_dst_point_attn=use_dst_point_attn,
-                                # use_edge_weights=True)
-                                use_edge_weights=False)
+                                use_edge_weights=use_edge_weights)
             )
         
     def forward(self, query_points: FeaturedPoints,

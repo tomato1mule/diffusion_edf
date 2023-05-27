@@ -122,8 +122,6 @@ class EquiformerBlock(torch.nn.Module):
         self.use_src_point_attn = use_src_point_attn
         self.use_dst_point_attn = use_dst_point_attn
         self.use_edge_weights = use_edge_weights
-        if self.use_dst_point_attn or self.use_dst_point_attn or self.use_edge_weights:
-            raise NotImplementedError
 
         if self.use_dst_feature:
             self.prenorm_src = EquivariantLayerNormV2(self.irreps_src, affine=True)
