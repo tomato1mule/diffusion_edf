@@ -148,7 +148,7 @@ class MultiscaleTensorField(torch.nn.Module):
         
     def forward(self, query_points: FeaturedPoints,
                 input_points_multiscale: List[FeaturedPoints],
-                context_emb: Optional[torch.Tensor] = None,
+                context_emb: Optional[List[torch.Tensor]] = None,
                 max_neighbors: Optional[int] = 1000) -> FeaturedPoints:
         assert query_points.x.ndim == 2 # (Nq, 3)
         if self.context_emb_dim is not None:
@@ -170,11 +170,15 @@ class MultiscaleTensorField(torch.nn.Module):
 
             ### Encode length and context embeddings ###
             if edge_encode_context is True:
-                assert isinstance(context_emb, torch.Tensor)
-                assert context_emb.ndim == 2  # (Nq, tEmb)
-                assert self.context_emb_dim == context_emb.shape[-1], f"{self.context_emb_dim} != {context_emb.shape[-1]} of {context_emb.shape}"
-                context_emb = context_emb.index_select(0, graph_edge.edge_dst)            # (nEdge, cEmb)
-                edge_scalars = torch.cat([graph_edge.edge_scalars, context_emb], dim=-1)  # (nEdge, Emb = lEmb + cEmb)
+                # assert isinstance(context_emb, torch.Tensor)
+                # assert context_emb.ndim == 2  # (Nq, tEmb)
+                # assert self.context_emb_dim == context_emb.shape[-1], f"{self.context_emb_dim} != {context_emb.shape[-1]} of {context_emb.shape}"
+                # context_emb = context_emb.index_select(0, graph_edge.edge_dst)            # (nEdge, cEmb)
+                # edge_scalars = torch.cat([graph_edge.edge_scalars, context_emb], dim=-1)  # (nEdge, Emb = lEmb + cEmb)
+                edge_scalars = torch.cat([
+                    graph_edge.edge_scalars, 
+                    context_emb[n].index_select(0, graph_edge.edge_dst)
+                ], dim=-1) # (nEdge, Emb = lEmb + cEmb)
             else:
                 edge_scalars = graph_edge.edge_scalars                                    # (nEdge, Emb = lEmb)
             edge_scalars = edge_scalars_pre_linear(edge_scalars)                          # (nEdge, Emb)

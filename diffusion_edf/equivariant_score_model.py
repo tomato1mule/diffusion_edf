@@ -27,6 +27,7 @@ class ScoreModelHead(torch.nn.Module):
     ang_mult: float
     edge_time_encoding: bool
     query_time_encoding: bool
+    n_scales: int
 
     @beartype
     def __init__(self, 
@@ -41,16 +42,27 @@ class ScoreModelHead(torch.nn.Module):
         super().__init__()
         self.lin_mult = lin_mult
         self.ang_mult = ang_mult
+        if 'n_scales' in key_tensor_field_kwargs.keys():
+            self.n_scales = key_tensor_field_kwargs['n_scales']
+        else:
+            self.n_scales = len(key_tensor_field_kwargs['r_cluster_multiscale'])
 
         ########### Time Encoder #############
         self.time_emb_mlp = time_emb_mlp
         self.irreps_time_emb = o3.Irreps(f"{self.time_emb_mlp[-1]}x0e")
-        time_enc = [SinusoidalPositionEmbeddings(dim=self.time_emb_mlp[0], max_val=max_time, n=1000.)]
-        for i in range(1,len(time_emb_mlp)):
-            time_enc.append(torch.nn.SiLU(inplace=True))
-            time_enc.append(torch.nn.Linear(self.time_emb_mlp[i-1], self.time_emb_mlp[i]))
-        time_enc.append(torch.nn.SiLU(inplace=True)) # because there is another mlp in the key_tensor_field
-        self.time_enc = torch.nn.Sequential(*time_enc)
+        self.time_enc = SinusoidalPositionEmbeddings(dim=self.time_emb_mlp[0], max_val=max_time, n=10000.)
+        time_mlps_multiscale = torch.nn.ModuleList()
+        for n in range(self.n_scales):
+            time_mlp = []
+            for i in range(1,len(time_emb_mlp)):
+                time_mlp.append(torch.nn.Linear(self.time_emb_mlp[i-1], self.time_emb_mlp[i]))
+                if i != len(time_emb_mlp) -1:
+                    time_mlp.append(torch.nn.SiLU(inplace=True))
+            time_mlp = torch.nn.Sequential(*time_mlp)
+            time_mlps_multiscale.append(time_mlp)
+        self.time_mlps_multiscale = time_mlps_multiscale
+        self.time_emb_dim = time_emb_mlp[-1]
+
         self.edge_time_encoding = edge_time_encoding
         self.query_time_encoding = query_time_encoding
         if self.edge_time_encoding is None and self.query_time_encoding is None:
@@ -60,6 +72,10 @@ class ScoreModelHead(torch.nn.Module):
         if self.query_time_encoding:
             assert 'irreps_query' not in key_tensor_field_kwargs.keys()
             key_tensor_field_kwargs['irreps_query'] = str(self.irreps_time_emb)
+        else:
+            assert 'irreps_query' not in key_tensor_field_kwargs.keys()
+            key_tensor_field_kwargs['irreps_query'] = None
+
         if self.edge_time_encoding:
             if 'edge_context_emb_dim' not in key_tensor_field_kwargs.keys():
                 key_tensor_field_kwargs['edge_context_emb_dim'] = self.time_emb_mlp[-1]
@@ -75,6 +91,9 @@ class ScoreModelHead(torch.nn.Module):
 
         self.irreps_key_edf = self.key_tensor_field.irreps_output
         self.key_edf_dim = self.irreps_key_edf.dim
+
+        if self.edge_time_encoding:
+            assert self.time_emb_dim == self.key_tensor_field.context_emb_dim
 
         ##################### Query Transform ########################
         self.irreps_query_edf = o3.Irreps(irreps_query_edf)
@@ -135,23 +154,28 @@ class ScoreModelHead(torch.nn.Module):
         nQ = len(query_pcd.x)
 
         query_weight: torch.Tensor = query_pcd.w     # (nQ,)
-        time_emb: torch.Tensor = self.time_enc(time) # (nT, time_emb_D)
-        time_emb = time_emb.unsqueeze(-2).expand(-1, nQ, -1) # (nT, nQ, time_emb_D)
-        
+
+        time_embs_multiscale: List[torch.Tensor] = []
+        time_enc: torch.Tensor = self.time_enc(time)                       # (nT, time_emb_mlp[0])
+        for time_mlp in self.time_mlps_multiscale:
+            time_embs_multiscale.append(
+                time_mlp(time_enc).unsqueeze(-2).expand(-1, nQ, -1).reshape(nT*nQ, self.time_emb_dim)        # (nT, time_emb_D) -> # (nT, nQ, time_emb_D)
+            )        
 
         query_transformed: FeaturedPoints = self.query_transform(pcd = query_pcd, Ts = Ts)                                     # (nT, nQ, 3), (nT, nQ, F), (nT, nQ,), (nT, nQ,)
         if self.query_time_encoding:
+            raise NotImplementedError
             query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=time_emb, w=None)    # (nT, nQ, 3), (nT, nQ, time_emb), (nT, nQ,), None
         else:
-            raise NotImplementedError
             query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=torch.empty_like(query_transformed.f), w=None)   # (nT, nQ, 3), (nT, nQ, -), (nT, nQ,), None
 
         query_transformed: FeaturedPoints = flatten_featured_points(query_transformed)                                         # (nT*nQ, 3), (nT*nQ, time_emb), (nT*nQ,), None
         if self.edge_time_encoding:
             query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
                                                                       input_points_multiscale = key_pcd_multiscale,
-                                                                      context_emb = query_transformed.f)                          # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
+                                                                      context_emb = time_embs_multiscale)                      # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
         else:
+            raise PermissionError
             query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
                                                                       input_points_multiscale = key_pcd_multiscale,
                                                                       context_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
