@@ -17,6 +17,31 @@ from diffusion_edf.gnn_data import FeaturedPoints, TransformPcd, set_featured_po
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
 
 
+class StaticKeypointModel(torch.nn.Module):
+    @beartype
+    def __init__(self, 
+                 keypoint_coords: torch.Tensor,
+                 irreps: Union[o3.Irreps, str]):
+        
+        super().__init__()
+        assert keypoint_coords.ndim == 2 and keypoint_coords[-1] == 3, f"{keypoint_coords.shape}"  # (nPoints, 3)
+        self.irreps = o3.Irreps(irreps)
+
+        self.register_buffer("keypoint_coords", keypoint_coords)
+        self.keypoint_features = torch.nn.Parameter(self.irreps.randn(len(self.keypoint_coords), -1))
+        self.keypoint_weights = torch.nn.Parameter(torch.randn(len(self.keypoint_coords)))
+
+    def forward(self, input_points: FeaturedPoints) -> FeaturedPoints:
+        b = input_points.b
+        assert b.ndim == 1
+        batch_unique = torch.unique(b)
+        x = self.keypoint_coords.repeat(len(batch_unique), 1)
+        f = self.keypoint_features.repeat(len(batch_unique), 1)
+        w = self.keypoint_weights.repeat(len(batch_unique))
+        b = batch_unique.repeat(len(self.keypoint_coords))
+        
+        return FeaturedPoints(x=x, f=f, w=w)
+
 
 class KeypointExtractor(torch.nn.Module):
     weight_pre_emb_dim: int
