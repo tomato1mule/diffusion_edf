@@ -44,29 +44,24 @@ class DiffusionEdfTrainer():
         with open(os.path.join(self.configs_root_dir, self.model_configs_file)) as file:
             self.model_configs = yaml.load(file, Loader=yaml.FullLoader)
 
-        self.task_configs = self.task_configs[self.train_configs['task_type']]
-        self.train_configs['preprocess_config'].append({
-            'name': 'Rescale',
-            'kwargs': {'rescale_factor': 1/self.task_configs['unit_length']}
-        })
-
-
-
-
         self.device = torch.device(self.train_configs['device'])
         self.max_epochs = self.train_configs['max_epochs']
         self.n_epochs_per_checkpoint = self.train_configs['n_epochs_per_checkpoint']
         self.n_samples_x_ref = self.train_configs['n_samples_x_ref']
-        self.contact_radius = self.task_configs['contact_radius']
+        self.unit_length = 1/self.train_configs['rescale_factor']
+            
+        self.task_type = self.task_configs['task_type']
+        self.contact_radius = self.task_configs['contact_radius']/self.unit_length
 
-        self.dataloader: Optional[DataLoader] = None
+        self.trainloader: Optional[DataLoader] = None
+        self.testloader: Optional[DataLoader] = None
         self.score_model: Optional[torch.nn.Module] = None
         self.optimizer: Optional[torch.optim.Optimizer] = None
         self.logger: Optional[train_utils.LazyLogger] = None
 
     @property
     def is_initialized(self) -> bool:
-        if self.dataloader is not None and self.score_model is not None and self.optimizer is not None and self.logger is not None:
+        if self.trainloader is not None and self.score_model is not None and self.optimizer is not None and self.logger is not None:
             return True
         else:
             return False
@@ -79,23 +74,32 @@ class DiffusionEdfTrainer():
         return time_
     
     @beartype
-    def get_dataloader(self, dataset: Optional[DemoSeqDataset] = None, 
+    def get_dataloader(self, dataset: DemoSeqDataset, 
+                       n_batches: int,
                        shuffle: bool = True) -> DataLoader:
-        if dataset is None:
-            dataset = DemoSeqDataset(dataset_dir=self.train_configs['dataset_dir'], 
-                                     annotation_file=self.train_configs['annotation_file'], 
-                                     device=self.device)
         proc_fn = train_utils.compose_proc_fn(self.train_configs['preprocess_config'])
-        collate_fn = train_utils.get_collate_fn(task=self.train_configs['task_type'], proc_fn=proc_fn)
-        train_dataloader = DataLoader(dataset, 
-                                      shuffle=shuffle, 
-                                      collate_fn=collate_fn, 
-                                      batch_size=self.train_configs['n_batches'])
-        return train_dataloader
+        collate_fn = train_utils.get_collate_fn(task=self.task_type, proc_fn=proc_fn)
+        dataloader = DataLoader(dataset, 
+                                shuffle=shuffle, 
+                                collate_fn=collate_fn, 
+                                batch_size=n_batches)
+        return dataloader
     
     @beartype
-    def _init_dataloader(self):
-        self.dataloader = self.get_dataloader(shuffle = True)
+    def _init_dataloaders(self):
+        trainset = DemoSeqDataset(dataset_dir=self.train_configs['trainset']['dataset_dir'], 
+                                  annotation_file=self.train_configs['trainset']['annotation_file'], 
+                                  device=self.device)
+        self.trainloader = self.get_dataloader(dataset = trainset,
+                                               shuffle = self.train_configs['trainset']['shuffle'],
+                                               n_batches = self.train_configs['trainset']['n_batches'])
+        if self.train_configs['testset'] is not None:
+            testset = DemoSeqDataset(dataset_dir=self.train_configs['testset']['dataset_dir'], 
+                                    annotation_file=self.train_configs['testset']['annotation_file'], 
+                                    device=self.device)
+            self.testloader = self.get_dataloader(dataset = testset,
+                                                shuffle = self.train_configs['testset']['shuffle'],
+                                                n_batches = self.train_configs['testset']['n_batches'])
 
     @beartype
     def get_model(self, deterministic: bool = False, 
@@ -180,7 +184,7 @@ class DiffusionEdfTrainer():
         if self.is_initialized:
             raise RuntimeError("Trainer already initialized!")
         
-        self._init_dataloader()
+        self._init_dataloaders()
         if model is None:
             self._init_model()
         else:
@@ -191,8 +195,6 @@ class DiffusionEdfTrainer():
                         resume_training=resume_training, 
                         resume_checkpoint_dir=resume_checkpoint_dir)
         return True
-
-
 
 
 

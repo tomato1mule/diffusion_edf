@@ -12,10 +12,13 @@ from torchvision.transforms import Compose
 from torch.utils.data import DataLoader
 from open3d.visualization.tensorboard_plugin import summary
 from torch.utils.tensorboard import SummaryWriter
+from torch_cluster import radius
+from torch_scatter import scatter_sum
 
-from diffusion_edf.data import DemoSeqDataset, DemoSequence, TargetPoseDemo
+from diffusion_edf.data import DemoSeqDataset, DemoSequence, TargetPoseDemo, SE3, PointCloud
 from diffusion_edf.gnn_data import FeaturedPoints, merge_featured_points, pcd_to_featured_points
 from diffusion_edf import preprocess
+from diffusion_edf.dist import diffuse_isotropic_se3_batched
 
 def compose_proc_fn(preprocess_config: Dict) -> Callable:
     proc_fn = []
@@ -52,6 +55,78 @@ def get_collate_fn(task, proc_fn):
         raise ValueError(f"Unknown task name: {task}")
 
     return collate_fn
+
+def sample_reference_points(src_points: torch.Tensor, dst_points: torch.Tensor, r: float, n_samples: int = 1) -> Tuple[torch.Tensor, torch.Tensor]:
+    edge_dst, edge_src = radius(x=src_points, y=dst_points, r=r)
+    n_points = len(dst_points)
+    n_neighbor = scatter_sum(src=torch.ones_like(edge_dst), index=edge_dst, dim_size=n_points)
+    total_count = n_neighbor.sum()
+    if total_count <= 0:
+        raise ValueError("There is no connected edges. Increase the clustering radius.")
+    p_choice = n_neighbor / total_count
+
+    sampled_idx = torch.multinomial(p_choice, num_samples=n_samples)
+    return dst_points.index_select(0, sampled_idx), n_neighbor
+
+@beartype
+def transform_and_sample_reference_points(T_target: torch.Tensor,
+                                          scene_points: FeaturedPoints,
+                                          grasp_points: FeaturedPoints,
+                                          contact_radius: Union[float, int],
+                                          n_samples_x_ref: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    assert T_target.ndim == 2 and T_target.shape[-1] == 7, f"{T_target.shape}" # (nT, 7)
+    if len(T_target) != 1:
+        raise NotImplementedError
+    
+    x_ref, n_neighbors = sample_reference_points(
+        src_points = PointCloud(points=scene_points.x, colors=scene_points.f).transformed(
+                                SE3(T_target).inv(), squeeze=True
+                                ).points, 
+        dst_points = grasp_points.x, 
+        r=float(contact_radius), 
+        n_samples=n_samples_x_ref
+    )
+    return x_ref, n_neighbors
+
+@beartype
+def random_time(min_time: Union[float, int], 
+                max_time: Union[float, int],
+                device: Union[str, torch.device]) -> torch.Tensor:
+    device = torch.device(device)
+    assert min_time < max_time and min_time > 0.00001
+    min_time = torch.tensor([float(min_time)], device=device)
+    max_time = torch.tensor([float(max_time)], device=device)
+
+    time = (min_time/max_time + torch.rand(1, device = min_time.device, dtype=min_time.dtype) * (1-min_time/max_time))*max_time   # Shape: (1,)
+    #time = torch.exp(torch.rand_like(max_time) * (torch.log(max_time)-torch.log(min_time)) + torch.log(min_time)) 
+    return time
+
+
+@beartype
+def diffuse_T_target(T_target: torch.Tensor, 
+                     x_ref: torch.Tensor,
+                     time: torch.Tensor,
+                     lin_mult: Union[float, int]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]:
+    assert T_target.ndim == 2 and T_target.shape[-1] == 7, f"{T_target.shape}" # (nT, 7)
+    if len(T_target) != 1:
+        raise NotImplementedError
+    assert x_ref.ndim == 2 and x_ref.shape[-1] == 3, f"{x_ref.shape}" # (n_xref, 7)
+    if not time.shape == (1,):
+        raise NotImplementedError
+
+    eps = time / 2   # Shape: (1,)
+    std = torch.sqrt(time) * float(lin_mult)   # Shape: (1,)
+
+    # T, delta_T, (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref) = diffuse_isotropic_se3(T0 = T_target, eps=eps, std=std, x_ref=x_ref, double_precision=True)
+    T, delta_T, (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref) = diffuse_isotropic_se3_batched(T0 = T_target, eps=eps, std=std, x_ref=x_ref, double_precision=True)
+    T, delta_T, (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref) = T.squeeze(-2), delta_T.squeeze(-2), (gt_ang_score.squeeze(-2), gt_lin_score.squeeze(-2)), (gt_ang_score_ref.squeeze(-2), gt_lin_score_ref.squeeze(-2))
+    # T: (nT, 7) || delta_T: (nT, 7) || gt_*_score_*: (nT, 3) ||
+    # Note that nT = n_samples_x_ref * nT_target  ||   nT_target = 1
+
+    time_in = time.repeat(len(T))
+
+    return T, delta_T, time_in, (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref)
+
 
 class LazyLogger():
     is_writer_online: bool

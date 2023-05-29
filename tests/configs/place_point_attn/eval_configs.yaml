@@ -1,0 +1,16 @@
+device: 'cuda:0'
+
+dataset_dir: '../demo/test_unseen_demo'
+annotation_file: 'data.yaml'
+checkpoint_file: 'runs/2023_05_29_18-25-54_StaticQueryPAscore/checkpoint/200.pt'
+
+preprocess_config:
+  - name: "Downsample"
+    kwargs:
+      voxel_size: 0.01
+      coord_reduction: "average"
+
+n_batches: 1
+n_samples_x_ref: 10
+
+
