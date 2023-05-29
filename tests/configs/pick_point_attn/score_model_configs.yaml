@@ -21,8 +21,8 @@ model_kwargs:
       length_enc_max_r: 100.
 
   key_kwargs:
-    softmax: True
-    weight_mult: 10.
+    weight_activation: 'sigmoid'
+    weight_mult: null
     keypoint_kwargs: 
       pool_ratio: 0.25
       weight_pre_emb_dim: 64

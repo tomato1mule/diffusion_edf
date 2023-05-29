@@ -56,7 +56,7 @@ class KeypointExtractor(torch.nn.Module):
                  feature_extractor_kwargs: Dict,
                  tensor_field_kwargs: Dict,
                  keypoint_kwargs: Dict,
-                 softmax: bool = False,
+                 weight_activation: str = 'sigmoid',
                  weight_mult: Optional[Union[float, int]] = None,
                  deterministic: bool = False,):
         super().__init__()
@@ -108,9 +108,14 @@ class KeypointExtractor(torch.nn.Module):
             torch.nn.LayerNorm(self.weight_pre_emb_dim),
             torch.nn.SiLU(inplace=True),
             torch.nn.Linear(self.weight_pre_emb_dim, 1),
-            torch.nn.Identity() if softmax else torch.nn.Sigmoid(),
+            torch.nn.Sigmoid() if weight_activation == 'sigmoid' else torch.nn.Identity(),
         )
-        self.softmax = torch.nn.Softmax(dim=-1) if softmax else None
+        if weight_activation == 'sigmoid' or 'none':
+            self.weight_activation = None
+        elif weight_activation == 'softmax':
+            self.weight_activation = torch.nn.Softmax(dim=-1)
+        else:
+            raise ValueError(f"Unknown weight activation: {weight_activation}")
 
         self.irreps_output = o3.Irreps(self.tensor_field.irreps_output)
 
@@ -159,8 +164,8 @@ class KeypointExtractor(torch.nn.Module):
                                     context_emb = None,
                                     max_neighbors = max_neighbors).f # Features: (nQ, wEmb)
         weights = self.weight_post(weights).squeeze(-1) # Features: (nQ, )
-        if self.softmax:
-            weights = self.softmax(weights)
+        if self.weight_activation is not None:
+            weights = self.weight_activation(weights)
         if self.weight_mult_logit is not None:
             weights = weights * F.softplus(self.weight_mult_logit)
 

@@ -71,7 +71,7 @@ key_kwargs:
   query_model: 'KeypointExtractor'
 
   query_kwargs:
-    softmax: False
+    weight_activation: 'sigmoid'
     weight_mult: null
     keypoint_kwargs: 
       pool_ratio: 0.01

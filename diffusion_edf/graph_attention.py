@@ -241,14 +241,18 @@ class GraphAttentionMLP2(torch.nn.Module):
         if edge_pre_attn_logit is not None:
             log_alpha = log_alpha + edge_pre_attn_logit.unsqueeze(-1)    # For continuity of attention, pre_attn acts on attention logits.
         value: torch.Tensor = self.vec2heads_value(value)                # reshape (nEdge, F_attn) -> (nEdge, nHead, F_attn//nHead)
-            
+
+
+
+        if edge_post_attn is not None:
+            log_alpha = log_alpha + torch.log(edge_post_attn).unsqueeze(-1)          # (N_edge, N_head)
         if False: # torch.are_deterministic_algorithms_enabled():
             log_Z = scatter_logsumexp(log_alpha, graph_edge.edge_dst, dim=-2, dim_size = n_nodes_dst) # (NodeNum,1)
         else:
             log_Z = scatter_logsumexp(log_alpha, graph_edge.edge_dst, dim=-2, dim_size = n_nodes_dst) # (NodeNum,1)
         alpha = torch.exp(log_alpha - log_Z[graph_edge.edge_dst]) # (N_edge, N_head)
-        if edge_post_attn is not None:
-            alpha = alpha * edge_post_attn.unsqueeze(-1)          # (N_edge, N_head)
+        # if edge_post_attn is not None:
+        #     alpha = alpha * edge_post_attn.unsqueeze(-1)          # (N_edge, N_head)
 
         alpha: torch.Tensor = alpha.unsqueeze(-1)                              # (N_edge, N_head, 1)
         if self.alpha_dropout is not None:
