@@ -21,6 +21,8 @@ model_kwargs:
       length_enc_max_r: 100.
 
   key_kwargs:
+    softmax: False
+    weight_mult: null
     keypoint_kwargs: 
       pool_ratio: 0.25
       weight_pre_emb_dim: 64
@@ -87,6 +89,8 @@ model_kwargs:
 
   query_model: 'KeypointExtractor'
   query_kwargs:
+    softmax: False
+    weight_mult: null
     keypoint_kwargs: 
       pool_ratio: 0.01
       weight_pre_emb_dim: 64

@@ -5,6 +5,7 @@ from tqdm import tqdm
 from beartype import beartype
 
 import torch
+from torch.nn import functional as F
 from e3nn import o3
 from torch_cluster import fps
 
@@ -55,7 +56,9 @@ class KeypointExtractor(torch.nn.Module):
                  feature_extractor_kwargs: Dict,
                  tensor_field_kwargs: Dict,
                  keypoint_kwargs: Dict,
-                 deterministic: bool = False):
+                 softmax: bool = False,
+                 weight_mult: Optional[Union[float, int]] = None,
+                 deterministic: bool = False,):
         super().__init__()
         self.deterministic = deterministic
         self.pool_ratio = float(keypoint_kwargs['pool_ratio'])
@@ -71,7 +74,12 @@ class KeypointExtractor(torch.nn.Module):
                     weight_pre_emb_dim += n
         self.weight_pre_emb_dim = weight_pre_emb_dim
         assert self.weight_pre_emb_dim, f"{self.weight_pre_emb_dim}"
-
+        if weight_mult is None:
+            self.weight_mult_logit = None
+        else:
+            self.weight_mult_logit = torch.nn.Parameter(
+                torch.log(torch.exp(torch.tensor(float(weight_mult)))-1) # inverse softplus
+            )
 
         #### Feature Extractor ####
         self.feature_extractor = UnetFeatureExtractor(
@@ -100,8 +108,9 @@ class KeypointExtractor(torch.nn.Module):
             torch.nn.LayerNorm(self.weight_pre_emb_dim),
             torch.nn.SiLU(inplace=True),
             torch.nn.Linear(self.weight_pre_emb_dim, 1),
-            torch.nn.Sigmoid(),
+            torch.nn.Identity() if softmax else torch.nn.Sigmoid(),
         )
+        self.softmax = torch.nn.Softmax(dim=-1) if softmax else None
 
         self.irreps_output = o3.Irreps(self.tensor_field.irreps_output)
 
@@ -150,6 +159,10 @@ class KeypointExtractor(torch.nn.Module):
                                     context_emb = None,
                                     max_neighbors = max_neighbors).f # Features: (nQ, wEmb)
         weights = self.weight_post(weights).squeeze(-1) # Features: (nQ, )
+        if self.softmax:
+            weights = self.softmax(weights)
+        if self.weight_mult_logit is not None:
+            weights = weights * F.softplus(self.weight_mult_logit)
 
         output_points: FeaturedPoints = set_featured_points_attribute(points = output_points, w=weights)
         return output_points
