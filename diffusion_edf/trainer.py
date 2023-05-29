@@ -176,8 +176,7 @@ class DiffusionEdfTrainer():
              log_root_dir: Optional[str] = None,
              resume_training: bool = False,
              resume_checkpoint_dir: Optional[str] = None,
-             model: Optional[torch.nn.Module] = None,
-             eval_only: bool = False) -> bool:
+             model: Optional[torch.nn.Module] = None) -> bool:
         if self.is_initialized:
             raise RuntimeError("Trainer already initialized!")
         
@@ -186,14 +185,11 @@ class DiffusionEdfTrainer():
             self._init_model()
         else:
             self.score_model = model
-        if eval_only:
-            self.score_model.eval()
-        else:
-            self._init_optimizer()
-            self._init_logging(log_name=log_name, 
-                            log_root_dir=log_root_dir, 
-                            resume_training=resume_training, 
-                            resume_checkpoint_dir=resume_checkpoint_dir)
+        self._init_optimizer()
+        self._init_logging(log_name=log_name, 
+                        log_root_dir=log_root_dir, 
+                        resume_training=resume_training, 
+                        resume_checkpoint_dir=resume_checkpoint_dir)
         return True
 
 
