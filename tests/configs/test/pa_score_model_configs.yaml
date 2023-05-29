@@ -15,10 +15,12 @@ score_head_kwargs:
     n_layers: 1
     irreps_mlp_mid: 3
     cutoff_method: 'edge_attn'
+    r_mincut_nonscalar_sh: 0.1
+    length_enc_max_r: 100.
 
 key_kwargs:
   keypoint_kwargs: 
-    pool_ratio: 0.01
+    pool_ratio: 0.25
     weight_pre_emb_dim: 64
   feature_extractor_kwargs:
     irreps_input: '3x0e'
