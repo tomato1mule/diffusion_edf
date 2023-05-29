@@ -103,7 +103,8 @@ class DiffusionEdfTrainer():
 
     @beartype
     def get_model(self, deterministic: bool = False, 
-                  device: Optional[Union[str, torch.device]] = None
+                  device: Optional[Union[str, torch.device]] = None,
+                  checkpoint_dir: Optional[str] = None,
                   ) -> Union[PointAttentiveScoreModel, MultiscaleScoreModel]:
         if device is None:
             device = self.device
@@ -111,11 +112,21 @@ class DiffusionEdfTrainer():
             device = torch.device(device)
 
         if self.model_configs['model_name'] == 'PointAttentiveScoreModel':
-            return PointAttentiveScoreModel(**self.model_configs['model_kwargs'], deterministic=deterministic).to(device)
+            score_model =  PointAttentiveScoreModel(**self.model_configs['model_kwargs'], deterministic=deterministic)
         elif self.model_configs['model_name'] == 'MultiscaleScoreModel':
-            return MultiscaleScoreModel(**self.model_configs['model_kwargs'], device=device, deterministic=deterministic).to(device)
+            score_model = MultiscaleScoreModel(**self.model_configs['model_kwargs'], device=device, deterministic=deterministic)
         else:
             raise ValueError(f"Unknown score model name: {self.model_configs['model_name']}")
+        
+        if checkpoint_dir is not None:
+            checkpoint = torch.load(checkpoint_dir)
+            score_model.load_state_dict(checkpoint['score_model_state_dict'])
+            # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            epoch = checkpoint['epoch']
+            steps = checkpoint['steps']
+            print(f"Successfully Loaded checkpoint @ epoch: {epoch} (steps: {steps})")
+        
+        return score_model.to(device)
         
     @beartype
     def _init_model(self, deterministic: bool = False, 
