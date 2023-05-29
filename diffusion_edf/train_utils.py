@@ -1,7 +1,8 @@
 import os
+import shutil
 # os.environ["PYTORCH_JIT_USE_NNC_NOT_NVFUSER"] = "1"
 
-from typing import List, Tuple, Optional, Union, Iterable, NamedTuple, Any, Sequence, Dict
+from typing import List, Tuple, Optional, Union, Iterable, NamedTuple, Any, Sequence, Dict, Callable
 from tqdm import tqdm
 from beartype import beartype
 import warnings
@@ -15,6 +16,15 @@ from torch.utils.tensorboard import SummaryWriter
 from diffusion_edf.data import DemoSeqDataset, DemoSequence, TargetPoseDemo
 from diffusion_edf.gnn_data import FeaturedPoints, merge_featured_points, pcd_to_featured_points
 from diffusion_edf import preprocess
+
+def compose_proc_fn(preprocess_config: Dict) -> Callable:
+    proc_fn = []
+    for proc in preprocess_config:
+        proc_fn.append(
+            getattr(preprocess, proc['name'])(**proc['kwargs'])
+        )
+    proc_fn = Compose(proc_fn)
+    return proc_fn
 
 def flatten_batch(demo_batch: List[TargetPoseDemo]) -> Tuple[FeaturedPoints, FeaturedPoints, torch.Tensor]:
     scene_pcd = []
@@ -43,60 +53,67 @@ def get_collate_fn(task, proc_fn):
 
     return collate_fn
 
-class LazyInitSummaryWriter():
+class LazyLogger():
     is_writer_online: bool
     log_dir: str
+    configs_root_dir: Optional[str]
 
-    def __init__(self, log_dir: str, resume: bool = False, config_files: Optional[List[str]] = None):
+    def __init__(self, log_dir: str, resume: bool = False, configs_root_dir: Optional[str] = None):
         self.writer = None
         self.log_dir = log_dir
         self.resume = resume
-        if config_files is None:
-            assert resume is True, f"Please provide dir to config_files if you are not resuming from previous training."
+        if not configs_root_dir:
+            assert resume is True, f"Please provide dir to config files if you are not resuming from previous training."
 
-        self.config_files: Dict[str, str] = {}
-        for file_path in config_files:
-            with open(file_path) as file:
-                filename = os.path.split(file_path)[-1]
-                lines = file.read()
-                self.config_files[filename] = lines
+        self.configs_root_dir = configs_root_dir
 
-
-    def _lazy_init(self, 
-                  log_dir: Optional[str] = None, 
-                  resume: Optional[bool] = None,
-                  config_files: Optional[Dict[str, str]] = None) -> bool:
-        if self.writer is not None:
-            return True
+    @property 
+    def is_initialized(self) -> bool:
+        if self.writer is None:
+            return False
         else:
-            if log_dir is None:
-                log_dir = self.log_dir
-            if resume is None:
-                resume = self.resume
-            if config_files is None:
-                config_files = self.config_files
+            return True
+
+    def _copy_configs(self, src_configs_root_dir: str, dst_configs_root_dir: str):
+        assert not os.path.exists(dst_configs_root_dir), f'Config path "{dst_configs_root_dir}" already exists.'
+        #os.mkdir(dst_configs_root_dir)
+        for root, dirs, files in os.walk(src_configs_root_dir):
+            for file in files:
+                if file[-5:] != '.yaml':
+                    raise FileExistsError(f"Non-config file \"{os.path.join(root, file)}\" found. config files must end with \".yaml\".")
+        shutil.copytree(src_configs_root_dir, dst_configs_root_dir)
+
+    def _lazy_init(self, log_dir: str, resume: bool, configs_root_dir: Optional[str]) -> bool:
+        if self.is_initialized:
+            raise ValueError("Already initialized")
+        else:
             self.writer = SummaryWriter(log_dir=log_dir)
 
-            if not os.path.exists(os.path.join(log_dir, f'checkpoint')):
+            checkpoint_dir = os.path.join(log_dir, f'checkpoint')
+            if not os.path.exists(checkpoint_dir):
                 if resume:
-                    warnings.warn(f"Resuming from training, but cannot find the checkpoint dir: {os.path.join(log_dir, f'checkpoint')}")
-                os.mkdir(os.path.join(log_dir, f'checkpoint'))
-            if not os.path.exists(os.path.join(log_dir, f'configs')):
-                if resume:
-                    warnings.warn(f"Resuming from training, but cannot find the configs dir: {os.path.join(log_dir, f'configs')}")
-                os.mkdir(os.path.join(log_dir, f'configs'))
+                    raise ValueError(f"Resuming from training, but cannot find the checkpoint dir: {checkpoint_dir}")
+                else:
+                    os.mkdir(checkpoint_dir)
 
-            if not resume:
-                for filename, contents in config_files.items():
-                    with open(os.path.join(log_dir, f'configs', filename), mode='w') as file:
-                        file.write(contents)
+            logged_configs_dir = os.path.join(log_dir, f'configs')
+            if resume:
+                if not os.path.exists(logged_configs_dir):
+                    warnings.warn(f"Resuming from training, but cannot find the configs dir: {logged_configs_dir}")
+            else:
+                self._copy_configs(src_configs_root_dir=configs_root_dir, dst_configs_root_dir=logged_configs_dir)
+                
             return True
+
+    def lazy_init(self):
+        if not self.is_initialized:
+            self._lazy_init(log_dir=self.log_dir, resume=self.resume, configs_root_dir=self.configs_root_dir)
         
     def add_scalar(self, *args, **kwargs):
-        self._lazy_init()
+        self.lazy_init()
         self.writer.add_scalar(*args, **kwargs)
 
     def add_3d(self, *args, **kwargs):
-        self._lazy_init()
+        self.lazy_init()
         self.writer.add_3d(*args, **kwargs)
 

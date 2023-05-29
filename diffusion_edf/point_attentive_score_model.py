@@ -12,7 +12,7 @@ from diffusion_edf import transforms
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
 from diffusion_edf.feature_extractor import UnetFeatureExtractor
 from diffusion_edf.multiscale_tensor_field import MultiscaleTensorField
-from diffusion_edf.keypoint_extractor import KeypointExtractor
+from diffusion_edf.keypoint_extractor import KeypointExtractor, StaticKeypointModel
 from diffusion_edf.gnn_data import FeaturedPoints, TransformPcd, set_featured_points_attribute, flatten_featured_points, detach_featured_points
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
 from diffusion_edf.score_head import ScoreModelHead
@@ -23,6 +23,7 @@ class PointAttentiveScoreModel(torch.nn.Module):
 
     @beartype
     def __init__(self, 
+                 query_model: str,
                  score_head_kwargs: Dict,
                  key_kwargs: Dict,
                  query_kwargs: Dict,
@@ -35,10 +36,17 @@ class PointAttentiveScoreModel(torch.nn.Module):
         )
 
         print("ScoreModel: Initializing Query Model")
-        self.query_model = KeypointExtractor(
-            **(query_kwargs),
-            deterministic=deterministic
-        )
+        if query_model == 'KeypointExtractor':
+            self.query_model = KeypointExtractor(
+                **(query_kwargs),
+                deterministic=deterministic
+            )
+        elif query_model == 'StaticKeypointModel':
+            self.query_model = StaticKeypointModel(
+                **(query_kwargs),
+            )
+        else:
+            raise ValueError(f"Unknown query model: {query_model}")
 
 
         max_time: float = float(score_head_kwargs['max_time'])

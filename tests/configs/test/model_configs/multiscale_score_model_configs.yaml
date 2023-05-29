@@ -4,24 +4,9 @@ score_head_kwargs:
   lin_mult: 10.
   edge_time_encoding: True
   query_time_encoding: False
-  key_tensor_field_kwargs:
-    irreps_output: '64x0e+32x1e+16x2e'
-    irreps_sh: '1x0e+1x1e+1x2e'
-    num_heads: 4
-    fc_neurons: [-1, 32, 32]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
-    length_emb_dim: 64          
-    r_cluster_multiscale: 
-      - null
-    n_layers: 1
-    irreps_mlp_mid: 3
-    cutoff_method: 'edge_attn'
-    r_mincut_nonscalar_sh: 0.1
-    length_enc_max_r: 100.
+  query_model: 'KeypointExtractor'
 
 key_kwargs:
-  keypoint_kwargs: 
-    pool_ratio: 0.25
-    weight_pre_emb_dim: 64
   feature_extractor_kwargs:
     irreps_input: '3x0e'
     irreps_output: '64x0e+32x1e+16x2e'

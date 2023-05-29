@@ -18,7 +18,7 @@ from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
 from diffusion_edf.score_head import ScoreModelHead
 
 
-class ScoreModel(torch.nn.Module):
+class MultiscaleScoreModel(torch.nn.Module):
 
     @beartype
     def __init__(self, 
