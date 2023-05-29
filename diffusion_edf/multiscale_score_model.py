@@ -107,11 +107,11 @@ class MultiscaleScoreModel(torch.nn.Module):
                                                time = time)
         
         target_ang_score = target_ang_score * torch.sqrt(time[..., None])
-        target_lin_score = target_lin_score * torch.sqrt(time[..., None])
+        target_lin_score = target_lin_score * torch.sqrt(time[..., None]) * self.lin_mult
         ang_score_diff = target_ang_score - ang_score
         lin_score_diff = target_lin_score - lin_score
         ang_loss = torch.sum(torch.square(ang_score_diff), dim=-1).mean(dim=-1)
-        lin_loss = torch.sum(torch.square(lin_score_diff * self.lin_mult), dim=-1).mean(dim=-1)
+        lin_loss = torch.sum(torch.square(lin_score_diff), dim=-1).mean(dim=-1)
 
         loss = ang_loss + lin_loss
 

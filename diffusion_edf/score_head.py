@@ -199,10 +199,10 @@ class ScoreModelHead(torch.nn.Module):
         qinv: torch.Tensor = transforms.quaternion_invert(q.unsqueeze(-2)) # (N_T, 1, 4)
         lin_vel = transforms.quaternion_apply(qinv, lin_vel) # (N_T, N_Q, 3)
         ang_spin = transforms.quaternion_apply(qinv, ang_spin) # (N_T, N_Q, 3)
-        ang_orbital = torch.cross(query_pcd.x.unsqueeze(0), lin_vel, dim=-1) # (N_T, N_Q, 3)
+        ang_orbital = torch.cross(query_pcd.x.unsqueeze(0) / self.lin_mult, lin_vel, dim=-1) # (N_T, N_Q, 3)
 
-        lin_vel = torch.einsum('q,tqi->ti', query_weight, lin_vel) / self.lin_mult # (N_T, 3)
-        ang_vel = (torch.einsum('q,tqi->ti', query_weight, ang_orbital) / self.lin_mult) \
-                +   (torch.einsum('q,tqi->ti', query_weight, ang_spin) / self.ang_mult) # (N_T, 3)
+        lin_vel = torch.einsum('q,tqi->ti', query_weight, lin_vel) # (N_T, 3)
+        ang_vel = (torch.einsum('q,tqi->ti', query_weight, ang_orbital)) \
+                +   (torch.einsum('q,tqi->ti', query_weight, ang_spin)) # (N_T, 3)
 
         return ang_vel, lin_vel
