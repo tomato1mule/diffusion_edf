@@ -36,15 +36,12 @@ def visualize_pose(scene_pcd: PointCloud,
     z_max = torch.max(scene_pcd.points[:,2]).item()
 
     for i in range(len(poses)):
-        mins_ = torch.min(transformed_grasp_pcd[i].points, dim=-2).values
-        maxs_ = torch.max(transformed_grasp_pcd[i].points, dim=-2).values
-
-        x_min = min(x_min, mins_[0].item())
-        x_max = max(x_max, maxs_[0].item())
-        y_min = min(y_min, mins_[1].item())
-        y_max = max(x_max, maxs_[1].item())
-        z_min = min(z_min, mins_[2].item())
-        z_max = max(x_max, maxs_[2].item())
+        x_min = min(x_min, torch.min(transformed_grasp_pcd[i].points[:,0]).item())
+        x_max = max(x_max, torch.max(transformed_grasp_pcd[i].points[:,0]).item())
+        y_min = min(y_min, torch.min(transformed_grasp_pcd[i].points[:,1]).item())
+        y_max = max(x_max, torch.max(transformed_grasp_pcd[i].points[:,1]).item())
+        z_min = min(z_min, torch.min(transformed_grasp_pcd[i].points[:,2]).item())
+        z_max = max(x_max, torch.max(transformed_grasp_pcd[i].points[:,2]).item())
         pose_pl = transformed_grasp_pcd[i].plotly(point_size=point_size, name=f'pose_{i}')
         placement_geometry.append(pose_pl)
     if show_sample_points:
