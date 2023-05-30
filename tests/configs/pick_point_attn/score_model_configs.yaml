@@ -25,7 +25,7 @@ model_kwargs:
     weight_activation: 'sigmoid'
     weight_mult: null
     keypoint_kwargs: 
-      pool_ratio: 0.1
+      pool_ratio: 0.25
       weight_pre_emb_dim: 64
     feature_extractor_name: 'UnetFeatureExtractor'
     feature_extractor_kwargs:
@@ -95,5 +95,5 @@ model_kwargs:
     keypoint_coords:
       - [4.5, 0., 15.]
       - [-4.5, 0., 15.]
-      - [0., 0., 15.]
+      # - [0., 0., 15.]
 
