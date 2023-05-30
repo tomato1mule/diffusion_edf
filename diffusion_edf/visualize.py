@@ -4,9 +4,14 @@ import torch
 from diffusion_edf.data import DemoSeqDataset, DemoSequence, TargetPoseDemo, PointCloud, SE3
 from diffusion_edf.pc_utils import get_plotly_fig
 
-def visualize_pose(scene_pcd: PointCloud, grasp_pcd: PointCloud, poses: SE3, query: Optional[Tuple[torch.Tensor, torch.Tensor]] = None, show_sample_points: bool = False):
+def visualize_pose(scene_pcd: PointCloud, 
+                   grasp_pcd: PointCloud, 
+                   poses: SE3, 
+                   query: Optional[Tuple[torch.Tensor, torch.Tensor]] = None, 
+                   show_sample_points: bool = False, 
+                   point_size = 3.0):
     
-    grasp_pl = grasp_pcd.plotly(point_size=1.0, name="grasp")
+    grasp_pl = grasp_pcd.plotly(point_size=point_size, name="grasp")
     grasp_geometry = [grasp_pl]
     if query is not None:
         query_points, query_attention = query
@@ -19,14 +24,14 @@ def visualize_pose(scene_pcd: PointCloud, grasp_pcd: PointCloud, poses: SE3, que
 
 
     
-    scene_pl = scene_pcd.plotly(point_size=1.0, name='scene')
+    scene_pl = scene_pcd.plotly(point_size=point_size, name='scene')
     placement_geometry = [scene_pl]
     transformed_grasp_pcd = grasp_pcd.transformed(poses)
     for i in range(len(poses)):
-        pose_pl = transformed_grasp_pcd[i].plotly(point_size=1.0, name=f'pose_{i}')
+        pose_pl = transformed_grasp_pcd[i].plotly(point_size=point_size, name=f'pose_{i}')
         placement_geometry.append(pose_pl)
     if show_sample_points:
-        sample_pl = PointCloud.points_to_plotly(pcd=poses.points, point_size=7.0, colors=[0.2, 0.5, 0.8], name=f'sample_points')
+        sample_pl = PointCloud.points_to_plotly(pcd=poses.points, point_size=point_size * 5.0, colors=[0.2, 0.5, 0.8], name=f'sample_points')
         placement_geometry.append(sample_pl)
     fig_sample = get_plotly_fig("Sampled Placement")
     fig_sample = fig_sample.add_traces(placement_geometry)

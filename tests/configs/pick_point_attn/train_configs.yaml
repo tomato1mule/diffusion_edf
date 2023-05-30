@@ -32,7 +32,11 @@ n_samples_x_ref: 10
 
 diffusion_configs:
   time_schedules:
-    - [1., 0.001]
+    - [5., 1.]
+    - [1., 0.3]
+    - [0.3, 0.1]
+    - [0.1, 0.001]
+
 
 optimizer_kwargs:
   lr: 0.0003
