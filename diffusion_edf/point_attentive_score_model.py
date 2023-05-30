@@ -130,7 +130,7 @@ class PointAttentiveScoreModel(torch.nn.Module):
         ang_loss = torch.sum(torch.square(ang_score_diff), dim=-1).mean(dim=-1)
         lin_loss = torch.sum(torch.square(lin_score_diff), dim=-1).mean(dim=-1)
 
-        ang_loss = ang_loss * ((self.lin_mult/self.ang_mult)**2)
+        # ang_loss = ang_loss * ((self.lin_mult/self.ang_mult)**2)
         loss = ang_loss + lin_loss
 
 
