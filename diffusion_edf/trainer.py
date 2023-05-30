@@ -56,6 +56,7 @@ class DiffusionEdfTrainer():
             assert schedule[0] > schedule[1]
             if schedule[0] > self.t_max:
                 self.t_max = schedule[0]
+        self.t_augment = self.train_configs['diffusion_configs']['t_augment']
             
         self.task_type = self.task_configs['task_type']
         self.contact_radius = self.task_configs['contact_radius']/self.unit_length

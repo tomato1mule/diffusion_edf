@@ -4,7 +4,7 @@ model_kwargs:
     max_time: 1.
     time_emb_mlp: [512, 256, 128]
     ang_mult: 2.5
-    lin_mult: 10.
+    lin_mult: 15.
     edge_time_encoding: True
     query_time_encoding: False
     key_tensor_field_kwargs:

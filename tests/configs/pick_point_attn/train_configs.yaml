@@ -31,11 +31,12 @@ n_epochs_per_checkpoint: 20
 n_samples_x_ref: 10
 
 diffusion_configs:
+  t_augment: 0.0001
   time_schedules:
     - [1., 0.1]
     - [0.1, 0.03]
-    - [0.03, 0.003]
-    - [0.003, 0.0001]
+    - [0.03, 0.005]
+    - [0.005, 0.0004]
 
 
 optimizer_kwargs:
