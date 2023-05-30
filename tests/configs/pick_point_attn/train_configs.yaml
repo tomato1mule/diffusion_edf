@@ -26,8 +26,8 @@ preprocess_config:
       rescale_factor: *rescale_factor
 
 
-max_epochs: 200
-n_epochs_per_checkpoint: 20
+max_epochs: 1000
+n_epochs_per_checkpoint: 50
 n_samples_x_ref: 10
 
 optimizer_kwargs:

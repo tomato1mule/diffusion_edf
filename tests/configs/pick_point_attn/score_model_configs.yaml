@@ -1,9 +1,9 @@
 model_name: 'PointAttentiveScoreModel'
 model_kwargs:
   score_head_kwargs:
-    max_time: 5.
+    max_time: 10.
     time_emb_mlp: [256, 128, 64]
-    lin_mult: 10.
+    lin_mult: 3.
     edge_time_encoding: True
     query_time_encoding: False
     key_tensor_field_kwargs:
@@ -21,10 +21,10 @@ model_kwargs:
       length_enc_max_r: 100.
 
   key_kwargs:
-    weight_activation: 'sigmoid'
+    weight_activation: 'softmax'
     weight_mult: null
     keypoint_kwargs: 
-      pool_ratio: 0.25
+      pool_ratio: 0.05
       weight_pre_emb_dim: 64
     feature_extractor_kwargs:
       irreps_input: '3x0e'
