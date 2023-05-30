@@ -38,10 +38,12 @@ class MultiscaleScoreModel(torch.nn.Module):
         if 'lin_mult' in diffusion_kwargs.keys():
             lin_mult: float = float(diffusion_kwargs['lin_mult'])
         else:
+            raise NotImplementedError()
             lin_mult: float = float(1.)
         if 'ang_mult' in diffusion_kwargs.keys():
             ang_mult: float = float(diffusion_kwargs['ang_mult'])
         else:
+            raise NotImplementedError()
             ang_mult: float = math.sqrt(2.)
         edge_time_encoding: bool = diffusion_kwargs['edge_time_encoding']
         query_time_encoding: bool = diffusion_kwargs['query_time_encoding']

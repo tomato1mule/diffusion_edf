@@ -1,16 +1,17 @@
 model_name: 'PointAttentiveScoreModel'
 model_kwargs:
   score_head_kwargs:
-    max_time: 5.
-    time_emb_mlp: [256, 128, 64]
-    lin_mult: 5.
+    max_time: 1.
+    time_emb_mlp: [512, 256, 128]
+    ang_mult: 2.5
+    lin_mult: 10.
     edge_time_encoding: True
     query_time_encoding: False
     key_tensor_field_kwargs:
       irreps_output: '64x0e+32x1e+16x2e'
       irreps_sh: '1x0e+1x1e+1x2e'
       num_heads: 4
-      fc_neurons: [-1, 32, 32]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
+      fc_neurons: [-1, 128, 64]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
       length_emb_dim: 64          
       r_cluster_multiscale: 
         - null
@@ -94,4 +95,5 @@ model_kwargs:
     keypoint_coords:
       - [4.5, 0., 15.]
       - [-4.5, 0., 15.]
+      - [0., 0., 15.]
 

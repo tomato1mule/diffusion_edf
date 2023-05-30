@@ -106,7 +106,8 @@ def random_time(min_time: Union[float, int],
 def diffuse_T_target(T_target: torch.Tensor, 
                      x_ref: torch.Tensor,
                      time: torch.Tensor,
-                     lin_mult: Union[float, int]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]:
+                     lin_mult: Union[float, int],
+                     ang_mult: Union[float, int] = 1.) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor, torch.Tensor]]:
     assert T_target.ndim == 2 and T_target.shape[-1] == 7, f"{T_target.shape}" # (nT, 7)
     if len(T_target) != 1:
         raise NotImplementedError
@@ -114,7 +115,7 @@ def diffuse_T_target(T_target: torch.Tensor,
     if not time.shape == (1,):
         raise NotImplementedError
 
-    eps = time / 2   # Shape: (1,)
+    eps = time / 2 * (float(ang_mult) ** 2)   # Shape: (1,)
     std = torch.sqrt(time) * float(lin_mult)   # Shape: (1,)
 
     # T, delta_T, (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref) = diffuse_isotropic_se3(T0 = T_target, eps=eps, std=std, x_ref=x_ref, double_precision=True)

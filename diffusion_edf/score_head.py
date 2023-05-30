@@ -34,7 +34,7 @@ class ScoreModelHead(torch.nn.Module):
                  key_tensor_field_kwargs: Dict,
                  irreps_query_edf: Union[str, o3.Irreps],
                  lin_mult: float,
-                 ang_mult: float = math.sqrt(2),
+                 ang_mult: float,
                  edge_time_encoding: bool = False,
                  query_time_encoding: bool = True):
         super().__init__()

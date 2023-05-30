@@ -54,10 +54,12 @@ class PointAttentiveScoreModel(torch.nn.Module):
         if 'lin_mult' in score_head_kwargs.keys():
             lin_mult: float = float(score_head_kwargs['lin_mult'])
         else:
+            raise NotImplementedError()
             lin_mult: float = float(1.)
         if 'ang_mult' in score_head_kwargs.keys():
             ang_mult: float = float(score_head_kwargs['ang_mult'])
         else:
+            raise NotImplementedError()
             ang_mult: float = math.sqrt(2.)
         edge_time_encoding: bool = score_head_kwargs['edge_time_encoding']
         query_time_encoding: bool = score_head_kwargs['query_time_encoding']
@@ -121,13 +123,14 @@ class PointAttentiveScoreModel(torch.nn.Module):
                                                query_pcd = query_pcd,
                                                time = time)
         
-        target_ang_score = target_ang_score * torch.sqrt(time[..., None])
+        target_ang_score = target_ang_score * torch.sqrt(time[..., None]) * self.ang_mult
         target_lin_score = target_lin_score * torch.sqrt(time[..., None]) * self.lin_mult
         ang_score_diff = target_ang_score - ang_score
         lin_score_diff = target_lin_score - lin_score
         ang_loss = torch.sum(torch.square(ang_score_diff), dim=-1).mean(dim=-1)
         lin_loss = torch.sum(torch.square(lin_score_diff), dim=-1).mean(dim=-1)
 
+        ang_loss = ang_loss * ((self.lin_mult/self.ang_mult)**2)
         loss = ang_loss + lin_loss
 
 
