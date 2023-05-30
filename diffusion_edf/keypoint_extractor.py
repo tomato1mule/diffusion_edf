@@ -12,7 +12,8 @@ from torch_cluster import fps
 
 from diffusion_edf import transforms
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
-from diffusion_edf.feature_extractor import UnetFeatureExtractor
+from diffusion_edf.unet_feature_extractor import UnetFeatureExtractor
+from diffusion_edf.forward_only_feature_extractor import ForwardOnlyFeatureExtractor
 from diffusion_edf.multiscale_tensor_field import MultiscaleTensorField
 from diffusion_edf.gnn_data import FeaturedPoints, TransformPcd, set_featured_points_attribute, flatten_featured_points, detach_featured_points
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
@@ -56,6 +57,7 @@ class KeypointExtractor(torch.nn.Module):
                  feature_extractor_kwargs: Dict,
                  tensor_field_kwargs: Dict,
                  keypoint_kwargs: Dict,
+                 feature_extractor_name: str = 'UnetFeatureExtractor', # ForwardOnlyFeatureExtractor
                  weight_activation: str = 'sigmoid',
                  weight_mult: Optional[Union[float, int]] = None,
                  deterministic: bool = False,):
@@ -82,10 +84,18 @@ class KeypointExtractor(torch.nn.Module):
             )
 
         #### Feature Extractor ####
-        self.feature_extractor = UnetFeatureExtractor(
-            **(feature_extractor_kwargs),
-            deterministic=self.deterministic
-        )
+        if feature_extractor_name == 'UnetFeatureExtractor':
+            self.feature_extractor = UnetFeatureExtractor(
+                **(feature_extractor_kwargs),
+                deterministic=self.deterministic
+            )
+        elif feature_extractor_name == 'ForwardOnlyFeatureExtractor':
+            self.feature_extractor = ForwardOnlyFeatureExtractor(
+                **(feature_extractor_kwargs),
+                deterministic=self.deterministic
+            )
+        else:
+            raise ValueError(f"Unknown feature extractor name: {feature_extractor_name}")
 
 
         #### Feature EDF ####

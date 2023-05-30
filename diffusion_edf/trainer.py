@@ -49,6 +49,13 @@ class DiffusionEdfTrainer():
         self.n_epochs_per_checkpoint = self.train_configs['n_epochs_per_checkpoint']
         self.n_samples_x_ref = self.train_configs['n_samples_x_ref']
         self.unit_length = 1/self.train_configs['rescale_factor']
+        self.diffusion_schedules = self.train_configs['diffusion_configs']['time_schedules']
+        self.n_schedules = len(self.diffusion_schedules)
+        self.t_max = self.diffusion_schedules[0][0]
+        for schedule in self.diffusion_schedules:
+            assert schedule[0] > schedule[1]
+            if schedule[0] > self.t_max:
+                self.t_max = schedule[0]
             
         self.task_type = self.task_configs['task_type']
         self.contact_radius = self.task_configs['contact_radius']/self.unit_length

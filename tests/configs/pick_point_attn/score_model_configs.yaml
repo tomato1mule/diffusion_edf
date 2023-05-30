@@ -1,9 +1,9 @@
 model_name: 'PointAttentiveScoreModel'
 model_kwargs:
   score_head_kwargs:
-    max_time: 10.
+    max_time: 5.
     time_emb_mlp: [256, 128, 64]
-    lin_mult: 3.
+    lin_mult: 10.
     edge_time_encoding: True
     query_time_encoding: False
     key_tensor_field_kwargs:
@@ -21,50 +21,30 @@ model_kwargs:
       length_enc_max_r: 100.
 
   key_kwargs:
-    weight_activation: 'softmax'
+    weight_activation: 'sigmoid'
     weight_mult: null
     keypoint_kwargs: 
-      pool_ratio: 0.05
+      pool_ratio: 0.1
       weight_pre_emb_dim: 64
+    feature_extractor_name: 'ForwardOnlyFeatureExtractor'
     feature_extractor_kwargs:
       irreps_input: '3x0e'
       irreps_output: '64x0e+32x1e+16x2e'
-      n_scales: 4
+      n_scales: 1
       irreps_emb:           # mutiscale -> list length must match n_scales
-        - '32x0e+16x1e+8x2e'
-        - '32x0e+16x1e+8x2e'
-        - '64x0e+32x1e+16x2e'
         - '64x0e+32x1e+16x2e'
       irreps_edge_attr:     # mutiscale -> list length must match n_scales
         - '1x0e+1x1e+1x2e'
-        - '1x0e+1x1e+1x2e'
-        - '1x0e+1x1e+1x2e'
-        - '1x0e+1x1e+1x2e'
       num_heads:
         - 4
-        - 4
-        - 4
-        - 4
       fc_neurons:           # mutiscale -> list length must match n_scales
-        - [32, 16, 16]
-        - [32, 16, 16]
-        - [64, 32, 32]
         - [64, 32, 32]
       n_layers:             # mutiscale -> list length must match n_scales
-        - 2
-        - 2
-        - 2
-        - 2
+        - 8
       pool_ratio:           # Pooling ratio. For example, p=0.5 means the number of points are halved.
         - 0.25
-        - 0.25
-        - 0.25
-        - 0.25
       radius:               # Maximum radius to connect neighboring nodes. If set to None, it will be set to 1/sqrt(p) of the previous layer's radius. Typically, this results in the number of edges being reduced by ratio p.
-        - 3.                # Base radius must not be None
-        - null
-        - null
-        - null
+        - 5.                # Base radius must not be None
       irreps_mlp_mid: 3     # irreps multiplier for mlp, like that of transformers.
       pool_method: 'fps'
       attn_type: 'mlp'
@@ -80,9 +60,6 @@ model_kwargs:
       length_emb_dim: 64          
       r_cluster_multiscale: 
         - 5.
-        - 10.
-        - 20.
-        - 40.
       n_layers: 1
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'

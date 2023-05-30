@@ -10,7 +10,7 @@ from e3nn import o3
 
 from diffusion_edf import transforms
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
-from diffusion_edf.feature_extractor import UnetFeatureExtractor
+from diffusion_edf.unet_feature_extractor import UnetFeatureExtractor
 from diffusion_edf.multiscale_tensor_field import MultiscaleTensorField
 from diffusion_edf.keypoint_extractor import KeypointExtractor
 from diffusion_edf.gnn_data import FeaturedPoints, TransformPcd, set_featured_points_attribute, flatten_featured_points, detach_featured_points
