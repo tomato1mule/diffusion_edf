@@ -9,7 +9,8 @@ def visualize_pose(scene_pcd: PointCloud,
                    poses: SE3, 
                    query: Optional[Tuple[torch.Tensor, torch.Tensor]] = None, 
                    show_sample_points: bool = False, 
-                   point_size = 3.0, width=800, height=800):
+                   point_size = 3.0, width=800, height=800,
+                   ranges: Optional[torch.Tensor] = None):
     
     grasp_pl = grasp_pcd.plotly(point_size=point_size, name="grasp")
     grasp_geometry = [grasp_pl]
@@ -28,20 +29,22 @@ def visualize_pose(scene_pcd: PointCloud,
     placement_geometry = [scene_pl]
     transformed_grasp_pcd = grasp_pcd.transformed(poses)
 
-    x_min = torch.min(scene_pcd.points[:,0]).item()
-    x_max = torch.max(scene_pcd.points[:,0]).item()
-    y_min = torch.min(scene_pcd.points[:,1]).item()
-    y_max = torch.max(scene_pcd.points[:,1]).item()
-    z_min = torch.min(scene_pcd.points[:,2]).item()
-    z_max = torch.max(scene_pcd.points[:,2]).item()
+    if ranges is None:
+        x_min = torch.min(scene_pcd.points[:,0]).item()
+        x_max = torch.max(scene_pcd.points[:,0]).item()
+        y_min = torch.min(scene_pcd.points[:,1]).item()
+        y_max = torch.max(scene_pcd.points[:,1]).item()
+        z_min = torch.min(scene_pcd.points[:,2]).item()
+        z_max = torch.max(scene_pcd.points[:,2]).item()
 
     for i in range(len(poses)):
-        x_min = min(x_min, torch.min(transformed_grasp_pcd[i].points[:,0]).item())
-        x_max = max(x_max, torch.max(transformed_grasp_pcd[i].points[:,0]).item())
-        y_min = min(y_min, torch.min(transformed_grasp_pcd[i].points[:,1]).item())
-        y_max = max(x_max, torch.max(transformed_grasp_pcd[i].points[:,1]).item())
-        z_min = min(z_min, torch.min(transformed_grasp_pcd[i].points[:,2]).item())
-        z_max = max(x_max, torch.max(transformed_grasp_pcd[i].points[:,2]).item())
+        if ranges is None:
+            x_min = min(x_min, torch.min(transformed_grasp_pcd[i].points[:,0]).item())
+            x_max = max(x_max, torch.max(transformed_grasp_pcd[i].points[:,0]).item())
+            y_min = min(y_min, torch.min(transformed_grasp_pcd[i].points[:,1]).item())
+            y_max = max(x_max, torch.max(transformed_grasp_pcd[i].points[:,1]).item())
+            z_min = min(z_min, torch.min(transformed_grasp_pcd[i].points[:,2]).item())
+            z_max = max(x_max, torch.max(transformed_grasp_pcd[i].points[:,2]).item())
         pose_pl = transformed_grasp_pcd[i].plotly(point_size=point_size, name=f'pose_{i}')
         placement_geometry.append(pose_pl)
     if show_sample_points:
@@ -74,16 +77,18 @@ def visualize_pose(scene_pcd: PointCloud,
     sliders = [dict(
         active=0,
         currentvalue={"prefix": "Pose: "},
-        pad={"t": 50},
+        pad={"t": 0, "b": 10, "l": 10, "r": 10},
         steps=steps
     )]
 
-    # x_min = min(fig_sample.data[0]['x'])
-    # x_max = max(fig_sample.data[0]['x'])
-    # y_min = min(fig_sample.data[0]['y'])
-    # y_max = max(fig_sample.data[0]['y'])
-    # z_min = min(fig_sample.data[0]['z'])
-    # z_max = max(fig_sample.data[0]['z'])
+    if ranges is None:
+        pass
+    else:
+        assert ranges.shape == (3,2), f"{ranges.shape}"
+        x_min, x_max = ranges[0,0].item(), ranges[0,1].item()
+        y_min, y_max = ranges[1,0].item(), ranges[1,1].item()
+        z_min, z_max = ranges[2,0].item(), ranges[2,1].item()
+
     x_center = (x_max+x_min)/2
     y_center = (y_max+y_min)/2
     z_center = (z_max+z_min)/2
@@ -98,6 +103,7 @@ def visualize_pose(scene_pcd: PointCloud,
         sliders=sliders,
         width=width,  # Adjust the width as needed
         height=height,  # Adjust the height as needed
+        margin=dict(t=0, r=0, l=0, b=0)
     )
 
 
