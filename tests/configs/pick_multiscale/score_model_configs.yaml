@@ -17,12 +17,12 @@ model_kwargs:
         - 5.
         - 10.
         - 20.
-        - null
+        - 40.
       n_layers: 1
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'
       r_mincut_nonscalar_sh: 0.1
-      length_enc_max_r: 100.
+      # length_enc_max_r: 100.
 
   key_kwargs:
     feature_extractor_name: 'UnetFeatureExtractor'
