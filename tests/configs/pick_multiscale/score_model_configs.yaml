@@ -17,7 +17,7 @@ model_kwargs:
         - 5.
         - 10.
         - 20.
-        - 40.
+        - null
       n_layers: 1
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'
