@@ -122,7 +122,7 @@ class DiffusionEdfTrainer():
         if self.model_configs['model_name'] == 'PointAttentiveScoreModel':
             score_model =  PointAttentiveScoreModel(**self.model_configs['model_kwargs'], deterministic=deterministic)
         elif self.model_configs['model_name'] == 'MultiscaleScoreModel':
-            score_model = MultiscaleScoreModel(**self.model_configs['model_kwargs'], device=device, deterministic=deterministic)
+            score_model = MultiscaleScoreModel(**self.model_configs['model_kwargs'], deterministic=deterministic)
         else:
             raise ValueError(f"Unknown score model name: {self.model_configs['model_name']}")
         

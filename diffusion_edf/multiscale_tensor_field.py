@@ -105,6 +105,9 @@ class MultiscaleTensorField(torch.nn.Module):
 
         self.graph_parsers = torch.nn.ModuleList()
         self.edge_scalars_pre_linears = torch.nn.ModuleList()
+        
+        fill_edge_weights = False
+        infinite = False
         for n in range(self.n_scales):
             r_cutoff = self.r_cluster_multiscale[n]
             if r_cutoff is None:
@@ -115,10 +118,14 @@ class MultiscaleTensorField(torch.nn.Module):
                         length_enc_dim=self.length_emb_dim,
                         length_enc_type='SinusoidalPositionEmbeddings',
                         r_mincut_nonscalar_sh=r_mincut_nonscalar_sh,
-                        sh_cutoff = sh_cutoff
+                        sh_cutoff = sh_cutoff,
+                        fill_edge_weights=fill_edge_weights
                     )
                 )
+                infinite = True
             else:
+                fill_edge_weights = True
+                assert not infinite, f"Finite cluster radius cannot come after infinite cluster radius, {self.r_cluster_multiscale}"
                 self.graph_parsers.append(
                     RadiusBipartite(
                         # r_cutoff=[self.mincut_offsets[n], ??, ?? , self.r_cluster_multiscale[n]],

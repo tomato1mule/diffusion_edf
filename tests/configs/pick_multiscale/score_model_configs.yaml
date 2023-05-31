@@ -1,4 +1,4 @@
-model_name: 'PointAttentiveScoreModel'
+model_name: 'MultiscaleScoreModel'
 model_kwargs:
   score_head_kwargs:
     max_time: 1.
@@ -14,6 +14,9 @@ model_kwargs:
       fc_neurons: [-1, 128, 64]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
       length_emb_dim: 64          
       r_cluster_multiscale: 
+        - 5.
+        - 10.
+        - 20.
         - null
       n_layers: 1
       irreps_mlp_mid: 3
@@ -22,11 +25,6 @@ model_kwargs:
       length_enc_max_r: 100.
 
   key_kwargs:
-    weight_activation: 'sigmoid'
-    weight_mult: null
-    keypoint_kwargs: 
-      pool_ratio: 0.25
-      weight_pre_emb_dim: 64
     feature_extractor_name: 'UnetFeatureExtractor'
     feature_extractor_kwargs:
       irreps_input: '3x0e'
@@ -74,20 +72,6 @@ model_kwargs:
       proj_drop: 0.1
       drop_path_rate: 0.0
       n_layers_midstream: 2 # Number of layers that connects downstream to upstream
-    tensor_field_kwargs:
-      irreps_output: '64x0e+32x1e+16x2e'
-      irreps_sh: '1x0e+1x1e+1x2e'
-      num_heads: 4
-      fc_neurons: [-1, 32, 32]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
-      length_emb_dim: 64          
-      r_cluster_multiscale: 
-        - 5.
-        - 10.
-        - 20.
-        - 40.
-      n_layers: 1
-      irreps_mlp_mid: 3
-      cutoff_method: 'edge_attn'
 
   query_model: 'StaticKeypointModel'
   query_kwargs:

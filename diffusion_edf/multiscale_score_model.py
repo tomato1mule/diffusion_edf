@@ -11,8 +11,9 @@ from e3nn import o3
 from diffusion_edf import transforms
 from diffusion_edf.equiformer.graph_attention_transformer import SeparableFCTP
 from diffusion_edf.unet_feature_extractor import UnetFeatureExtractor
+from diffusion_edf.forward_only_feature_extractor import ForwardOnlyFeatureExtractor
 from diffusion_edf.multiscale_tensor_field import MultiscaleTensorField
-from diffusion_edf.keypoint_extractor import KeypointExtractor
+from diffusion_edf.keypoint_extractor import KeypointExtractor, StaticKeypointModel
 from diffusion_edf.gnn_data import FeaturedPoints, TransformPcd, set_featured_points_attribute, flatten_featured_points, detach_featured_points
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
 from diffusion_edf.score_head import ScoreModelHead
@@ -22,43 +23,64 @@ class MultiscaleScoreModel(torch.nn.Module):
 
     @beartype
     def __init__(self, 
-                 diffusion_kwargs: Dict,
+                 query_model: str,
+                 score_head_kwargs: Dict,
                  key_kwargs: Dict,
                  query_kwargs: Dict,
                  deterministic: bool = False):
         super().__init__()
-
         key_feature_extractor_kwargs = key_kwargs['feature_extractor_kwargs']
-        key_tensor_field_kwargs = key_kwargs['tensor_field_kwargs']
-        assert 'irreps_input' not in key_tensor_field_kwargs.keys()
-        key_tensor_field_kwargs['irreps_input'] = key_feature_extractor_kwargs['irreps_output']
+        key_feature_extractor_name = key_kwargs['feature_extractor_name']
+
+        print("ScoreModel: Initializing Key Feature Extractor")
+        if key_feature_extractor_name == 'UnetFeatureExtractor':
+            self.key_model = UnetFeatureExtractor(
+                **(key_feature_extractor_kwargs),
+                deterministic=deterministic
+            )
+        elif key_feature_extractor_name == 'ForwardOnlyFeatureExtractor':
+            self.key_model = ForwardOnlyFeatureExtractor(
+                **(key_feature_extractor_kwargs),
+                deterministic=deterministic
+            )
+        else:
+            raise ValueError(f"Unknown feature extractor name: {key_feature_extractor_name}")
         
-        max_time: float = float(diffusion_kwargs['max_time'])
-        time_emb_mlp: List[int] = diffusion_kwargs['time_emb_mlp']
-        if 'lin_mult' in diffusion_kwargs.keys():
-            lin_mult: float = float(diffusion_kwargs['lin_mult'])
+        print("ScoreModel: Initializing Query Model")
+        if query_model == 'KeypointExtractor':
+            self.query_model = KeypointExtractor(
+                **(query_kwargs),
+                deterministic=deterministic
+            )
+        elif query_model == 'StaticKeypointModel':
+            self.query_model = StaticKeypointModel(
+                **(query_kwargs),
+            )
+        else:
+            raise ValueError(f"Unknown query model: {query_model}")
+        
+        max_time: float = float(score_head_kwargs['max_time'])
+        time_emb_mlp: List[int] = score_head_kwargs['time_emb_mlp']
+        if 'lin_mult' in score_head_kwargs.keys():
+            lin_mult: float = float(score_head_kwargs['lin_mult'])
         else:
             raise NotImplementedError()
             lin_mult: float = float(1.)
-        if 'ang_mult' in diffusion_kwargs.keys():
-            ang_mult: float = float(diffusion_kwargs['ang_mult'])
+        if 'ang_mult' in score_head_kwargs.keys():
+            ang_mult: float = float(score_head_kwargs['ang_mult'])
         else:
             raise NotImplementedError()
             ang_mult: float = math.sqrt(2.)
-        edge_time_encoding: bool = diffusion_kwargs['edge_time_encoding']
-        query_time_encoding: bool = diffusion_kwargs['query_time_encoding']
+        edge_time_encoding: bool = score_head_kwargs['edge_time_encoding']
+        query_time_encoding: bool = score_head_kwargs['query_time_encoding']
 
-        print("ScoreModel: Initializing Key Feature Extractor")
-        self.key_feature_extractor = UnetFeatureExtractor(
-            **(key_feature_extractor_kwargs),
-            deterministic=deterministic
-        )
-
-        print("ScoreModel: Initializing Query Model")
-        self.query_model = KeypointExtractor(
-            **(query_kwargs),
-            deterministic=deterministic
-        )
+        key_tensor_field_kwargs = score_head_kwargs['key_tensor_field_kwargs']
+        assert 'irreps_input' not in key_tensor_field_kwargs.keys()
+        key_tensor_field_kwargs['irreps_input'] = self.key_model.irreps_output
+        assert 'use_src_point_attn' not in key_tensor_field_kwargs.keys()
+        key_tensor_field_kwargs['use_src_point_attn'] = False
+        assert 'use_dst_point_attn' not in key_tensor_field_kwargs.keys()
+        key_tensor_field_kwargs['use_dst_point_attn'] = False
 
         print("ScoreModel: Initializing Score Head")
         self.score_head = ScoreModelHead(max_time=max_time, 
@@ -76,6 +98,7 @@ class MultiscaleScoreModel(torch.nn.Module):
 
         self.register_buffer('q_indices', torch.tensor([[1,2,3], [0,3,2], [3,0,1], [2,1,0]], dtype=torch.long), persistent=False)
         self.register_buffer('q_factor', torch.tensor([[-0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, 0.5]]), persistent=False)
+
 
     @torch.jit.ignore()
     def to(self, *args, **kwargs):
@@ -100,7 +123,8 @@ class MultiscaleScoreModel(torch.nn.Module):
         assert time.ndim == 1 and target_ang_score.shape[-1] == 3, f"{target_ang_score.shape}"
         assert len(time) == len(target_ang_score) == len(target_lin_score)
 
-        key_pcd_multiscale: List[FeaturedPoints] = self.key_feature_extractor(key_pcd)
+        #key_pcd_multiscale: List[FeaturedPoints] = self.key_feature_extractor(key_pcd)
+        key_pcd_multiscale: List[FeaturedPoints] = self.key_model(key_pcd)
         query_pcd: FeaturedPoints = self.query_model(query_pcd)
 
         ang_score, lin_score = self.score_head(Ts = Ts, 
@@ -108,13 +132,14 @@ class MultiscaleScoreModel(torch.nn.Module):
                                                query_pcd = query_pcd,
                                                time = time)
         
-        target_ang_score = target_ang_score * torch.sqrt(time[..., None])
+        target_ang_score = target_ang_score * torch.sqrt(time[..., None]) * self.ang_mult
         target_lin_score = target_lin_score * torch.sqrt(time[..., None]) * self.lin_mult
         ang_score_diff = target_ang_score - ang_score
         lin_score_diff = target_lin_score - lin_score
         ang_loss = torch.sum(torch.square(ang_score_diff), dim=-1).mean(dim=-1)
         lin_loss = torch.sum(torch.square(lin_score_diff), dim=-1).mean(dim=-1)
 
+        # ang_loss = ang_loss * ((self.lin_mult/self.ang_mult)**2)
         loss = ang_loss + lin_loss
 
 
@@ -140,7 +165,7 @@ class MultiscaleScoreModel(torch.nn.Module):
         }
 
         fp_info: Dict[str, Optional[FeaturedPoints]] = {
-            #"key_fp": detach_featured_points(key_pcd),
+            #"key_fp": detach_featured_points(key_pcd_multiscale[0]),
             "key_fp": None,
             "query_fp": detach_featured_points(query_pcd),
         }
@@ -161,7 +186,7 @@ class MultiscaleScoreModel(torch.nn.Module):
                 debug: bool = False) -> Tuple[Tuple[torch.Tensor, torch.Tensor], 
                                               Optional[Tuple[List[FeaturedPoints], FeaturedPoints]]]:
 
-        key_pcd_multiscale: List[FeaturedPoints] = self.key_feature_extractor(key_pcd)
+        key_pcd_multiscale: List[FeaturedPoints] = self.key_model(key_pcd)
         query_pcd: FeaturedPoints = self.query_model(query_pcd)
 
         score: Tuple[torch.Tensor, torch.Tensor] = self.score_head(Ts = Ts, 

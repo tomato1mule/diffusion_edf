@@ -143,7 +143,11 @@ class GraphEdgeEncoderBase(torch.nn.Module):
             self.requires_encoding = True
             
     @torch.autocast(device_type='cuda', enabled=False)
-    def _encode_edges(self, x_src: torch.Tensor, x_dst: torch.Tensor, edge_src: torch.Tensor, edge_dst: torch.Tensor) -> GraphEdge:
+    def _encode_edges(self, x_src: torch.Tensor, 
+                      x_dst: torch.Tensor, 
+                      edge_src: torch.Tensor, 
+                      edge_dst: torch.Tensor,
+                      fill_edge_weights: Optional[float] = None) -> GraphEdge:
         if not self.requires_encoding:
             raise ValueError("You don't have to encode the graph.")
         
@@ -194,7 +198,12 @@ class GraphEdgeEncoderBase(torch.nn.Module):
                                         irreps=self.irreps_sh)
                 
         if edge_cutoff is None:
-            log_edge_cutoff = None
+            if fill_edge_weights is None:
+                log_edge_cutoff = None
+            else:
+                assert isinstance(fill_edge_weights, float), f"{fill_edge_weights}"
+                edge_cutoff = torch.empty_like(edge_length).fill_(fill_edge_weights)
+                log_edge_cutoff = torch.empty_like(edge_length).fill_(math.log(fill_edge_weights))
         else:
             if edge_cutoff.requires_grad:
                 edge_cutoff = torch.where(edge_cutoff >= self.cutoff_eps, edge_cutoff, self.cutoff_eps + (edge_cutoff - edge_cutoff.detach())) # Straight-through gradient estimation trick
@@ -215,6 +224,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
 
 
 class InfiniteBipartite(GraphEdgeEncoderBase):
+    fill_edge_weights: Optional[float]
     @beartype
     def __init__(self, irreps_sh: Optional[Union[str, o3.Irreps]],
                  r_mincut_nonscalar_sh: Optional[Union[float, int]],
@@ -222,6 +232,7 @@ class InfiniteBipartite(GraphEdgeEncoderBase):
                  length_enc_max_r: Optional[Union[float, int]] = None,
                  length_enc_type: Optional[str] = 'SinusoidalPositionEmbeddings',
                  sh_cutoff: bool = False,
+                 fill_edge_weights: bool = False,
                  ):
         if length_enc_dim is None:
             length_enc = None
@@ -244,6 +255,11 @@ class InfiniteBipartite(GraphEdgeEncoderBase):
             else:
                 raise ValueError(f"Unknown length encoder type: {length_enc_type}")
         
+        if fill_edge_weights:
+            self.fill_edge_weights = 1.
+        else:
+            self.fill_edge_weights = None
+        
         super().__init__(r_cutoff=None, 
                          irreps_sh=irreps_sh,
                          r_mincut_nonscalar_sh=r_mincut_nonscalar_sh,
@@ -264,7 +280,7 @@ class InfiniteBipartite(GraphEdgeEncoderBase):
         if not self.requires_encoding:
             return GraphEdge(edge_src=edge_src, edge_dst=edge_dst)
         
-        return self._encode_edges(x_src=src.x, x_dst=dst.x, edge_src=edge_src, edge_dst=edge_dst)
+        return self._encode_edges(x_src=src.x, x_dst=dst.x, edge_src=edge_src, edge_dst=edge_dst, fill_edge_weights=self.fill_edge_weights)
 
 
 
