@@ -6,7 +6,7 @@ model_kwargs:
     ang_mult: 2.5
     lin_mult: 15.
     edge_time_encoding: True
-    query_time_encoding: False
+    query_time_encoding: True
     key_tensor_field_kwargs:
       irreps_output: '64x0e+32x1e+16x2e'
       irreps_sh: '1x0e+1x1e+1x2e'
@@ -15,7 +15,7 @@ model_kwargs:
       length_emb_dim: 64          
       r_cluster_multiscale: 
         - null
-      n_layers: 1
+      n_layers: 2
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'
       r_mincut_nonscalar_sh: 0.1

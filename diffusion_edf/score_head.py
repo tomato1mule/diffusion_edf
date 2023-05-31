@@ -59,6 +59,15 @@ class ScoreModelHead(torch.nn.Module):
             time_mlp = torch.nn.Sequential(*time_mlp)
             time_mlps_multiscale.append(time_mlp)
         self.time_mlps_multiscale = time_mlps_multiscale
+        if query_time_encoding:
+            time_mlp = []
+            for i in range(1,len(time_emb_mlp)):
+                time_mlp.append(torch.nn.Linear(self.time_emb_mlp[i-1], self.time_emb_mlp[i]))
+                if i != len(time_emb_mlp) -1:
+                    time_mlp.append(torch.nn.SiLU(inplace=True))
+            self.query_time_mlp = torch.nn.Sequential(*time_mlp)
+        else:
+            self.query_time_mlp = None
         self.time_emb_dim = time_emb_mlp[-1]
 
         self.edge_time_encoding = edge_time_encoding
@@ -157,15 +166,17 @@ class ScoreModelHead(torch.nn.Module):
         time_enc: torch.Tensor = self.time_enc(time)                       # (nT, time_emb_mlp[0])
         for time_mlp in self.time_mlps_multiscale:
             time_embs_multiscale.append(
-                time_mlp(time_enc).unsqueeze(-2).expand(-1, nQ, -1).reshape(nT*nQ, self.time_emb_dim)        # (nT, time_emb_D) -> # (nT, nQ, time_emb_D)
+                time_mlp(time_enc).unsqueeze(-2).expand(-1, nQ, -1).reshape(nT*nQ, self.time_emb_dim)        # (nT, time_emb_D) -> # (nT*nQ, time_emb_D)
             )        
 
         ################# TODO: SCRUTINIZE THIS CODE ########################
         query_transformed: FeaturedPoints = self.query_transform(pcd = query_pcd, Ts = Ts)                                     # (nT, nQ, 3), (nT, nQ, F), (nT, nQ,), (nT, nQ,)
         query_features_transformed: torch.Tensor = query_transformed.f.clone()                                                 # (nT, nQ, F)         
         if self.query_time_encoding:
-            raise NotImplementedError
-            query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=time_emb, w=None)    # (nT, nQ, 3), (nT, nQ, time_emb), (nT, nQ,), None
+            assert self.query_time_mlp is not None
+            query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, 
+                                                                              f=self.query_time_mlp(time_enc).unsqueeze(-2).expand(nT, nQ, self.time_emb_dim),  # (nT, time_emb_D) -> # (nT, nQ, time_emb_D)
+                                                                              w=None)    # (nT, nQ, 3), (nT, nQ, time_emb), (nT, nQ,), None
         else:
             query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=torch.empty_like(query_transformed.f), w=None)   # (nT, nQ, 3), (nT, nQ, -), (nT, nQ,), None
 
@@ -175,7 +186,7 @@ class ScoreModelHead(torch.nn.Module):
                                                                       input_points_multiscale = key_pcd_multiscale,
                                                                       context_emb = time_embs_multiscale)                      # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
         else:
-            raise PermissionError
+            assert self.query_time_encoding is True, f"You need to use at least one (query or edge) time encoding method."
             query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
                                                                       input_points_multiscale = key_pcd_multiscale,
                                                                       context_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)                                                         # (nT*nQ, F)
