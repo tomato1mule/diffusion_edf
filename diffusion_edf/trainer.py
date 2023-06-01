@@ -2,14 +2,17 @@ import os
 from typing import List, Tuple, Union, Optional, Dict, Callable
 from datetime import datetime
 
+from tqdm import tqdm
 from beartype import beartype
 import yaml
 
 import torch
 from torch.utils.data import DataLoader
 
-from diffusion_edf.data import DemoSeqDataset
+from diffusion_edf.data import DemoSeqDataset, PointCloud, SE3
+from diffusion_edf.gnn_data import FeaturedPoints
 from diffusion_edf import train_utils
+from diffusion_edf.score_model_base import ScoreModelBase
 from diffusion_edf.point_attentive_score_model import PointAttentiveScoreModel
 from diffusion_edf.multiscale_score_model import MultiscaleScoreModel
 
@@ -24,8 +27,6 @@ class DiffusionEdfTrainer():
     model_configs: Dict
 
     device: torch.device
-
-    epochs: int
     steps: int
     log_dir: str
 
@@ -63,7 +64,7 @@ class DiffusionEdfTrainer():
 
         self.trainloader: Optional[DataLoader] = None
         self.testloader: Optional[DataLoader] = None
-        self.score_model: Optional[torch.nn.Module] = None
+        self.score_model: Optional[ScoreModelBase] = None
         self.optimizer: Optional[torch.optim.Optimizer] = None
         self.logger: Optional[train_utils.LazyLogger] = None
 
@@ -113,7 +114,7 @@ class DiffusionEdfTrainer():
     def get_model(self, deterministic: bool = False, 
                   device: Optional[Union[str, torch.device]] = None,
                   checkpoint_dir: Optional[str] = None,
-                  ) -> Union[PointAttentiveScoreModel, MultiscaleScoreModel]:
+                  ) -> ScoreModelBase:
         if device is None:
             device = self.device
         else:
@@ -135,7 +136,7 @@ class DiffusionEdfTrainer():
             print(f"Successfully Loaded checkpoint @ epoch: {epoch} (steps: {steps})")
         
         return score_model.to(device)
-        
+            
     @beartype
     def _init_model(self, deterministic: bool = False, 
                     device: Optional[Union[str, torch.device]] = None):
@@ -151,7 +152,7 @@ class DiffusionEdfTrainer():
     def _init_logging(self, log_name: str,
                       log_root_dir: Optional[str] = None,
                       resume_training: bool = False,
-                      resume_checkpoint_dir: Optional[str] = None) -> bool:
+                      resume_checkpoint_dir: Optional[str] = None) -> int:
         if log_root_dir is None:
             log_root_dir = self.train_configs['log_root_dir']
 
@@ -176,7 +177,7 @@ class DiffusionEdfTrainer():
             steps = checkpoint['steps']
             print(f"resume training from checkpoint: {full_checkpoint_dir}")
 
-            self.epoch = epoch + 1
+            init_epoch = epoch + 1
             self.steps = steps
             self.log_dir = log_dir
         else:
@@ -185,21 +186,21 @@ class DiffusionEdfTrainer():
             if os.path.exists(log_dir):
                 raise ValueError(f'Directory "{log_dir}" already exists!')
             
-            self.epoch = 0
+            init_epoch = 0
             self.steps = 0
             self.log_dir = log_dir
 
         self.logger = train_utils.LazyLogger(log_dir=log_dir, 
                                              resume=resume_training,
                                              configs_root_dir=self.configs_root_dir)
-        return True
+        return init_epoch
     
     @beartype
     def init(self, log_name: str,
              log_root_dir: Optional[str] = None,
              resume_training: bool = False,
              resume_checkpoint_dir: Optional[str] = None,
-             model: Optional[torch.nn.Module] = None) -> bool:
+             model: Optional[ScoreModelBase] = None) -> int:
         if self.is_initialized:
             raise RuntimeError("Trainer already initialized!")
         
@@ -209,12 +210,327 @@ class DiffusionEdfTrainer():
         else:
             self.score_model = model
         self._init_optimizer()
-        self._init_logging(log_name=log_name, 
-                        log_root_dir=log_root_dir, 
-                        resume_training=resume_training, 
-                        resume_checkpoint_dir=resume_checkpoint_dir)
-        return True
+        init_epoch = self._init_logging(
+            log_name=log_name, 
+            log_root_dir=log_root_dir, 
+            resume_training=resume_training, 
+            resume_checkpoint_dir=resume_checkpoint_dir
+        )
+        return init_epoch
+    
+    @beartype
+    def save(self, epoch: int):
+        torch.save({'epoch': epoch,
+                    'steps': self.steps,
+                    'score_model_state_dict': self.score_model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    }, os.path.join(self.log_dir, f'checkpoint/{epoch}.pt'))
+        
+        print(f"(Epoch: {epoch}) Successfully saved logs to: {self.log_dir}")
 
+    @beartype
+    def biequiv_diffusion(self, T_init: torch.Tensor, time: Union[float, torch.Tensor],
+                          scene_points: FeaturedPoints, grasp_points: FeaturedPoints,
+                          ang_mult: Union[int, float],
+                          lin_mult: Union[int, float],
+                          contact_radius: Optional[Union[int, float]] = None,
+                          n_samples_x_ref: Optional[int] = None,) -> Tuple[torch.Tensor, 
+                                                                           torch.Tensor, 
+                                                                           torch.Tensor,
+                                                                           Tuple[torch.Tensor, torch.Tensor],
+                                                                           Tuple[torch.Tensor, torch.Tensor]
+                                                                           ]:
+        """
+        Input Shapes:
+            T_init: (nT, 7);  currently only nT=1 is implemented.
+            time: (nT,)
+        Output Shapes:
+            T_diffused: (nT * n_samples_x_ref, 7)
+            delta_T: (nT * n_samples_x_ref, 7)
+            time_in: (nT * n_samples_x_ref, )
+            gt_<...>_score: (nT * n_samples_x_ref, 3)
+        """
+        assert T_init.ndim == 2 and T_init.shape[-1] == 7, f"T_init.shape must be (N_poses, 7), but {T_init.shape} is given."
+        nT = len(T_init)
+        if nT != 1:
+            raise NotImplementedError(f"T_init.shape = (nT,7) with nT > 1 is not yet implemented, but {T_init.shape} is given.")
+
+        if isinstance(time, float):
+            time = torch.tensor([time], device=T_init.device).expand(nT)
+        assert time.shape == (nT,)
+
+        ang_mult, lin_mult = float(ang_mult), float(lin_mult)
+        if contact_radius is None:
+            contact_radius = self.contact_radius
+        else:
+            contact_radius = float(contact_radius)
+        if n_samples_x_ref is None:
+            n_samples_x_ref = self.n_samples_x_ref
+            
+        x_ref, n_neighbors = train_utils.transform_and_sample_reference_points(
+            T_target=T_init,
+            scene_points=scene_points,
+            grasp_points=grasp_points,
+            contact_radius=contact_radius,
+            n_samples_x_ref=n_samples_x_ref
+        )
+        T_diffused, delta_T, time_in, (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref) = train_utils.diffuse_T_target(
+            T_target=T_init, 
+            x_ref=x_ref, 
+            time=time, 
+            lin_mult=lin_mult,
+            ang_mult=ang_mult
+        )
+
+        return T_diffused, delta_T, time_in, (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref)
+    
+    @beartype
+    def train_once(self, T_target: torch.Tensor, 
+                   scene_input: FeaturedPoints, 
+                   grasp_input: FeaturedPoints,
+                   epoch: int,
+                   save_checkpoint: bool,
+                   checkpoint_count: Optional[int] = None):
+        if scene_input.b.max() != 0:
+            raise NotImplementedError(f"Batched training is currently not supported. (n_batch: {scene_input.b})")
+        assert self.is_initialized, f"Trainer not initialized!"
+        assert T_target.shape == (1,7), f"T_target.shape must be (1,7), but {T_target.shape} is given."
+
+        self.optimizer.zero_grad(set_to_none=True)
+
+        loss, T_diffused, fp_info, tensor_info, statistics = self.run_once(T_target=T_target, 
+                                                                           scene_input=scene_input, 
+                                                                           grasp_input=grasp_input)
+        loss.backward()
+        self.optimizer.step()
+        self.steps += 1
+
+        ### Record scalars ###
+        with torch.no_grad():
+            for tag, scalar_value in statistics.items():
+                self.logger.add_scalar(tag=tag, scalar_value=scalar_value, global_step=self.steps)
+        
+        ### Record 3d points ###
+        if save_checkpoint:
+            assert isinstance(checkpoint_count, int)
+            self.record_pcd(
+                T_target=T_target.detach(), 
+                T_diffused=T_diffused.detach(), 
+                scene_input=scene_input, 
+                grasp_input=grasp_input,
+                scene_output=fp_info['key_fp'],
+                grasp_output=fp_info['query_fp'],
+                count=checkpoint_count
+            )
+
+            self.save(epoch=epoch)
+            
+
+    @beartype
+    def run_once(self, T_target: torch.Tensor, 
+                 scene_input: FeaturedPoints, 
+                 grasp_input: FeaturedPoints) -> Tuple[torch.Tensor, torch.Tensor, Dict, Dict, Dict]:
+        if scene_input.b.max() != 0:
+            raise NotImplementedError(f"Batched training is currently not supported. (n_batch: {scene_input.b})")
+        assert self.is_initialized, f"Trainer not initialized!"
+        assert T_target.shape == (1,7), f"T_target.shape must be (1,7), but {T_target.shape} is given."
+        
+        ########################################## Augmentation #########################################
+        if self.t_augment is not None:
+            T_target, _, __, ___, ____ = self.biequiv_diffusion(
+                T_init=T_target, 
+                time=self.t_augment,
+                scene_points=scene_input,
+                grasp_points=grasp_input,
+                ang_mult=self.score_model.ang_mult,
+                lin_mult=self.score_model.lin_mult,
+                n_samples_x_ref=1,
+            )
+        ##################################################################################################
+
+        ############################################ Diffusion ###########################################
+        time_in = torch.empty(0, device=self.device)
+        T_diffused = torch.empty(0,7, device=self.device)
+        gt_ang_score, gt_lin_score = torch.empty(0,3, device=self.device), torch.empty(0,3, device=self.device)
+        gt_ang_score_ref, gt_lin_score_ref = torch.empty(0,3, device=self.device), torch.empty(0,3, device=self.device)
+        
+        for time_schedule in self.diffusion_schedules:
+            time = train_utils.random_time(
+                min_time=time_schedule[1], 
+                max_time=time_schedule[0], 
+                device=T_target.device
+            ) # Shape: (1,)
+            
+            T_diffused_, delta_T_, time_in_, gt_score_, gt_score_ref_ = self.biequiv_diffusion(
+                T_init=T_target, 
+                time=time,
+                scene_points=scene_input,
+                grasp_points=grasp_input,
+                ang_mult=self.score_model.ang_mult,
+                lin_mult=self.score_model.lin_mult,
+            )            
+            
+            (gt_ang_score_, gt_lin_score_), (gt_ang_score_ref_, gt_lin_score_ref_) = gt_score_, gt_score_ref_
+            T_diffused = torch.cat([T_diffused, T_diffused_], dim=0)
+            time_in = torch.cat([time_in, time_in_], dim=0)
+            gt_ang_score = torch.cat([gt_ang_score, gt_ang_score_], dim=0)
+            gt_lin_score = torch.cat([gt_lin_score, gt_lin_score_], dim=0)
+            gt_ang_score_ref = torch.cat([gt_ang_score_ref, gt_ang_score_ref_], dim=0)
+            gt_lin_score_ref = torch.cat([gt_lin_score_ref, gt_lin_score_ref_], dim=0)
+
+        ##################################################################################################
+
+        loss, fp_info, tensor_info, statistics = self.score_model.get_train_loss(Ts=T_diffused, time=time_in, key_pcd=scene_input, query_pcd=grasp_input,
+                                                                                 target_ang_score=gt_ang_score, target_lin_score=gt_lin_score)
+        
+        return loss, T_diffused, fp_info, tensor_info, statistics
+
+
+    #@beartype
+    def record_pcd(self, T_target: torch.Tensor,
+                   T_diffused: torch.Tensor,
+                   scene_input: FeaturedPoints, 
+                   grasp_input: FeaturedPoints,
+                   scene_output: Optional[FeaturedPoints],
+                   grasp_output: FeaturedPoints,
+                   count: int,
+                   ):
+        with torch.no_grad():
+            scene_pcd = PointCloud(points=scene_input.x, colors=scene_input.f)
+            grasp_pcd = PointCloud(points=grasp_input.x, colors=grasp_input.f)
+            target_pose_pcd = PointCloud.merge(
+                scene_pcd,
+                grasp_pcd.transformed(SE3(T_target), squeeze=True),
+            )
+            diffused_pose_pcd = PointCloud.merge(
+                scene_pcd,
+                grasp_pcd.transformed(SE3(T_diffused))[0],
+            )
+            if scene_output is not None:
+                scene_attn_pcd = PointCloud(points=scene_output.x.detach().cpu(), 
+                                            colors=scene_output.w.detach().cpu(),
+                                            cmap='magma')
+            else:
+                scene_attn_pcd = None
+            grasp_attn_pcd = PointCloud(points=grasp_output.x.detach().cpu(), 
+                                        colors=grasp_output.w.detach().cpu(),
+                                        cmap='magma')
+        
+            query_weight, query_points, query_point_batch = grasp_output.w.detach(), grasp_output.x.detach(), grasp_output.b.detach(), 
+            batch_vis_idx = (query_point_batch == 0).nonzero().squeeze(-1)
+            query_weight, query_points = query_weight[batch_vis_idx], query_points[batch_vis_idx]
+
+            N_repeat = 500
+            query_points_colors = torch.tensor([0.01, 1., 1.], device=query_weight.device, dtype=query_weight.dtype).expand(N_repeat, 1, 3) * query_weight[None, :, None]
+            r_query_ball = 0.5
+
+            ball = torch.randn(N_repeat,1,3, device=query_points.device, dtype=query_points.dtype)
+            ball = ball/ball.norm(dim=-1, keepdim=True) * r_query_ball
+            query_points = (query_points + ball).reshape(-1,3)
+            query_points_colors = query_points_colors.reshape(-1,3)
+
+
+        if scene_attn_pcd is not None:
+            self.logger.add_3d(
+                tag = "Scene Attention",
+                data = {
+                    "vertex_positions": scene_attn_pcd.points.cpu(),
+                    "vertex_colors": scene_attn_pcd.colors.cpu(),  # (N, 3)
+                },
+                step=count,
+            )
+
+        self.logger.add_3d(
+            tag = "Grasp Attention",
+            data = {
+                # "vertex_positions": query_points.repeat(max(int(1000//len(query_points)),1),1).cpu(),      # There is a bug with too small number of points so repeat
+                # "vertex_colors": query_points_colors.repeat(max(int(1000//len(query_points)),1),1).cpu(),  # (N, 3)
+                "vertex_positions": query_points.cpu(),      # There is a bug with too small number of points so repeat
+                "vertex_colors": query_points_colors.cpu(),  # (N, 3)
+            },
+            step=count,
+        )
+
+        self.logger.add_3d(
+            tag = "Target Pose",
+            data = {
+                "vertex_positions": target_pose_pcd.points.cpu(),
+                "vertex_colors": target_pose_pcd.colors.cpu(),  # (N, 3)
+            },
+            step=count,
+        )
+
+        self.logger.add_3d(
+            tag = "Diffused Pose",
+            data = {
+                "vertex_positions": diffused_pose_pcd.points.cpu(),
+                "vertex_colors": diffused_pose_pcd.colors.cpu(),  # (N, 3)
+            },
+            step=count,
+            #description=f"Diffuse time: {time_in[0].item()} || eps: {eps.item()} || std: {std.item()}",
+        )
+
+        self.logger.add_3d(
+            tag = "Grasp",
+            data = {
+                "vertex_positions": grasp_pcd.points.cpu(),
+                "vertex_colors": grasp_pcd.colors.cpu(),  # (N, 3)
+            },
+            step=count,
+        )
+
+
+    # def warmup_score_model(self, score_model: ScoreModelBase, n_warmups: int = 10):
+    #     assert self.trainloader is not None
+    #     for iters, demo_batch in tqdm(zip(range(n_warmups, self.trainloader))):
+    #         B = len(demo_batch)
+    #         assert B == 1, "Batch training is not supported yet."
+
+    #         scene_input, grasp_input, T_target = train_utils.flatten_batch(demo_batch=demo_batch) # T_target: (Nbatch, Ngrasps, 7)
+    #         T_target = T_target.squeeze(0) # (B=1, N_poses=1, 7) -> (1,7) 
+
+
+    #         with torch.no_grad():
+    #             key_pcd_multiscale: List[FeaturedPoints] = score_model.get_key_pcd_multiscale(scene_input)
+    #             query_pcd: FeaturedPoints = score_model.get_query_pcd(grasp_input)
+                
+
+
+    #         # time = torch.tensor([trainer.t_max], dtype=T_target.dtype, device=T_target.device)
+    #         # print(f"Diffusion time: {time.item()}")
+    #         # x_ref, n_neighbors = train_utils.transform_and_sample_reference_points(T_target=T_target,
+    #         #                                                                        scene_points=scene_input,
+    #         #                                                                        grasp_points=grasp_input,
+    #         #                                                                        contact_radius=trainer.contact_radius,
+    #         #                                                                        n_samples_x_ref=1)
+    #         # T0, delta_T, time_in, gt_score, gt_score_ref = train_utils.diffuse_T_target(T_target=T_target, 
+    #         #                                                                             x_ref=x_ref, 
+    #         #                                                                             time=time, 
+    #         #                                                                             lin_mult=score_model.lin_mult)
+    #         # (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref) = gt_score, gt_score_ref
+
+    #         scene_input, grasp_input, _ = train_utils.flatten_batch(demo_batch=demo_batch)
+    #         # T0 = torch.cat([
+    #         #     transforms.random_quaternions(1, device=device),
+    #         #     torch.distributions.Uniform(scene_input.x[:].min(dim=0).values, scene_input.x[:].max(dim=0).values).sample(sample_shape=(1,))
+    #         # ], dim=-1)
+    #         T0 = torch.cat([
+    #             #transforms.random_quaternions(1, device=device),
+    #             #torch.tensor([[math.sqrt(0.5), -math.sqrt(0.5), 0.0, 0.]], device=device),
+    #             torch.tensor([[1., 0., 0.0, 0.]], device=device),
+    #             torch.tensor([[-30., -30., 30.]], device=device)
+    #         ], dim=-1)
+    #         scene_pcd = PointCloud(points=scene_input.x, colors=scene_input.f)
+    #         grasp_pcd = PointCloud(points=grasp_input.x, colors=grasp_input.f)
+
+
+    #         # diffused_pose_pcd = PointCloud.merge(
+    #         #     scene_pcd,
+    #         #     grasp_pcd.transformed(SE3(T0))[0],
+    #         # )
+    #         # diffused_pose_pcd.show(point_size=2., width=600, height=600)
+
+    #         score_model.get_key_pcd_multiscale()
 
 
 
