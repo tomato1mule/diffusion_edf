@@ -50,14 +50,14 @@ Please open *'evaluate_pick.ipynb'* with Jupyter notebook.
 
 **Inputs**
 
-* scene_input, grasp_input: FeaturedPoints
-    - FeaturedPoints.x: 3d position of the points; Shape: (nPoints, 3)
-    - FeaturedPoints.f: Feature vector of the points; Shape: (nPoints, dim_feature)
-    - FeaturedPoints.b: Minibatch index of each points. Currently all set to zero; Shape:(nPoints,)
-    - FaturedPoints.w: Optional point attention value; Shape: (nPoints, )
-* T_seed: Initial pose to start denoising process; Shape: (nPoses, 7)
-    - T_seed[..., :4]: Quaternion (qw, qx, qy, qz)
-    - T_seed[..., 4:]: Position (x, y, z)
+* **scene_input, grasp_input**: FeaturedPoints
+    - FeaturedPoints.**x**: 3d position of the points; Shape: (nPoints, 3)
+    - FeaturedPoints.**f**: Feature vector of the points; Shape: (nPoints, dim_feature)
+    - FeaturedPoints.**b**: Minibatch index of each points. Currently all set to zero; Shape:(nPoints,)
+    - FaturedPoints.**w**: Optional point attention value; Shape: (nPoints, )
+* **T_seed**: Initial pose to start denoising process; Shape: (nPoses, 7)
+    - **T_seed[..., :4]**: Quaternion (qw, qx, qy, qz)
+    - **T_seed[..., 4:]**: Position (x, y, z)
 
 > **Note**\
 > Properly setting the unit system for position is crucial. In this code, centimeter unit is used for the model. For example, the distance between two points (x=0., y=0., z=0.) and (x=1., y=0., z=0.) is 1cm.
