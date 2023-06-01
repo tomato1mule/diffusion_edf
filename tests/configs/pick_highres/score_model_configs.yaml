@@ -14,7 +14,7 @@ model_kwargs:
       fc_neurons: [-1, 128, 64]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
       length_emb_dim: 64          
       r_cluster_multiscale: 
-        - 5.
+        - 6.
       n_layers: 1
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'
