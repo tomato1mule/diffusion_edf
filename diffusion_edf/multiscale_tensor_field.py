@@ -237,7 +237,9 @@ class MultiscaleTensorField(torch.nn.Module):
                 assert graph_edges_flattend is not None and input_points_flattend is not None
                 graph_edges_flattend = cat_graph_edges(graph_edges_flattend, graph_edge)
                 input_points_flattend = cat_featured_points(input_points_flattend, input_points)
-            
+
+        if len(graph_edges_flattend.edge_src) == 0:
+            warnings.warn("Multiscale Tensor Field: zero edges detected!")
 
         output_points: FeaturedPoints = self.gnn_block_init(src_points=input_points_flattend,
                                                             dst_points=query_points,

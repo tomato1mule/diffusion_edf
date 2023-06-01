@@ -162,7 +162,7 @@ class Vec2AttnHeads(torch.nn.Module):
         out = []
         for start_idx, end_idx in self.mid_in_indices:
             temp = x.narrow(1, start_idx, end_idx - start_idx)
-            temp = temp.reshape(N, self.num_heads, -1)
+            temp = temp.reshape(N, self.num_heads, temp.shape[-1] // self.num_heads)
             out.append(temp)
         out = torch.cat(out, dim=2)
         return out
