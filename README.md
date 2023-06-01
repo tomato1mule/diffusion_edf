@@ -33,3 +33,17 @@ pip install torch-scatter torch-sparse torch-cluster -f https://data.pyg.org/whl
 pip install -e .
 ```
 
+# Usage
+## Training
+```shell
+bash train_pick.bash
+<WIP> bash train_place.bash
+```
+To see running experiments, use tensorboard:
+```shell
+tensorboard --logdir=./runs
+```
+## Evaluation
+Please open *'evaluate_pick.ipynb'*$\ $ with Jupyter notebook.
+
+*'evaluate_pick.ipynb'*$\ $ is work in progress.

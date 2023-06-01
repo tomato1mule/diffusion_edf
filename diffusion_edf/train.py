@@ -75,9 +75,9 @@ if __name__ == '__main__':
                         help='')
     parser.add_argument('--task-configs-file', type=str, default='task_configs.yaml',
                         help='')
-    parser.add_argument('--log_name', type=str,
+    parser.add_argument('--log-name', type=str,
                         help='')
-    parser.add_argument('--log_name_postfix', type=str,
+    parser.add_argument('--log-name-postfix', type=str,
                         help='')
     parser.add_argument('--resume-training', action='store_true',
                     help='')
