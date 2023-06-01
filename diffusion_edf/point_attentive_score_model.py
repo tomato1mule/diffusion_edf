@@ -183,11 +183,11 @@ class PointAttentiveScoreModel(torch.nn.Module):
                                     ],
                N_steps: List[int], 
                timesteps: List[float],
+               add_noise: bool = True,
                temperature: float = 1.0) -> torch.Tensor:
         
         device = T_seed.device
         T = T_seed.clone().detach().type(torch.float64)
-        T_shape = T.shape
 
         Ts = [T.clone().detach()]
 
@@ -207,14 +207,15 @@ class PointAttentiveScoreModel(torch.nn.Module):
                                                              query_pcd=grasp_pcd,
                                                              time = t.repeat(len(T)).float())
                 ang_score, lin_score = ang_score.type(torch.float64), lin_score.type(torch.float64)
-                lin_score = lin_score * self.lin_mult / self.ang_mult
-                # ang_score = ang_score / torch.sqrt(t) / score_model.ang_mult
-                # lin_score = lin_score / torch.sqrt(t) / score_model.lin_mult
 
-                # ang_disp = ang_score * dt / (2*temp) + (torch.randn_like(ang_score, dtype=torch.float64) * torch.sqrt(dt))
-                # lin_disp = lin_score * dt / (2*temp) + (torch.randn_like(lin_score, dtype=torch.float64) * torch.sqrt(dt))
-                ang_disp = ang_score * dt / temperature
-                lin_disp = lin_score * dt / temperature
+                ang_disp = ang_score * dt / (2*temperature)
+                lin_disp = lin_score * dt / (2*temperature)
+                if add_noise:
+                    ang_disp = ang_disp + torch.randn_like(ang_score, dtype=torch.float64) * torch.sqrt(dt * t)
+                    lin_disp = lin_disp + torch.randn_like(lin_score, dtype=torch.float64) * torch.sqrt(dt * t)
+                ang_disp = ang_disp * self.ang_mult
+                lin_disp = lin_disp * self.lin_mult
+
 
                 L = T.detach()[...,self.q_indices] * (self.q_factor.type(torch.float64))
                 q, x = T[...,:4], T[...,4:]
