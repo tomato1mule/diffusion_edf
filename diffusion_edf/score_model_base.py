@@ -116,7 +116,8 @@ class ScoreModelBase(torch.nn.Module):
                                     ],
                N_steps: List[int], 
                timesteps: List[float],
-               add_noise: bool = True,
+               ang_noise: Union[int, float] = 1.0,
+               lin_noise: Union[int, float] = 1.0,
                temperature: float = 1.0) -> torch.Tensor:
         
         device = T_seed.device
@@ -141,11 +142,11 @@ class ScoreModelBase(torch.nn.Module):
                                                              time = t.repeat(len(T)).float())
                 ang_score, lin_score = ang_score.type(torch.float64), lin_score.type(torch.float64)
 
-                ang_disp = ang_score * dt / (2*temperature)
-                lin_disp = lin_score * dt / (2*temperature)
-                if add_noise:
-                    ang_disp = ang_disp + torch.randn_like(ang_score, dtype=torch.float64) * torch.sqrt(dt * t)
-                    lin_disp = lin_disp + torch.randn_like(lin_score, dtype=torch.float64) * torch.sqrt(dt * t)
+                ang_disp = (ang_score * dt / 2) \
+                                + (float(ang_noise) * torch.randn_like(ang_score, dtype=torch.float64) * torch.sqrt(dt * t * temperature))
+                lin_disp = (lin_score * dt / 2) \
+                                + (float(lin_noise) * torch.randn_like(lin_score, dtype=torch.float64) * torch.sqrt(dt * t * temperature))
+
                 ang_disp = ang_disp * self.ang_mult
                 lin_disp = lin_disp * self.lin_mult
 
