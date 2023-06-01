@@ -99,6 +99,11 @@ class MultiscaleScoreModel(torch.nn.Module):
         self.register_buffer('q_indices', torch.tensor([[1,2,3], [0,3,2], [3,0,1], [2,1,0]], dtype=torch.long), persistent=False)
         self.register_buffer('q_factor', torch.tensor([[-0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, 0.5]]), persistent=False)
 
+    def get_key_pcd_multiscale(self, pcd: FeaturedPoints) -> List[FeaturedPoints]:
+        return self.key_model(pcd)
+    
+    def get_query_pcd(self, pcd: FeaturedPoints) -> FeaturedPoints:
+        return self.query_model(pcd)
 
     @torch.jit.ignore()
     def to(self, *args, **kwargs):
@@ -123,9 +128,8 @@ class MultiscaleScoreModel(torch.nn.Module):
         assert time.ndim == 1 and target_ang_score.shape[-1] == 3, f"{target_ang_score.shape}"
         assert len(time) == len(target_ang_score) == len(target_lin_score)
 
-        #key_pcd_multiscale: List[FeaturedPoints] = self.key_feature_extractor(key_pcd)
-        key_pcd_multiscale: List[FeaturedPoints] = self.key_model(key_pcd)
-        query_pcd: FeaturedPoints = self.query_model(query_pcd)
+        key_pcd_multiscale: List[FeaturedPoints] = self.get_key_pcd_multiscale(key_pcd)
+        query_pcd: FeaturedPoints = self.get_query_pcd(query_pcd)
 
         ang_score, lin_score = self.score_head(Ts = Ts, 
                                                key_pcd_multiscale = key_pcd_multiscale, 
@@ -177,7 +181,66 @@ class MultiscaleScoreModel(torch.nn.Module):
 
         return loss, fp_info, tensor_info, statistics
 
+    @torch.jit.export
+    def sample(self, T_seed: torch.Tensor,
+               scene_pcd_multiscale: List[FeaturedPoints], 
+               grasp_pcd: FeaturedPoints,
+               diffusion_schedules: List[Union[
+                                        List[float], 
+                                        Tuple[float, float]]
+                                    ],
+               N_steps: List[int], 
+               timesteps: List[float],
+               temperature: float = 1.0) -> torch.Tensor:
         
+        device = T_seed.device
+        T = T_seed.clone().detach().type(torch.float64)
+        T_shape = T.shape
+
+        Ts = [T.clone().detach()]
+
+        steps = 0
+        for n, schedule in enumerate(diffusion_schedules):
+            t_schedule = torch.linspace(schedule[0], schedule[1], N_steps[n], device=device, dtype=torch.float64)
+            #dt_schedule = torch.ones_like(t_schedule) * (schedule[0] - schedule[1]) / n_steps * dt_mult
+            dt_schedule = torch.ones_like(t_schedule) * timesteps[n]
+            t_schedule = t_schedule.unsqueeze(-1)
+
+            for i in tqdm(range(len(t_schedule))):
+                t = t_schedule[i]
+                dt = dt_schedule[i]
+                with torch.no_grad():
+                    (ang_score, lin_score) = self.score_head(Ts=T.view(-1,7).float(), 
+                                                             key_pcd_multiscale=scene_pcd_multiscale,
+                                                             query_pcd=grasp_pcd,
+                                                             time = t.repeat(len(T)).float())
+                ang_score, lin_score = ang_score.type(torch.float64), lin_score.type(torch.float64)
+                lin_score = lin_score * self.lin_mult / self.ang_mult
+                # ang_score = ang_score / torch.sqrt(t) / score_model.ang_mult
+                # lin_score = lin_score / torch.sqrt(t) / score_model.lin_mult
+
+                # ang_disp = ang_score * dt / (2*temp) + (torch.randn_like(ang_score, dtype=torch.float64) * torch.sqrt(dt))
+                # lin_disp = lin_score * dt / (2*temp) + (torch.randn_like(lin_score, dtype=torch.float64) * torch.sqrt(dt))
+                ang_disp = ang_score * dt / temperature
+                lin_disp = lin_score * dt / temperature
+
+                L = T.detach()[...,self.q_indices] * (self.q_factor.type(torch.float64))
+                q, x = T[...,:4], T[...,4:]
+                dq = torch.einsum('...ij,...j->...i', L, ang_disp)
+                dx = transforms.quaternion_apply(q, lin_disp)
+                q = transforms.normalize_quaternion(q + dq)
+                T = torch.cat([q, x+dx], dim=-1)
+
+                # dT = transforms.se3_exp_map(torch.cat([lin_disp, ang_disp], dim=-1))
+                # dT = torch.cat([transforms.matrix_to_quaternion(dT[..., :3, :3]), dT[..., :3, 3]], dim=-1)
+                # T = transforms.multiply_se3(T, dT)
+                steps += 1
+                Ts.append(T.clone().detach())
+
+        Ts.append(T.clone().detach())
+        Ts = torch.cat(Ts, dim=0).detach()
+
+        return Ts
 
     def forward(self, Ts: torch.Tensor, 
                 time: torch.Tensor, 
@@ -186,8 +249,8 @@ class MultiscaleScoreModel(torch.nn.Module):
                 debug: bool = False) -> Tuple[Tuple[torch.Tensor, torch.Tensor], 
                                               Optional[Tuple[List[FeaturedPoints], FeaturedPoints]]]:
 
-        key_pcd_multiscale: List[FeaturedPoints] = self.key_model(key_pcd)
-        query_pcd: FeaturedPoints = self.query_model(query_pcd)
+        key_pcd_multiscale: List[FeaturedPoints] = self.get_key_pcd_multiscale(key_pcd)
+        query_pcd: FeaturedPoints = self.get_query_pcd(query_pcd)
 
         score: Tuple[torch.Tensor, torch.Tensor] = self.score_head(Ts = Ts, 
                                                                    key_pcd_multiscale = key_pcd_multiscale, 
