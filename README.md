@@ -46,7 +46,7 @@ tensorboard --logdir=./runs
 ## Evaluation
 Please open *'evaluate_pick.ipynb'* with Jupyter notebook.
 
-*'evaluate_pick.ipynb'* is work in progress.
+*'evaluate_place.ipynb'* is work in progress.
 
 **Inputs**
 
