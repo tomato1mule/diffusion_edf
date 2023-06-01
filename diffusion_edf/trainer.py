@@ -33,7 +33,8 @@ class DiffusionEdfTrainer():
     @beartype
     def __init__(self, configs_root_dir: str,
                  train_configs_file: str,
-                 task_configs_file: str):
+                 task_configs_file: str,
+                 device: Optional[Union[str, torch.device]] = None):
         self.configs_root_dir = configs_root_dir
         self.train_configs_file = train_configs_file
         self.task_configs_file = task_configs_file
@@ -45,7 +46,10 @@ class DiffusionEdfTrainer():
         with open(os.path.join(self.configs_root_dir, self.model_configs_file)) as file:
             self.model_configs = yaml.load(file, Loader=yaml.FullLoader)
 
-        self.device = torch.device(self.train_configs['device'])
+        if device is None:
+            self.device = torch.device(self.train_configs['device'])
+        else:
+            self.device = torch.device(device)
         self.max_epochs = self.train_configs['max_epochs']
         self.n_epochs_per_checkpoint = self.train_configs['n_epochs_per_checkpoint']
         self.n_samples_x_ref = self.train_configs['n_samples_x_ref']
@@ -480,57 +484,46 @@ class DiffusionEdfTrainer():
         )
 
 
-    # def warmup_score_model(self, score_model: ScoreModelBase, n_warmups: int = 10):
-    #     assert self.trainloader is not None
-    #     for iters, demo_batch in tqdm(zip(range(n_warmups, self.trainloader))):
-    #         B = len(demo_batch)
-    #         assert B == 1, "Batch training is not supported yet."
+    def warmup_score_model(self, score_model: ScoreModelBase, n_warmups: int = 10):
+        assert self.trainloader is not None
 
-    #         scene_input, grasp_input, T_target = train_utils.flatten_batch(demo_batch=demo_batch) # T_target: (Nbatch, Ngrasps, 7)
-    #         T_target = T_target.squeeze(0) # (B=1, N_poses=1, 7) -> (1,7) 
+        for iters in tqdm(range(n_warmups)):
+            demo_batch = next(iter(self.trainloader))
 
+            B = len(demo_batch)
+            assert B == 1, "Batch training is not supported yet."
 
-    #         with torch.no_grad():
-    #             key_pcd_multiscale: List[FeaturedPoints] = score_model.get_key_pcd_multiscale(scene_input)
-    #             query_pcd: FeaturedPoints = score_model.get_query_pcd(grasp_input)
+            scene_input, grasp_input, T_target = train_utils.flatten_batch(demo_batch=demo_batch) # T_target: (Nbatch, Ngrasps, 7)
+            T_target = T_target.squeeze(0) # (B=1, N_poses=1, 7) -> (1,7) 
+
+            with torch.no_grad():
+                key_pcd_multiscale: List[FeaturedPoints] = score_model.get_key_pcd_multiscale(scene_input)
+                query_pcd: FeaturedPoints = score_model.get_query_pcd(grasp_input)
                 
+            for time_schedule in self.diffusion_schedules:
+                time = train_utils.random_time(
+                    min_time=time_schedule[1], 
+                    max_time=time_schedule[0], 
+                    device=T_target.device
+                ) # Shape: (1,)
 
+                T, _, __, ___, ____ = self.biequiv_diffusion(
+                    T_init=T_target, 
+                    time=time,
+                    scene_points=scene_input,
+                    grasp_points=grasp_input,
+                    ang_mult=score_model.ang_mult,
+                    lin_mult=score_model.lin_mult,
+                    n_samples_x_ref=1,
+                )
 
-    #         # time = torch.tensor([trainer.t_max], dtype=T_target.dtype, device=T_target.device)
-    #         # print(f"Diffusion time: {time.item()}")
-    #         # x_ref, n_neighbors = train_utils.transform_and_sample_reference_points(T_target=T_target,
-    #         #                                                                        scene_points=scene_input,
-    #         #                                                                        grasp_points=grasp_input,
-    #         #                                                                        contact_radius=trainer.contact_radius,
-    #         #                                                                        n_samples_x_ref=1)
-    #         # T0, delta_T, time_in, gt_score, gt_score_ref = train_utils.diffuse_T_target(T_target=T_target, 
-    #         #                                                                             x_ref=x_ref, 
-    #         #                                                                             time=time, 
-    #         #                                                                             lin_mult=score_model.lin_mult)
-    #         # (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref) = gt_score, gt_score_ref
-
-    #         scene_input, grasp_input, _ = train_utils.flatten_batch(demo_batch=demo_batch)
-    #         # T0 = torch.cat([
-    #         #     transforms.random_quaternions(1, device=device),
-    #         #     torch.distributions.Uniform(scene_input.x[:].min(dim=0).values, scene_input.x[:].max(dim=0).values).sample(sample_shape=(1,))
-    #         # ], dim=-1)
-    #         T0 = torch.cat([
-    #             #transforms.random_quaternions(1, device=device),
-    #             #torch.tensor([[math.sqrt(0.5), -math.sqrt(0.5), 0.0, 0.]], device=device),
-    #             torch.tensor([[1., 0., 0.0, 0.]], device=device),
-    #             torch.tensor([[-30., -30., 30.]], device=device)
-    #         ], dim=-1)
-    #         scene_pcd = PointCloud(points=scene_input.x, colors=scene_input.f)
-    #         grasp_pcd = PointCloud(points=grasp_input.x, colors=grasp_input.f)
-
-
-    #         # diffused_pose_pcd = PointCloud.merge(
-    #         #     scene_pcd,
-    #         #     grasp_pcd.transformed(SE3(T0))[0],
-    #         # )
-    #         # diffused_pose_pcd.show(point_size=2., width=600, height=600)
-
-    #         score_model.get_key_pcd_multiscale()
+                with torch.no_grad():
+                    _____ = score_model.score_head(
+                        Ts=T.view(-1,7), 
+                        key_pcd_multiscale=key_pcd_multiscale,
+                        query_pcd=query_pcd,
+                        time = time.repeat(len(T))
+                    )
 
 
 
