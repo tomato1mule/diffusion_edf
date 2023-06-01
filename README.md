@@ -50,7 +50,7 @@ Please open *'evaluate_pick.ipynb'* with Jupyter notebook.
 
 **Inputs**
 
-* **scene_input, grasp_input**: FeaturedPoints
+* **scene_input, grasp_input**: FeaturedPoints (NamedTuple)
     - FeaturedPoints.**x**: 3d position of the points; Shape: (nPoints, 3)
     - FeaturedPoints.**f**: Feature vector of the points; Shape: (nPoints, dim_feature)
     - FeaturedPoints.**b**: Minibatch index of each points. Currently all set to zero; Shape:(nPoints,)
