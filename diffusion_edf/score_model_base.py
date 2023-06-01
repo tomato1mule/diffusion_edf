@@ -116,9 +116,10 @@ class ScoreModelBase(torch.nn.Module):
                                     ],
                N_steps: List[int], 
                timesteps: List[float],
-               ang_noise: Union[int, float] = 1.0,
-               lin_noise: Union[int, float] = 1.0,
-               temperature: float = 1.0) -> torch.Tensor:
+               ang_noise_mult: Union[int, float] = 1.0,
+               lin_noise_mult: Union[int, float] = 1.0,
+               temperature: float = 1.0,
+               linear_noise_schedule: bool = False) -> torch.Tensor:
         
         device = T_seed.device
         T = T_seed.clone().detach().type(torch.float64)
@@ -142,10 +143,14 @@ class ScoreModelBase(torch.nn.Module):
                                                              time = t.repeat(len(T)).float())
                 ang_score, lin_score = ang_score.type(torch.float64), lin_score.type(torch.float64)
 
-                ang_disp = (ang_score * dt / 2) \
-                                + (float(ang_noise) * torch.randn_like(ang_score, dtype=torch.float64) * torch.sqrt(dt * t * temperature))
-                lin_disp = (lin_score * dt / 2) \
-                                + (float(lin_noise) * torch.randn_like(lin_score, dtype=torch.float64) * torch.sqrt(dt * t * temperature))
+                ang_noise = float(ang_noise_mult) * torch.randn_like(ang_score, dtype=torch.float64) * torch.sqrt(dt * t * temperature)
+                lin_noise = float(lin_noise_mult) * torch.randn_like(lin_score, dtype=torch.float64) * torch.sqrt(dt * t * temperature)
+                if linear_noise_schedule:
+                    ang_noise, lin_noise = ang_noise * torch.sqrt(t), lin_noise * torch.sqrt(t)
+
+
+                ang_disp = (ang_score * dt / 2) + ang_noise
+                lin_disp = (lin_score * dt / 2) + lin_noise
 
                 ang_disp = ang_disp * self.ang_mult
                 lin_disp = lin_disp * self.lin_mult
