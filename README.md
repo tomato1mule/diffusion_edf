@@ -37,7 +37,7 @@ pip install -e .
 ## Training
 ```shell
 bash train_pick.bash
-<WIP> bash train_place.bash
+# <WIP> bash train_place.bash
 ```
 To see running experiments, use tensorboard:
 ```shell
