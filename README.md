@@ -47,3 +47,34 @@ tensorboard --logdir=./runs
 Please open *'evaluate_pick.ipynb'*$\ $ with Jupyter notebook.
 
 *'evaluate_pick.ipynb'*$\ $ is work in progress.
+
+**Inputs**
+
+* scene_input, grasp_input: FeaturedPoints
+    - FeaturedPoints.x: 3d position of the points; Shape: (nPoints, 3)
+    - FeaturedPoints.f: Feature vector of the points; Shape: (nPoints, dim_feature)
+    - FeaturedPoints.b: Minibatch index of each points. Currently all set to zero; Shape:(nPoints,)
+    - FaturedPoints.w: Optional point attention value; Shape: (nPoints, )
+* T_seed: Initial pose to start denoising process; Shape: (nPoses, 7)
+    - T_seed[..., :4]: Quaternion (qw, qx, qy, qz)
+    - T_seed[..., 4:]: Position (x, y, z)
+
+> **Note**\
+> Properly setting the unit system for position is crucial. In this code, centimeter unit is used for the model. For example, the distance between two points (x=0., y=0., z=0.) and (x=1., y=0., z=0.) is 1cm.
+
+> **Warning**\
+> Demonstration files are saved in meter units. Therefore, rescaling is defined in the 'preprocess_configs.yaml'.
+> ```yaml configs/pick_lowres/train_configs.yaml
+> rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
+> preprocess_config:
+>   - name: "Downsample"
+>     kwargs:
+>       voxel_size: 0.01
+>       coord_reduction: "average"
+>   - name: "Rescale"
+>     kwargs:
+>       rescale_factor: *rescale_factor
+>```
+> Note that the voxel size of the voxel downsample filter in the above config file is 0.01m = 1cm. Note that 'train_configs.yaml' and 'task_configs.yaml' use meter units while 'score_model_configs' use centimeter units.
+
+
