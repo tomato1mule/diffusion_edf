@@ -70,7 +70,7 @@ Please open *'evaluate_pick.ipynb'* with Jupyter notebook.
 > preprocess_config:
 >   - name: "Downsample"
 >     kwargs:
->       voxel_size: 0.01
+>       voxel_size: 0.01 # In Meters
 >       coord_reduction: "average"
 >   - name: "Rescale"
 >     kwargs:
