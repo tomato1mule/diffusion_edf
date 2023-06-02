@@ -19,7 +19,7 @@ rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
 preprocess_config:
   - name: "Downsample"
     kwargs:
-      voxel_size: 0.01
+      voxel_size: 0.01  # In meters
       coord_reduction: "average"
   - name: "Rescale"
     kwargs:
