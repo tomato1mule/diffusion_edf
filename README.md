@@ -63,8 +63,9 @@ Please open *'evaluate_pick.ipynb'* with Jupyter notebook.
 > Properly setting the unit system for position is crucial. In this code, centimeter unit is used for the model. For example, the distance between two points (x=0., y=0., z=0.) and (x=1., y=0., z=0.) is 1cm.
 
 > **Warning**\
-> Demonstration files are saved in meter units. Therefore, rescaling is defined in the 'preprocess_configs.yaml'.
-> ```yaml configs/pick_lowres/train_configs.yaml
+> Demonstration files are saved in meter units. Therefore, rescaling is defined in the 'train_configs.yaml'.
+> #### **`configs/pick_lowres/train_configs.yaml`**
+> ```yaml
 > rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
 > preprocess_config:
 >   - name: "Downsample"
