@@ -124,8 +124,7 @@ class MultiscaleTensorField(torch.nn.Module):
                 )
                 infinite = True
             else:
-                fill_edge_weights = True
-                assert not infinite, f"Finite cluster radius cannot come after infinite cluster radius, {self.r_cluster_multiscale}"
+                assert not infinite, f"Finite cluster radius cannot come after infinite cluster radius, {self.r_cluster_multiscale}"                
                 self.graph_parsers.append(
                     RadiusBipartite(
                         # r_cutoff=[self.mincut_offsets[n], ??, ?? , self.r_cluster_multiscale[n]],
@@ -137,6 +136,8 @@ class MultiscaleTensorField(torch.nn.Module):
                         sh_cutoff = sh_cutoff
                     )
                 )
+                if use_edge_weights:
+                    fill_edge_weights = True
             self.edge_scalars_pre_linears.append(
                 torch.nn.Sequential(
                     torch.nn.Linear(fc_neurons[0], fc_neurons[0]),
@@ -192,6 +193,7 @@ class MultiscaleTensorField(torch.nn.Module):
                 input_points_multiscale: List[FeaturedPoints],
                 context_emb: Optional[List[torch.Tensor]] = None,
                 max_neighbors: Optional[int] = 1000) -> FeaturedPoints:
+        assert len(input_points_multiscale) == self.n_scales
         assert query_points.x.ndim == 2 # (Nq, 3)
         if self.context_emb_dim is not None:
             edge_encode_context = True

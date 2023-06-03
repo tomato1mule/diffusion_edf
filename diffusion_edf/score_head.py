@@ -72,8 +72,8 @@ class ScoreModelHead(torch.nn.Module):
 
         self.edge_time_encoding = edge_time_encoding
         self.query_time_encoding = query_time_encoding
-        if self.edge_time_encoding is None and self.query_time_encoding is None:
-            raise NotImplementedError("No time conditioning! Are you sure?")
+        if not self.edge_time_encoding and not self.query_time_encoding:
+            raise NotImplementedError("No time encoding! Are you sure?")
 
         ################# Key field ########################
         if self.query_time_encoding:
@@ -84,13 +84,11 @@ class ScoreModelHead(torch.nn.Module):
             key_tensor_field_kwargs['irreps_query'] = None
 
         if self.edge_time_encoding:
-            if 'edge_context_emb_dim' not in key_tensor_field_kwargs.keys():
-                key_tensor_field_kwargs['edge_context_emb_dim'] = self.time_emb_mlp[-1]
-            assert key_tensor_field_kwargs['edge_context_emb_dim'] == self.time_emb_mlp[-1]
+            assert 'edge_context_emb_dim' not in key_tensor_field_kwargs.keys()
+            key_tensor_field_kwargs['edge_context_emb_dim'] = self.time_emb_mlp[-1]
         else:
-            if 'edge_context_emb_dim' not in key_tensor_field_kwargs.keys():
-                key_tensor_field_kwargs['edge_context_emb_dim'] = None
-            assert key_tensor_field_kwargs['edge_context_emb_dim'] is None
+            assert 'edge_context_emb_dim' not in key_tensor_field_kwargs.keys()
+            key_tensor_field_kwargs['edge_context_emb_dim'] = None
 
         self.key_tensor_field = MultiscaleTensorField(**key_tensor_field_kwargs)
         if self.query_time_encoding:
