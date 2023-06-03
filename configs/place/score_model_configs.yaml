@@ -1,10 +1,11 @@
 model_name: 'MultiscaleScoreModel'
 model_kwargs:
   score_head_kwargs:
-    max_time: 5.
+    max_time: 1.
     time_emb_mlp: [256, 128, 64]
     ang_mult: 1.
-    lin_mult: 10.
+    lin_mult: 10.  # In centimeters
+    time_enc_n: 3000.
     edge_time_encoding: True
     query_time_encoding: False
     key_tensor_field_kwargs:
@@ -13,7 +14,7 @@ model_kwargs:
       num_heads: 4
       fc_neurons: [-1, 32, 32]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
       length_emb_dim: 64          
-      r_cluster_multiscale: 
+      r_cluster_multiscale:        # In centimeters 
         - 5.
         - 10.
         - 20.
@@ -21,6 +22,8 @@ model_kwargs:
       n_layers: 1
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'
+      # r_mincut_nonscalar_sh: 0.1    # In centimeters
+      # length_enc_max_r: 100.      # In centimeters
 
   key_kwargs:
     feature_extractor_name: 'UnetFeatureExtractor'
@@ -58,7 +61,7 @@ model_kwargs:
         - 0.25
         - 0.25
         - 0.25
-      radius:               # Maximum radius to connect neighboring nodes. If set to None, it will be set to 1/sqrt(p) of the previous layer's radius. Typically, this results in the number of edges being reduced by ratio p.
+      radius:               # In centimeters; Maximum radius to connect neighboring nodes. If set to None, it will be set to 1/sqrt(p) of the previous layer's radius. Typically, this results in the number of edges being reduced by ratio p.
         - 3.                # Base radius must not be None
         - null
         - null
@@ -70,7 +73,6 @@ model_kwargs:
       proj_drop: 0.1
       drop_path_rate: 0.0
       n_layers_midstream: 2 # Number of layers that connects downstream to upstream
-
 
   query_model: 'KeypointExtractor'
   query_kwargs:
@@ -139,3 +141,5 @@ model_kwargs:
       n_layers: 1
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'
+
+

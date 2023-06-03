@@ -35,6 +35,7 @@ class ScoreModelHead(torch.nn.Module):
                  irreps_query_edf: Union[str, o3.Irreps],
                  lin_mult: float,
                  ang_mult: float,
+                 time_enc_n: float = 10000., 
                  edge_time_encoding: bool = False,
                  query_time_encoding: bool = True):
         super().__init__()
@@ -48,7 +49,7 @@ class ScoreModelHead(torch.nn.Module):
         ########### Time Encoder #############
         self.time_emb_mlp = time_emb_mlp
         self.irreps_time_emb = o3.Irreps(f"{self.time_emb_mlp[-1]}x0e")
-        self.time_enc = SinusoidalPositionEmbeddings(dim=self.time_emb_mlp[0], max_val=max_time, n=10000.)
+        self.time_enc = SinusoidalPositionEmbeddings(dim=self.time_emb_mlp[0], max_val=max_time, n=time_enc_n)
         time_mlps_multiscale = torch.nn.ModuleList()
         for n in range(self.n_scales):
             time_mlp = []
