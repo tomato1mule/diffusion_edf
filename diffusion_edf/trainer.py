@@ -237,13 +237,14 @@ class DiffusionEdfTrainer():
                           scene_points: FeaturedPoints, grasp_points: FeaturedPoints,
                           ang_mult: Union[int, float],
                           lin_mult: Union[int, float],
+                          n_samples_x_ref: int,
                           contact_radius: Optional[Union[int, float]] = None,
-                          n_samples_x_ref: Optional[int] = None,) -> Tuple[torch.Tensor, 
-                                                                           torch.Tensor, 
-                                                                           torch.Tensor,
-                                                                           Tuple[torch.Tensor, torch.Tensor],
-                                                                           Tuple[torch.Tensor, torch.Tensor]
-                                                                           ]:
+                          ) -> Tuple[torch.Tensor, 
+                                     torch.Tensor, 
+                                     torch.Tensor,
+                                     Tuple[torch.Tensor, torch.Tensor],
+                                     Tuple[torch.Tensor, torch.Tensor]
+                                     ]:
         """
         Input Shapes:
             T_init: (nT, 7);  currently only nT=1 is implemented.
@@ -268,8 +269,6 @@ class DiffusionEdfTrainer():
             contact_radius = self.contact_radius
         else:
             contact_radius = float(contact_radius)
-        if n_samples_x_ref is None:
-            n_samples_x_ref = self.n_samples_x_ref
             
         x_ref, n_neighbors = train_utils.transform_and_sample_reference_points(
             T_target=T_init,
@@ -372,6 +371,7 @@ class DiffusionEdfTrainer():
                 grasp_points=grasp_input,
                 ang_mult=self.score_model.ang_mult,
                 lin_mult=self.score_model.lin_mult,
+                n_samples_x_ref=self.n_samples_x_ref
             )            
             
             (gt_ang_score_, gt_lin_score_), (gt_ang_score_ref_, gt_lin_score_ref_) = gt_score_, gt_score_ref_
