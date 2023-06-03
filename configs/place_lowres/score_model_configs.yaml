@@ -2,23 +2,24 @@ model_name: 'PointAttentiveScoreModel'
 model_kwargs:
   score_head_kwargs:
     max_time: 1.
-    time_emb_mlp: [512, 256, 128]
+    time_emb_mlp: [256, 128, 64]
     ang_mult: 2.5
     lin_mult: 15.  # In centimeters
+    time_enc_n: 1000.
     edge_time_encoding: True
     query_time_encoding: False
     key_tensor_field_kwargs:
       irreps_output: '64x0e+32x1e+16x2e'
       irreps_sh: '1x0e+1x1e+1x2e'
       num_heads: 4
-      fc_neurons: [-1, 128, 64]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
+      fc_neurons: [-1, 32, 32]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
       length_emb_dim: 64          
       r_cluster_multiscale:        # In centimeters 
         - null
       n_layers: 1
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'
-      r_mincut_nonscalar_sh: 0.1    # In centimeters
+      r_mincut_nonscalar_sh: 0.5    # In centimeters
       length_enc_max_r: 100.      # In centimeters
 
   key_kwargs:
@@ -33,8 +34,8 @@ model_kwargs:
       irreps_output: '64x0e+32x1e+16x2e'
       n_scales: 4
       irreps_emb:           # mutiscale -> list length must match n_scales
-        - '64x0e+32x1e+16x2e'
-        - '64x0e+32x1e+16x2e'
+        - '32x0e+16x1e+8x2e'
+        - '32x0e+16x1e+8x2e'
         - '64x0e+32x1e+16x2e'
         - '64x0e+32x1e+16x2e'
       irreps_edge_attr:     # mutiscale -> list length must match n_scales
@@ -48,8 +49,8 @@ model_kwargs:
         - 4
         - 4
       fc_neurons:           # mutiscale -> list length must match n_scales
-        - [64, 32, 32]
-        - [64, 32, 32]
+        - [32, 16, 16]
+        - [32, 16, 16]
         - [64, 32, 32]
         - [64, 32, 32]
       n_layers:             # mutiscale -> list length must match n_scales
@@ -101,8 +102,8 @@ model_kwargs:
       irreps_output: '64x0e+32x1e+16x2e'
       n_scales: 4
       irreps_emb:           # mutiscale -> list length must match n_scales
-        - '64x0e+32x1e+16x2e'
-        - '64x0e+32x1e+16x2e'
+        - '32x0e+16x1e+8x2e'
+        - '32x0e+16x1e+8x2e'
         - '64x0e+32x1e+16x2e'
         - '64x0e+32x1e+16x2e'
       irreps_edge_attr:     # mutiscale -> list length must match n_scales
@@ -116,8 +117,8 @@ model_kwargs:
         - 4
         - 4
       fc_neurons:           # mutiscale -> list length must match n_scales
-        - [64, 32, 32]
-        - [64, 32, 32]
+        - [32, 16, 16]
+        - [32, 16, 16]
         - [64, 32, 32]
         - [64, 32, 32]
       n_layers:             # mutiscale -> list length must match n_scales
