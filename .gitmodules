@@ -1,3 +1,3 @@
-[submodule "edf_server"]
-	path = edf_server
-	url = https://github.com/tomato1mule/edf_server.git
+[submodule "edf_interface"]
+	path = edf_interface
+	url = https://github.com/tomato1mule/edf_interface.git
