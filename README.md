@@ -30,6 +30,7 @@ pip install torch-scatter torch-sparse torch-cluster -f https://data.pyg.org/whl
 # mamba install pyg==2.2.0 -c pyg
 # mamba install pytorch-sparse==0.6.15 pytorch-scatter==2.0.9 pytorch-cluster==1.6.0 -c pyg
 # mamba install pytorch-sparse==0.6.17 pytorch-scatter==2.1.1 pytorch-cluster==1.6.1 -c pyg
+# mamba install -c conda-forge pyro5
 pip install -e .
 ```
 
