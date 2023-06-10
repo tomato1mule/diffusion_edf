@@ -1,4 +1,5 @@
 import os
+from functools import partial
 import shutil
 # os.environ["PYTORCH_JIT_USE_NNC_NOT_NVFUSER"] = "1"
 
@@ -8,25 +9,24 @@ from beartype import beartype
 import warnings
 
 import torch
-from torchvision.transforms import Compose
 from torch.utils.data import DataLoader
 from open3d.visualization.tensorboard_plugin import summary
 from torch.utils.tensorboard import SummaryWriter
 from torch_cluster import radius
 from torch_scatter import scatter_sum
 
-from diffusion_edf.data import DemoSeqDataset, DemoSequence, TargetPoseDemo, SE3, PointCloud
+from edf_interface.data import PointCloud, SE3, TargetPoseDemo, DemoSequence
+from edf_interface.data import preprocess
 from diffusion_edf.gnn_data import FeaturedPoints, merge_featured_points, pcd_to_featured_points
-from diffusion_edf import preprocess
 from diffusion_edf.dist import diffuse_isotropic_se3_batched
 
 def compose_proc_fn(preprocess_config: Dict) -> Callable:
     proc_fn = []
     for proc in preprocess_config:
         proc_fn.append(
-            getattr(preprocess, proc['name'])(**proc['kwargs'])
+            partial(getattr(preprocess, proc['name']), **proc['kwargs'])
         )
-    proc_fn = Compose(proc_fn)
+    proc_fn = preprocess.compose_procs(proc_fn)
     return proc_fn
 
 def flatten_batch(demo_batch: List[TargetPoseDemo]) -> Tuple[FeaturedPoints, FeaturedPoints, torch.Tensor]:
@@ -34,8 +34,8 @@ def flatten_batch(demo_batch: List[TargetPoseDemo]) -> Tuple[FeaturedPoints, Fea
     grasp_pcd = []
     target_poses = []
     for b, demo in enumerate(demo_batch):
-        scene_pcd.append(pcd_to_featured_points(demo.scene_pc,batch_idx=b))
-        grasp_pcd.append(pcd_to_featured_points(demo.grasp_pc,batch_idx=b))
+        scene_pcd.append(pcd_to_featured_points(demo.scene_pcd,batch_idx=b))
+        grasp_pcd.append(pcd_to_featured_points(demo.grasp_pcd,batch_idx=b))
         target_poses.append(demo.target_poses.poses)
 
     scene_pcd = merge_featured_points(scene_pcd) # Shape: x: (b*p, 3), f: (b*p, 3), b: (b*p, )   # b: N_batch, p: N_points_scene

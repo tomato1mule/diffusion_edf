@@ -9,7 +9,7 @@ import yaml
 import torch
 from torch.utils.data import DataLoader
 
-from diffusion_edf.data import DemoSeqDataset, PointCloud, SE3
+from edf_interface.data import PointCloud, SE3, DemoDataset
 from diffusion_edf.gnn_data import FeaturedPoints
 from diffusion_edf import train_utils
 from diffusion_edf.score_model_base import ScoreModelBase
@@ -87,7 +87,7 @@ class DiffusionEdfTrainer():
         return time_
     
     @beartype
-    def get_dataloader(self, dataset: DemoSeqDataset, 
+    def get_dataloader(self, dataset: DemoDataset, 
                        n_batches: int,
                        shuffle: bool = True) -> DataLoader:
         proc_fn = train_utils.compose_proc_fn(self.train_configs['preprocess_config'])
@@ -100,19 +100,19 @@ class DiffusionEdfTrainer():
     
     @beartype
     def _init_dataloaders(self):
-        trainset = DemoSeqDataset(dataset_dir=self.train_configs['trainset']['dataset_dir'], 
-                                  annotation_file=self.train_configs['trainset']['annotation_file'], 
-                                  device=self.device)
+        trainset = DemoDataset(dataset_dir=self.train_configs['trainset']['dataset_dir'], 
+                               annotation_file=self.train_configs['trainset']['annotation_file'], 
+                               device=self.device)
         self.trainloader = self.get_dataloader(dataset = trainset,
                                                shuffle = self.train_configs['trainset']['shuffle'],
                                                n_batches = self.train_configs['trainset']['n_batches'])
         if self.train_configs['testset'] is not None:
-            testset = DemoSeqDataset(dataset_dir=self.train_configs['testset']['dataset_dir'], 
-                                    annotation_file=self.train_configs['testset']['annotation_file'], 
-                                    device=self.device)
+            testset = DemoDataset(dataset_dir=self.train_configs['testset']['dataset_dir'], 
+                                  annotation_file=self.train_configs['testset']['annotation_file'], 
+                                  device=self.device)
             self.testloader = self.get_dataloader(dataset = testset,
-                                                shuffle = self.train_configs['testset']['shuffle'],
-                                                n_batches = self.train_configs['testset']['n_batches'])
+                                                  shuffle = self.train_configs['testset']['shuffle'],
+                                                  n_batches = self.train_configs['testset']['n_batches'])
 
     @beartype
     def get_model(self, deterministic: bool = False, 

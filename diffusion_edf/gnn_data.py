@@ -4,9 +4,10 @@ from beartype import beartype
 import torch
 from e3nn import o3
 
-from diffusion_edf.data import PointCloud
+from edf_interface.data import PointCloud
+from edf_interface.data.pcd_utils import transform_points
 from diffusion_edf.wigner import TransformFeatureQuaternion
-from diffusion_edf.pc_utils import transform_points
+
 
 class FeaturedPoints(NamedTuple):
     x: torch.Tensor # Position

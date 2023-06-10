@@ -1,8 +1,8 @@
 from typing import Tuple, Dict, List, Optional, Union
 
 import torch
-from diffusion_edf.data import DemoSeqDataset, DemoSequence, TargetPoseDemo, PointCloud, SE3
-from diffusion_edf.pc_utils import get_plotly_fig
+from edf_interface.data import PointCloud, SE3
+from edf_interface.data.pcd_utils import get_plotly_fig
 
 def visualize_pose(scene_pcd: PointCloud, 
                    grasp_pcd: PointCloud, 

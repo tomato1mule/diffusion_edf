@@ -17,11 +17,11 @@ log_root_dir: 'runs'
 
 rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
 preprocess_config:
-  - name: "Downsample"
+  - name: "downsample"
     kwargs:
       voxel_size: 0.01  # In meters
       coord_reduction: "average"
-  - name: "Rescale"
+  - name: "rescale"
     kwargs:
       rescale_factor: *rescale_factor
 
