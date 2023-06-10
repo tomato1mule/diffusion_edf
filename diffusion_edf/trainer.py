@@ -147,7 +147,8 @@ class DiffusionEdfTrainer():
                     device: Optional[Union[str, torch.device]] = None):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', message='The TorchScript type system doesn*')
-        self.score_model = self.get_model(deterministic=deterministic, device=device)
+            
+            self.score_model = self.get_model(deterministic=deterministic, device=device)
 
     @beartype
     def _init_optimizer(self):
