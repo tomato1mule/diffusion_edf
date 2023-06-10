@@ -1,6 +1,7 @@
 import os
 from typing import List, Tuple, Union, Optional, Dict, Callable
 from datetime import datetime
+import warnings
 
 from tqdm import tqdm
 from beartype import beartype
@@ -144,6 +145,8 @@ class DiffusionEdfTrainer():
     @beartype
     def _init_model(self, deterministic: bool = False, 
                     device: Optional[Union[str, torch.device]] = None):
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', message='The TorchScript type system doesn*')
         self.score_model = self.get_model(deterministic=deterministic, device=device)
 
     @beartype
