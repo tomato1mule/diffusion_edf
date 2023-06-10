@@ -11,65 +11,48 @@ import torch
 
 from edf_interface.agent_server import AgentHandleAbstractBase, AgentServer
 from edf_interface.data import SE3, PointCloud
-from diffusion_edf.trainer import DiffusionEdfTrainer
-from diffusion_edf.train_utils import proc_fn
+from diffusion_edf.agent import DiffusionEdfAgent
 
 torch.set_printoptions(precision=4, sci_mode=False)
 
 
-@beartype
-def get_models(configs_root_dir: str, 
-               train_configs_file: str, 
-               task_configs_file: str, 
-               checkpoint_dir: str,
-               device: str,
-               n_warmups: int = 10,
-               ):
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='EDF agents server for pick-and-place task')
+    parser.add_argument('--configs-root-dir', type=str, help='')
+    parser.add_argument('--server-name', type=str, default='agent', help='')
+    parser.add_argument('--init-nameserver', action='store_true', help='')
+    args = parser.parse_args()
+    configs_root_dir = args.configs_root_dir
+    server_name = args.server_name
+    init_nameserver = args.init_nameserver
+    if not init_nameserver:
+        init_nameserver = None
 
-    trainer = DiffusionEdfTrainer(
-        configs_root_dir=configs_root_dir,
-        train_configs_file=train_configs_file,
-        task_configs_file=task_configs_file,
+    agent_configs_dir = os.path.join(configs_root_dir, 'agent.yaml')
+    preprocess_configs_dir = os.path.join(configs_root_dir, 'preprocess.yaml')
+
+    with open('configs/agent_server/model.yaml') as f:
+        agent_configs = yaml.load(f, Loader=yaml.FullLoader)
+    device = agent_configs['device']
+
+    with open('configs/agent_server/preprocess.yaml') as f:
+        preprocess_config = yaml.load(f, Loader=yaml.FullLoader)
+        unprocess_config = preprocess_config['unprocess_config']
+        preprocess_config = preprocess_config['preprocess_config']
+
+    pick_agent = DiffusionEdfAgent(
+        model_kwargs_list=agent_configs['model_kwargs'][f"pick_models_kwargs"],
+        preprocess_config=preprocess_config,
+        unprocess_config=unprocess_config,
         device=device
     )
 
-    trainer._init_dataloaders()
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', message='The TorchScript type system doesn*')
-        
-        model = trainer.get_model(
-            checkpoint_dir=checkpoint_dir,
-            deterministic=False, 
-            device = device
-        ).eval()
-
-    if n_warmups:
-        trainer.warmup_score_model(
-            score_model = model, 
-            n_warmups=10
-        )
-    
-    return model
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='EDF agents server for pick-and-place task')
-    parser.add_argument('--configs-dir', type=str, help='')
-    args = parser.parse_args()
-
-    configs_dir = args.configs_dir
-    with open(os.path.join(configs_dir, 'agent.yaml'), 'r') as f:
-        model_configs = yaml.load(f, Loader=yaml.FullLoader)
-    device = model_configs['device']
-
-    pick_models = []
-    for kwargs in model_configs['pick_models_kwargs']:
-        pick_models.append(get_models(**kwargs, device=device))
-
-    place_models = []
-    for kwargs in model_configs['place_models_kwargs']:
-        place_models.append(get_models(**kwargs, device=device))
-
+    place_agent = DiffusionEdfAgent(
+        model_kwargs_list=agent_configs['model_kwargs'][f"place_models_kwargs"],
+        preprocess_config=preprocess_config,
+        unprocess_config=unprocess_config,
+        device=device
+    )
 
     @beartype
     class AgentHandle(AgentHandleAbstractBase):
@@ -77,13 +60,43 @@ if __name__ == '__main__':
             pass
 
         def infer_target_poses(self, scene_pcd: PointCloud, 
-                            task_name: str,
-                            grasp_pcd: Optional[PointCloud] = None,
-                            current_poses: Optional[SE3] = None) -> SE3:
+                               task_name: str,
+                               grasp_pcd: PointCloud,
+                               current_poses: SE3,
+                               N_steps_list: List[List[int]],
+                               timesteps_list: List[List[float]],
+                               temperature_list: List[float],
+                               ) -> SE3:
             
-            return SE3(poses=torch.tensor([[1., 0., 0., 0., 0., 0., 0.,]]))
+            if task_name == 'pick':
+                Ts, scene_proc, grasp_proc = pick_agent.sample(
+                    scene_pcd=scene_pcd.to(device), 
+                    grasp_pcd=grasp_pcd.to(device), 
+                    Ts_init=current_poses.to(device),
+                    N_steps_list=N_steps_list, 
+                    timesteps_list=timesteps_list, 
+                    temperature_list=temperature_list
+                )
+                Ts = SE3(poses=Ts[-1])
+                Ts = pick_agent.unprocess_fn(Ts).to('cpu')
+            elif task_name == 'place':
+                Ts, scene_proc, grasp_proc = place_agent.sample(
+                    scene_pcd=scene_pcd.to(device), 
+                    grasp_pcd=grasp_pcd.to(device), 
+                    Ts_init=current_poses.to(device),
+                    N_steps_list=N_steps_list, 
+                    timesteps_list=timesteps_list, 
+                    temperature_list=temperature_list
+                )
+                Ts = SE3(poses=Ts[-1])
+                Ts = pick_agent.unprocess_fn(Ts).to('cpu')
+
+            return Ts
 
     
+    server = AgentServer(agent_handle=AgentHandle(), server_name=server_name, init_nameserver=init_nameserver)
+    server.run(nonblocking=False)
 
+    server.close()
 
 
