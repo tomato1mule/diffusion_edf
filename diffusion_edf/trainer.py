@@ -1,4 +1,4 @@
-import os
+import os, sys
 from typing import List, Tuple, Union, Optional, Dict, Callable
 from datetime import datetime
 import warnings
@@ -147,6 +147,7 @@ class DiffusionEdfTrainer():
                     device: Optional[Union[str, torch.device]] = None):
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', message='The TorchScript type system doesn*')
+            warnings.filterwarnings('ignore', message='Multiscale Tensor Field: zero edges detected!')
             
             self.score_model = self.get_model(deterministic=deterministic, device=device)
 
@@ -491,7 +492,7 @@ class DiffusionEdfTrainer():
     def warmup_score_model(self, score_model: ScoreModelBase, n_warmups: int = 10):
         assert self.trainloader is not None
 
-        for iters in tqdm(range(n_warmups)):
+        for iters in tqdm(range(n_warmups), file=sys.stdout):
             demo_batch = next(iter(self.trainloader))
 
             B = len(demo_batch)

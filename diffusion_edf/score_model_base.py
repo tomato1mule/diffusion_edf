@@ -170,7 +170,7 @@ class ScoreModelBase(torch.nn.Module):
                 Ts.append(T.clone().detach())
 
         Ts.append(T.clone().detach())
-        Ts = torch.cat(Ts, dim=0).detach()
+        Ts = torch.stack(Ts, dim=0).detach()
 
         return Ts
 

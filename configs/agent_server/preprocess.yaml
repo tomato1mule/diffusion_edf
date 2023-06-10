@@ -1,0 +1,14 @@
+rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
+unrescale_factor: &unrescale_factor 0.01 # Centimeters to Meters
+preprocess_config:
+  - name: "downsample"
+    kwargs:
+      voxel_size: 0.01  # In meters
+      coord_reduction: "average"
+  - name: "rescale"
+    kwargs:
+      rescale_factor: *rescale_factor
+unprocess_config:
+  - name: "rescale"
+    kwargs:
+      rescale_factor: *unrescale_factor
