@@ -30,7 +30,6 @@ pip install torch-scatter torch-sparse torch-cluster -f https://data.pyg.org/whl
 # mamba install pyg==2.2.0 -c pyg
 # mamba install pytorch-sparse==0.6.15 pytorch-scatter==2.0.9 pytorch-cluster==1.6.0 -c pyg
 # mamba install pytorch-sparse==0.6.17 pytorch-scatter==2.1.1 pytorch-cluster==1.6.1 -c pyg
-# mamba install -c conda-forge pyro5
 pip install -e .
 ```
 
@@ -45,9 +44,7 @@ To see running experiments, use tensorboard:
 tensorboard --logdir=./runs
 ```
 ## Evaluation
-Please open *'evaluate_pick.ipynb'* with Jupyter notebook.
-
-*'evaluate_place.ipynb'* is work in progress.
+Please open *'evaluate.ipynb'* with Jupyter notebook.
 
 **Inputs**
 
@@ -78,5 +75,4 @@ Please open *'evaluate_pick.ipynb'* with Jupyter notebook.
 >       rescale_factor: *rescale_factor
 >```
 > Note that the voxel size of the voxel downsample filter in the above config file is 0.01m = 1cm. Note that 'train_configs.yaml' and 'task_configs.yaml' use meter units while 'score_model_configs' use centimeter units.
-
 
