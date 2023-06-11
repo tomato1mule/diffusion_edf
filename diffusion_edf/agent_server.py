@@ -9,8 +9,8 @@ from beartype import beartype
 import yaml
 import torch
 
-from edf_interface.agent_server import AgentHandleAbstractBase, AgentServer
 from edf_interface.data import SE3, PointCloud
+from edf_interface.pyro import PyroServer, expose
 from diffusion_edf.agent import DiffusionEdfAgent
 
 torch.set_printoptions(precision=4, sci_mode=False)
@@ -27,6 +27,10 @@ if __name__ == '__main__':
     init_nameserver = args.init_nameserver
     if not init_nameserver:
         init_nameserver = None
+    
+    server = PyroServer(server_name='agent', init_nameserver=init_nameserver)
+
+
 
     agent_configs_dir = os.path.join(configs_root_dir, 'agent.yaml')
     preprocess_configs_dir = os.path.join(configs_root_dir, 'preprocess.yaml')
@@ -55,10 +59,11 @@ if __name__ == '__main__':
     )
 
     @beartype
-    class AgentHandle(AgentHandleAbstractBase):
+    class AgentService():
         def __init__(self):
             pass
 
+        @expose
         def infer_target_poses(self, scene_pcd: PointCloud, 
                                task_name: str,
                                grasp_pcd: PointCloud,
@@ -92,9 +97,8 @@ if __name__ == '__main__':
                 Ts = pick_agent.unprocess_fn(Ts).to('cpu')
 
             return Ts
-
-    
-    server = AgentServer(agent_handle=AgentHandle(), server_name=server_name, init_nameserver=init_nameserver)
+        
+    server.register_service(service=AgentService())
     server.run(nonblocking=False)
 
     server.close()
