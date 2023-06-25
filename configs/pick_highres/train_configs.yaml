@@ -1,7 +1,7 @@
 device: 'cuda:0'
 
 trainset:
-  dataset_dir: 'demo/test_demo_single_mug'
+  dataset_dir: 'demo/sapien_demo_20230625'
   annotation_file: 'data.yaml'
   n_batches: 1
   shuffle: True
