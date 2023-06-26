@@ -3,6 +3,7 @@ unrescale_factor: &unrescale_factor 0.01 # Centimeters to Meters
 preprocess_config:
   - name: "crop_bbox"
     kwargs:
+      targets: ['scene_pcd']
       bbox: [[-0.4, 0.4], [-0.4, 0.4], [0.5, 1.3]]  # In meters, [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
   - name: "downsample"
     kwargs:

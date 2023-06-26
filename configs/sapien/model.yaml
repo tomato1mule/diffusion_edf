@@ -11,14 +11,14 @@ model_kwargs:
       task_configs_file: 'task_configs.yaml'
       checkpoint_dir: 'runs/2023_06_26_15-29-55_Pick_HiRes_Sapien/checkpoint/200.pt'
       n_warmups: 10
-  # place_models_kwargs:
-  #   - configs_root_dir: 'configs/sapien/place_lowres'
-  #     train_configs_file: 'train_configs.yaml'
-  #     task_configs_file: 'task_configs.yaml'
-  #     checkpoint_dir: 'runs/2023_06_10_19-28-19_Place_LowRes/checkpoint/200.pt'
-  #     n_warmups: 10
-  #   - configs_root_dir: 'configs/sapien/place_highres'
-  #     train_configs_file: 'train_configs.yaml'
-  #     task_configs_file: 'task_configs.yaml'
-  #     checkpoint_dir: 'runs/2023_06_10_19-47-02_Place_HiRes/checkpoint/200.pt'
-  #     n_warmups: 10
+  place_models_kwargs:
+    - configs_root_dir: 'configs/sapien/place_lowres'
+      train_configs_file: 'train_configs.yaml'
+      task_configs_file: 'task_configs.yaml'
+      checkpoint_dir: 'runs/2023_06_26_15-52-32_Place_LowRes/checkpoint/200.pt'
+      n_warmups: 10
+    - configs_root_dir: 'configs/sapien/place_highres'
+      train_configs_file: 'train_configs.yaml'
+      task_configs_file: 'task_configs.yaml'
+      checkpoint_dir: 'runs/2023_06_26_16-17-33_Place_HiRes/checkpoint/200.pt'
+      n_warmups: 10
