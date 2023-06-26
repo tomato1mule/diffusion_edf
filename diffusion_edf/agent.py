@@ -111,7 +111,7 @@ class DiffusionEdfAgent():
                 )
                 T0 = Ts[-1]
                 Ts_out.append(Ts)
-        Ts_out = torch.cat(Ts_out, dim=0).float()
+        Ts_out = torch.cat(Ts_out, dim=0).float() # Ts_out: (nTime, nSample, 7)
 
         return Ts_out, scene_pcd, grasp_pcd
 

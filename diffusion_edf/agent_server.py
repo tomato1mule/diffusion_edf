@@ -76,7 +76,11 @@ if __name__ == '__main__':
                                N_steps_list: List[List[int]],
                                timesteps_list: List[List[float]],
                                temperature_list: List[float],
-                               ) -> SE3:
+                               return_full_trajectory: bool = False,
+                               ) -> List[SE3]:
+            
+            assert current_poses.poses.ndim == 2 and current_poses.poses.shape[-1] == 7, f"{current_poses.shape}"
+            n_init_poses = len(current_poses)
             
             if task_name == 'pick':
                 Ts, scene_proc, grasp_proc = pick_agent.sample(
@@ -87,8 +91,17 @@ if __name__ == '__main__':
                     timesteps_list=timesteps_list, 
                     temperature_list=temperature_list
                 )
-                Ts = SE3(poses=Ts[-1])
-                Ts = pick_agent.unprocess_fn(Ts).to('cpu')
+
+                assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"
+                Ts = Ts.to('cpu')
+
+                Ts_out: List[SE3] = []
+                for i in range(n_init_poses):
+                    Ts_out.append(
+                        pick_agent.unprocess_fn(
+                            SE3(poses = Ts[:, i, :]) if return_full_trajectory else SE3(poses = Ts[-1, i, :])
+                        )
+                    )
             elif task_name == 'place':
                 Ts, scene_proc, grasp_proc = place_agent.sample(
                     scene_pcd=scene_pcd.to(device), 
@@ -98,10 +111,21 @@ if __name__ == '__main__':
                     timesteps_list=timesteps_list, 
                     temperature_list=temperature_list
                 )
-                Ts = SE3(poses=Ts[-1])
-                Ts = pick_agent.unprocess_fn(Ts).to('cpu')
 
-            return Ts
+                assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"
+                Ts = Ts.to('cpu')
+                
+                Ts_out: List[SE3] = []
+                for i in range(n_init_poses):
+                    Ts_out.append(
+                        place_agent.unprocess_fn(
+                            SE3(poses = Ts[:, i, :]) if return_full_trajectory else SE3(poses = Ts[-1, i, :])
+                        )
+                    )
+            else:
+                raise ValueError(f"Unknown task name '{task_name}'")
+
+            return Ts_out
         
 
     server.register_service(service=AgentService())
