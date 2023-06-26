@@ -27,19 +27,24 @@ if __name__ == '__main__':
     init_nameserver = args.init_nameserver
     if not init_nameserver:
         init_nameserver = None
-    
+
+
+    # ---------------------------------------------------------------------------- #
+    # Initialize Pyro Server
+    # ---------------------------------------------------------------------------- #
     server = PyroServer(server_name='agent', init_nameserver=init_nameserver)
 
 
-
+    # ---------------------------------------------------------------------------- #
+    # Initialize Models
+    # ---------------------------------------------------------------------------- #
     agent_configs_dir = os.path.join(configs_root_dir, 'agent.yaml')
-    preprocess_configs_dir = os.path.join(configs_root_dir, 'preprocess.yaml')
-
-    with open('configs/agent_server/model.yaml') as f:
+    with open(agent_configs_dir) as f:
         agent_configs = yaml.load(f, Loader=yaml.FullLoader)
     device = agent_configs['device']
 
-    with open('configs/agent_server/preprocess.yaml') as f:
+    preprocess_configs_dir = os.path.join(configs_root_dir, 'preprocess.yaml')
+    with open(preprocess_configs_dir) as f:
         preprocess_config = yaml.load(f, Loader=yaml.FullLoader)
         unprocess_config = preprocess_config['unprocess_config']
         preprocess_config = preprocess_config['preprocess_config']
@@ -98,6 +103,7 @@ if __name__ == '__main__':
 
             return Ts
         
+
     server.register_service(service=AgentService())
     server.run(nonblocking=False)
 
