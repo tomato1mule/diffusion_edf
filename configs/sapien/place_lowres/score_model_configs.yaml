@@ -95,7 +95,7 @@ model_kwargs:
     weight_activation: 'sigmoid'
     weight_mult: null
     keypoint_kwargs: 
-      pool_ratio: 0.01
+      pool_ratio: 0.03
       weight_pre_emb_dim: 64
     feature_extractor_kwargs:
       irreps_input: '3x0e'

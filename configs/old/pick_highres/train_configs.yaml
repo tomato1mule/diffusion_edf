@@ -17,23 +17,25 @@ log_root_dir: 'runs'
 
 rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
 preprocess_config:
-  - name: "Downsample"
+  - name: "downsample"
     kwargs:
       voxel_size: 0.01  # In meters
       coord_reduction: "average"
-  - name: "Rescale"
+  - name: "rescale"
     kwargs:
       rescale_factor: *rescale_factor
 
 
-max_epochs: 120
+max_epochs: 200
 n_epochs_per_checkpoint: 20
 n_samples_x_ref: 10
 
 diffusion_configs:
   t_augment: null
   time_schedules:
-    - [1., 0.001]
+    - [0.1, 0.03]
+    - [0.03, 0.003]
+
 
 optimizer_kwargs:
   lr: 0.0003
@@ -41,4 +43,3 @@ optimizer_kwargs:
   eps: 0.000000001 # 1e-9
   weight_decay: 0.0001 # 1e-4
   amsgrad: True
-
