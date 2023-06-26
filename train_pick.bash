@@ -2,7 +2,7 @@
 
 echo "Train Low-resolution Score-matching Model"
 
-configs_root_dir="configs/pick_lowres"
+configs_root_dir="configs/sapien/pick_lowres"
 train_configs_file="train_configs.yaml"
 task_configs_file="task_configs.yaml"
 
@@ -13,7 +13,7 @@ PYTHONHASHSEED=0 python3 diffusion_edf/train.py --configs-root-dir=$configs_root
 
 echo "Train Super-resolution Score-matching Model"
 
-configs_root_dir="configs/pick_highres"
+configs_root_dir="configs/sapien/pick_highres"
 train_configs_file="train_configs.yaml"
 task_configs_file="task_configs.yaml"
 
