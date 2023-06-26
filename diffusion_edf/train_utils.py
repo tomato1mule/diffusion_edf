@@ -1,12 +1,13 @@
 import os
 from functools import partial
 import shutil
+import warnings
 # os.environ["PYTORCH_JIT_USE_NNC_NOT_NVFUSER"] = "1"
 
 from typing import List, Tuple, Optional, Union, Iterable, NamedTuple, Any, Sequence, Dict, Callable
 from tqdm import tqdm
 from beartype import beartype
-import warnings
+import gzip, pickle
 
 import torch
 from torch.utils.data import DataLoader
@@ -128,6 +129,21 @@ def diffuse_T_target(T_target: torch.Tensor,
 
     return T, delta_T, time_in, (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref)
 
+def gzip_save(data, path: str):
+    dir = os.path.dirname(path)
+
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+
+    with gzip.open(path, 'wb') as f:
+        pickle.dump(data, f)
+
+def gzip_load(path: str):
+    with gzip.open(path, 'rb') as f:
+        data = pickle.load(f)
+    return data
+
+
 
 class LazyLogger():
     is_writer_online: bool
@@ -189,7 +205,13 @@ class LazyLogger():
         self.lazy_init()
         self.writer.add_scalar(*args, **kwargs)
 
-    def add_3d(self, *args, **kwargs):
+    def add_3d(self, tag, data, step):
         self.lazy_init()
-        self.writer.add_3d(*args, **kwargs)
+        # self.writer.add_3d(tag=tag, data=data, step=step)
+        gzip_save(
+            data=dict(tag=tag, data=data, step=step),
+            path=os.path.join(self.log_dir, f"custom_data/step_{step}", f"{tag}.gzip")
+        )
+
+
 
