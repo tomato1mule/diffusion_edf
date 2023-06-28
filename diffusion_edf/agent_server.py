@@ -69,15 +69,15 @@ if __name__ == '__main__':
             pass
 
         @expose
-        def infer_target_poses(self, scene_pcd: PointCloud, 
-                               task_name: str,
-                               grasp_pcd: PointCloud,
-                               current_poses: SE3,
-                               N_steps_list: List[List[int]],
-                               timesteps_list: List[List[float]],
-                               temperature_list: List[float],
-                               return_full_trajectory: bool = False,
-                               ) -> List[SE3]:
+        def request_pose(self, scene_pcd: PointCloud, 
+                         grasp_pcd: PointCloud,
+                         current_poses: SE3,
+                         task_name: str,
+                         N_steps_list: List[List[int]],
+                         timesteps_list: List[List[float]],
+                         temperature_list: List[float],
+                         return_full_trajectory: bool = False,
+                         ) -> List[SE3]:
             
             assert current_poses.poses.ndim == 2 and current_poses.poses.shape[-1] == 7, f"{current_poses.shape}"
             n_init_poses = len(current_poses)
