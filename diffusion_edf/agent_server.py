@@ -1,6 +1,6 @@
 import os
 os.environ["PYTORCH_JIT_USE_NNC_NOT_NVFUSER"] = "1"
-from typing import List, Tuple, Optional, Union, Iterable
+from typing import List, Tuple, Optional, Union, Iterable, Dict, Any
 import math
 import argparse
 import warnings
@@ -9,8 +9,9 @@ from beartype import beartype
 import yaml
 import torch
 
-from edf_interface.data import SE3, PointCloud
+from edf_interface import data
 from edf_interface.pyro import PyroServer, expose
+from edf_interface.utils.manipulation_utils import compute_pre_pick_trajectories, compute_pre_place_trajectories
 from diffusion_edf.agent import DiffusionEdfAgent
 
 torch.set_printoptions(precision=4, sci_mode=False)
@@ -49,6 +50,10 @@ if __name__ == '__main__':
         unprocess_config = preprocess_config['unprocess_config']
         preprocess_config = preprocess_config['preprocess_config']
 
+    server_configs_dir = os.path.join(configs_root_dir, 'server.yaml')
+    with open(server_configs_dir) as f:
+        server_configs = yaml.load(f, Loader=yaml.FullLoader)
+
     pick_agent = DiffusionEdfAgent(
         model_kwargs_list=agent_configs['model_kwargs'][f"pick_models_kwargs"],
         preprocess_config=preprocess_config,
@@ -65,19 +70,63 @@ if __name__ == '__main__':
 
     @beartype
     class AgentService():
-        def __init__(self):
-            pass
+        def __init__(self, configs: Dict[str, Any]):
+            self.pick_diffusion_configs: Dict[str, Any] = configs['pick_diffusion_configs']
+            self.pick_trajectory_configs: Dict[str, Any] = configs['pick_trajectory_configs']
+            self.place_diffusion_configs: Dict[str, Any] = configs['place_diffusion_configs']
+            self.place_trajectory_configs: Dict[str, Any] = configs['place_trajectory_configs']
+            self.reconfigurable_configs = ['pick_diffusion_configs', 
+                                           'pick_trajectory_configs', 
+                                           'place_diffusion_configs', 
+                                           'place_trajectory_configs']
+            for config_name in self.reconfigurable_configs:
+                assert hasattr(self, config_name)
+        
+        def _reconfigure(self, name: str, value: Dict[str, Any]):
+            if name not in self.reconfigurable_configs:
+                raise ValueError(f"'{name}' not in reconfiguratible configs ({self.reconfigurable_configs})")
+            else:
+                setattr(self, name, value)
 
         @expose
-        def request_pose(self, scene_pcd: PointCloud, 
-                         grasp_pcd: PointCloud,
-                         current_poses: SE3,
-                         task_name: str,
-                         N_steps_list: List[List[int]],
-                         timesteps_list: List[List[float]],
-                         temperature_list: List[float],
-                         return_full_trajectory: bool = False,
-                         ) -> List[SE3]:
+        def reconfigure(self, name: str, value: Dict[str, Any]) -> bool:
+            self._reconfigure(name=name, value=value)
+
+        @expose
+        def get_configs(self) -> Dict[str, Any]:
+            output = {}
+            for config_name in self.reconfigurable_configs:
+                output[config_name] = getattr(self, config_name)
+            return output
+
+        def compute_pick_trajectory(self, pick_poses: data.SE3) -> List[data.SE3]:
+            trajectories = compute_pre_pick_trajectories(
+                pick_poses=pick_poses, 
+                **self.pick_trajectory_configs
+            )
+
+            return trajectories
+        
+        def compute_place_trajectory(self, place_poses: data.SE3,
+                                     scene_pcd: data.PointCloud, 
+                                     grasp_pcd: data.PointCloud,
+                                     pre_pick_pose: data.SE3,
+                                     pick_pose: data.SE3) -> List[data.SE3]:
+            trajectories = compute_pre_place_trajectories(
+                place_poses=place_poses, 
+                scene_pcd=scene_pcd,
+                grasp_pcd=grasp_pcd,
+                **self.place_trajectory_configs
+            )
+
+            return trajectories
+
+
+        def _denoise(self, scene_pcd: data.PointCloud, 
+                     grasp_pcd: data.PointCloud,
+                     current_poses: data.SE3,
+                     task_name: str,
+                     ) -> torch.Tensor:
             
             assert current_poses.poses.ndim == 2 and current_poses.poses.shape[-1] == 7, f"{current_poses.shape}"
             n_init_poses = len(current_poses)
@@ -87,48 +136,58 @@ if __name__ == '__main__':
                     scene_pcd=scene_pcd.to(device), 
                     grasp_pcd=grasp_pcd.to(device), 
                     Ts_init=current_poses.to(device),
-                    N_steps_list=N_steps_list, 
-                    timesteps_list=timesteps_list, 
-                    temperature_list=temperature_list
+                    N_steps_list=self.pick_diffusion_configs['N_steps_list'], 
+                    timesteps_list=self.pick_diffusion_configs['timesteps_list'], 
+                    temperature_list=self.pick_diffusion_configs['temperature_list'],
                 )
 
                 assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"
-                Ts = Ts.to('cpu')
 
-                Ts_out: List[SE3] = []
-                for i in range(n_init_poses):
-                    Ts_out.append(
-                        pick_agent.unprocess_fn(
-                            SE3(poses = Ts[:, i, :]) if return_full_trajectory else SE3(poses = Ts[-1, i, :])
-                        )
-                    )
             elif task_name == 'place':
                 Ts, scene_proc, grasp_proc = place_agent.sample(
                     scene_pcd=scene_pcd.to(device), 
                     grasp_pcd=grasp_pcd.to(device), 
                     Ts_init=current_poses.to(device),
-                    N_steps_list=N_steps_list, 
-                    timesteps_list=timesteps_list, 
-                    temperature_list=temperature_list
+                    N_steps_list=self.place_diffusion_configs['N_steps_list'], 
+                    timesteps_list=self.place_diffusion_configs['timesteps_list'], 
+                    temperature_list=self.place_diffusion_configs['temperature_list'],
                 )
 
                 assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"
-                Ts = Ts.to('cpu')
-                
-                Ts_out: List[SE3] = []
-                for i in range(n_init_poses):
-                    Ts_out.append(
-                        place_agent.unprocess_fn(
-                            SE3(poses = Ts[:, i, :]) if return_full_trajectory else SE3(poses = Ts[-1, i, :])
-                        )
-                    )
             else:
                 raise ValueError(f"Unknown task name '{task_name}'")
 
-            return Ts_out
+            return Ts
+        
+        @expose
+        def request_trajectories(self, scene_pcd: data.PointCloud, 
+                                 grasp_pcd: data.PointCloud,
+                                 current_poses: data.SE3,
+                                 task_name: str,
+                                 ) -> Tuple[List[data.SE3], Dict[str, Any]]:
+            denoise_seq: torch.Tensor = self._denoise(
+                scene_pcd=scene_pcd, grasp_pcd=grasp_pcd, current_poses=current_poses, task_name=task_name
+            ).to(device='cpu') # (n_time, n_init_pose, 7)
+
+            Ts = data.SE3(poses=denoise_seq[-1])
+
+            if task_name == 'pick':
+                unproc_fn = pick_agent.unprocess_fn
+                Ts = unproc_fn(Ts)
+                trajectories = self.compute_pick_trajectory(pick_poses=Ts)
+            elif task_name == 'place':
+                unproc_fn = place_agent.unprocess_fn
+                Ts = unproc_fn(Ts)
+                trajectories = self.compute_place_trajectory(place_poses=Ts)
+            else:
+                raise ValueError(f"Unknown task name: '{task_name}'")
+
+            info = {}
+
+            return trajectories, info
         
 
-    server.register_service(service=AgentService())
+    server.register_service(service=AgentService(configs=server_configs))
     server.run(nonblocking=False)
 
     server.close()
