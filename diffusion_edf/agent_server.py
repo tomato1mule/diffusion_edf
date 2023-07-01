@@ -109,9 +109,7 @@ if __name__ == '__main__':
         
         def compute_place_trajectory(self, place_poses: data.SE3,
                                      scene_pcd: data.PointCloud, 
-                                     grasp_pcd: data.PointCloud,
-                                     pre_pick_pose: data.SE3,
-                                     pick_pose: data.SE3) -> List[data.SE3]:
+                                     grasp_pcd: data.PointCloud) -> List[data.SE3]:
             trajectories = compute_pre_place_trajectories(
                 place_poses=place_poses, 
                 scene_pcd=scene_pcd,
@@ -178,7 +176,7 @@ if __name__ == '__main__':
             elif task_name == 'place':
                 unproc_fn = place_agent.unprocess_fn
                 Ts = unproc_fn(Ts)
-                trajectories = self.compute_place_trajectory(place_poses=Ts)
+                trajectories = self.compute_place_trajectory(place_poses=Ts, scene_pcd=scene_pcd, grasp_pcd=grasp_pcd)
             else:
                 raise ValueError(f"Unknown task name: '{task_name}'")
 
