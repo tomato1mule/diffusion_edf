@@ -137,6 +137,7 @@ if __name__ == '__main__':
                     N_steps_list=self.pick_diffusion_configs['N_steps_list'], 
                     timesteps_list=self.pick_diffusion_configs['timesteps_list'], 
                     temperatures_list=self.pick_diffusion_configs['temperatures_list'],
+                    diffusion_schedules_list=self.pick_diffusion_configs['diffusion_schedules_list']
                 )
 
                 assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"
@@ -149,6 +150,7 @@ if __name__ == '__main__':
                     N_steps_list=self.place_diffusion_configs['N_steps_list'], 
                     timesteps_list=self.place_diffusion_configs['timesteps_list'], 
                     temperatures_list=self.place_diffusion_configs['temperatures_list'],
+                    diffusion_schedules_list=self.place_diffusion_configs['diffusion_schedules_list']
                 )
 
                 assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"

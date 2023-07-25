@@ -73,10 +73,14 @@ class DiffusionEdfAgent():
                N_steps_list: List[List[int]],
                timesteps_list: List[List[float]],
                temperatures_list: List[Union[Union[int, float], Sequence[Union[int, float]]]],
+               diffusion_schedules_list: Optional[List[Optional[List[Union[List[float], Tuple[float, float]]]]]] = None,
                ) -> Tuple[torch.Tensor, PointCloud, PointCloud]:
+        if diffusion_schedules_list is None:
+            diffusion_schedules_list = [None for _ in range(len(self.models))]
         assert len(self.models) == len(N_steps_list), f"{len(self.models)} != {len(N_steps_list)}"
         assert len(self.models) == len(timesteps_list), f"{len(self.models)} != {len(timesteps_list)}"
         assert len(self.models) == len(temperatures_list), f"{len(self.models)} != {len(temperatures_list)}"
+        assert len(self.models) == len(diffusion_schedules_list), f"{len(self.models)} != {len(diffusion_schedules_list)}"
 
         scene_pcd: PointCloud = self.proc_fn(scene_pcd)
         grasp_pcd: PointCloud = self.proc_fn(grasp_pcd)
@@ -88,13 +92,14 @@ class DiffusionEdfAgent():
         assert T0.ndim == 2 and T0.shape[-1] == 7, f"{T0.shape}"
 
         Ts_out = []
-        for model, N_steps, timesteps, temperatures in zip(self.models, N_steps_list, timesteps_list, temperatures_list):
+        for model, N_steps, timesteps, temperatures, diffusion_schedules in zip(self.models, N_steps_list, timesteps_list, temperatures_list, diffusion_schedules_list):
             #################### Feature extraction #####################
             with torch.no_grad():
                 scene_out_multiscale: List[FeaturedPoints] = model.get_key_pcd_multiscale(scene_input)
                 grasp_out: FeaturedPoints = model.get_query_pcd(grasp_input)
 
-            diffusion_schedules = model.diffusion_schedules
+            if diffusion_schedules is None:
+                diffusion_schedules = model.diffusion_schedules
             assert len(diffusion_schedules) == len(N_steps), f"{len(diffusion_schedules)} != {len(N_steps)}"
             assert len(diffusion_schedules) == len(timesteps), f"{len(diffusion_schedules)} != {len(timesteps)}"
 
@@ -104,7 +109,7 @@ class DiffusionEdfAgent():
                     T_seed=T0.clone().detach(),
                     scene_pcd_multiscale=scene_out_multiscale,
                     grasp_pcd=grasp_out,
-                    diffusion_schedules=model.diffusion_schedules,
+                    diffusion_schedules=diffusion_schedules,
                     N_steps=N_steps,
                     timesteps=timesteps,
                     temperatures=temperatures

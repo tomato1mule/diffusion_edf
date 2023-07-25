@@ -2,6 +2,9 @@ pick_diffusion_configs:
   N_steps_list: [[500, 500], [500, 1000]]
   timesteps_list: [[0.02, 0.02], [0.02, 0.02]]
   temperatures_list: [[1., 1.], [1., 1.]]
+  diffusion_schedules_list:
+    - null
+    - null
 pick_trajectory_configs:
   approach_len: 0.1
   n_steps: 10
@@ -9,6 +12,9 @@ place_diffusion_configs:
   N_steps_list: [[500, 500], [500, 1000]]
   timesteps_list: [[0.02, 0.02], [0.02, 0.02]]
   temperatures_list: [[1., 1.], [1., 1.]]
+  diffusion_schedules_list:
+    - null
+    - null
 place_trajectory_configs:
   n_steps: 20
   dt: 0.0001

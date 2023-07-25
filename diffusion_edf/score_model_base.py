@@ -136,7 +136,7 @@ class ScoreModelBase(torch.nn.Module):
             dt_schedule = torch.ones_like(t_schedule) * timesteps[n]
             t_schedule = t_schedule.unsqueeze(-1)
 
-            print(f"{self.__class__.__name__}: sampling with (temperature: {temperature})")
+            print(f"{self.__class__.__name__}: sampling with (temperature: {temperature} || t_schedule: {schedule})")
             for i in tqdm(range(len(t_schedule))):
                 t = t_schedule[i]
                 dt = dt_schedule[i]
