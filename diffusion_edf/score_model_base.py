@@ -1,4 +1,4 @@
-from typing import List, Optional, Union, Tuple, Iterable, Callable, Dict
+from typing import List, Optional, Union, Tuple, Iterable, Callable, Dict, Sequence
 import math
 import warnings
 from tqdm import tqdm
@@ -118,8 +118,10 @@ class ScoreModelBase(torch.nn.Module):
                timesteps: List[float],
                ang_noise_mult: Union[int, float] = 1.0,
                lin_noise_mult: Union[int, float] = 1.0,
-               temperature: float = 1.0,
+               temperatures: Union[Union[int, float], Sequence[Union[int, float]]] = 1.0,
                linear_noise_schedule: bool = False) -> torch.Tensor:
+        if isinstance(temperatures, int) or isinstance(temperatures, float):
+            temperatures = [float(temperatures) for _ in range(len(t_schedule))]
         
         device = T_seed.device
         T = T_seed.clone().detach().type(torch.float64)
@@ -128,11 +130,13 @@ class ScoreModelBase(torch.nn.Module):
 
         steps = 0
         for n, schedule in enumerate(diffusion_schedules):
+            temperature = float(temperatures[n])
             t_schedule = torch.linspace(schedule[0], schedule[1], N_steps[n], device=device, dtype=torch.float64)
             #dt_schedule = torch.ones_like(t_schedule) * (schedule[0] - schedule[1]) / n_steps * dt_mult
             dt_schedule = torch.ones_like(t_schedule) * timesteps[n]
             t_schedule = t_schedule.unsqueeze(-1)
 
+            print(f"{self.__class__.__name__}: sampling with (temperature: {temperature})")
             for i in tqdm(range(len(t_schedule))):
                 t = t_schedule[i]
                 dt = dt_schedule[i]

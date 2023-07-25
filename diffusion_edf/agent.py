@@ -1,6 +1,6 @@
 import os
 os.environ["PYTORCH_JIT_USE_NNC_NOT_NVFUSER"] = "1"
-from typing import List, Tuple, Optional, Union, Iterable, Dict
+from typing import List, Tuple, Optional, Union, Iterable, Dict, Sequence
 import math
 import argparse
 import warnings
@@ -72,11 +72,11 @@ class DiffusionEdfAgent():
                Ts_init: SE3,
                N_steps_list: List[List[int]],
                timesteps_list: List[List[float]],
-               temperature_list: List[float],
+               temperatures_list: List[Union[Union[int, float], Sequence[Union[int, float]]]],
                ) -> Tuple[torch.Tensor, PointCloud, PointCloud]:
         assert len(self.models) == len(N_steps_list), f"{len(self.models)} != {len(N_steps_list)}"
         assert len(self.models) == len(timesteps_list), f"{len(self.models)} != {len(timesteps_list)}"
-        assert len(self.models) == len(temperature_list), f"{len(self.models)} != {len(temperature_list)}"
+        assert len(self.models) == len(temperatures_list), f"{len(self.models)} != {len(temperatures_list)}"
 
         scene_pcd: PointCloud = self.proc_fn(scene_pcd)
         grasp_pcd: PointCloud = self.proc_fn(grasp_pcd)
@@ -88,7 +88,7 @@ class DiffusionEdfAgent():
         assert T0.ndim == 2 and T0.shape[-1] == 7, f"{T0.shape}"
 
         Ts_out = []
-        for model, N_steps, timesteps, temperatures in zip(self.models, N_steps_list, timesteps_list, temperature_list):
+        for model, N_steps, timesteps, temperatures in zip(self.models, N_steps_list, timesteps_list, temperatures_list):
             #################### Feature extraction #####################
             with torch.no_grad():
                 scene_out_multiscale: List[FeaturedPoints] = model.get_key_pcd_multiscale(scene_input)
@@ -107,7 +107,7 @@ class DiffusionEdfAgent():
                     diffusion_schedules=model.diffusion_schedules,
                     N_steps=N_steps,
                     timesteps=timesteps,
-                    temperature=temperatures
+                    temperatures=temperatures
                 )
                 T0 = Ts[-1]
                 Ts_out.append(Ts)
