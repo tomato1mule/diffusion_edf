@@ -63,7 +63,7 @@ def sample_reference_points(src_points: torch.Tensor, dst_points: torch.Tensor, 
     n_neighbor = scatter_sum(src=torch.ones_like(edge_dst), index=edge_dst, dim_size=n_points)
     total_count = n_neighbor.sum()
     if total_count <= 0:
-        raise ValueError("There is no connected edges. Increase the clustering radius.")
+        raise ValueError("There is no connected edges. Increase the contact radius.")
     p_choice = n_neighbor / total_count
 
     sampled_idx = torch.multinomial(p_choice, num_samples=n_samples)
