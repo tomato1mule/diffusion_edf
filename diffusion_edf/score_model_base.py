@@ -162,7 +162,7 @@ class ScoreModelBase(torch.nn.Module):
                     dtype=torch.float64
                 ).unsqueeze(-1)
 
-            print(f"{self.__class__.__name__}: sampling with (temp_base: {temperature_base} || t_schedule: {schedule})")
+            print(f"{self.__class__.__name__}: sampling with (temp_base: {temperature_base} || t_schedule: {schedule.detach().cpu().numpy()})")
             for i in tqdm(range(len(t_schedule))):
                 t = t_schedule[i]
                 temperature = temperature_base * torch.pow(t,time_exponent_temp)
