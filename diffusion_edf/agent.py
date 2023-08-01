@@ -74,7 +74,15 @@ class DiffusionEdfAgent():
                timesteps_list: List[List[float]],
                temperatures_list: List[Union[Union[int, float], Sequence[Union[int, float]]]],
                diffusion_schedules_list: Optional[List[Optional[List[Union[List[float], Tuple[float, float]]]]]] = None,
+               log_t_schedule: bool = True,
+               time_exponent_temp: float = 1.0, # Theoretically, this should be zero.
+               time_exponent_alpha: float = 0.5, # Most commonly used exponent in image generation is 1.0, but it is too slow in our case.
                ) -> Tuple[torch.Tensor, PointCloud, PointCloud]:
+        """
+        alpha = timestep * L^2 * (t^time_exponent_alpha)
+        T = temperature * (t^time_exponent_temp)
+        """
+
         if diffusion_schedules_list is None:
             diffusion_schedules_list = [None for _ in range(len(self.models))]
         assert len(self.models) == len(N_steps_list), f"{len(self.models)} != {len(N_steps_list)}"
@@ -112,7 +120,10 @@ class DiffusionEdfAgent():
                     diffusion_schedules=diffusion_schedules,
                     N_steps=N_steps,
                     timesteps=timesteps,
-                    temperatures=temperatures
+                    temperatures=temperatures,
+                    log_t_schedule=log_t_schedule,
+                    time_exponent_temp=time_exponent_temp,
+                    time_exponent_alpha=time_exponent_alpha,
                 )
                 T0 = Ts[-1]
                 Ts_out.append(Ts)

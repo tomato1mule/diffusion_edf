@@ -110,54 +110,78 @@ class ScoreModelBase(torch.nn.Module):
     def sample(self, T_seed: torch.Tensor,
                scene_pcd_multiscale: List[FeaturedPoints], 
                grasp_pcd: FeaturedPoints,
-               diffusion_schedules: List[Union[
-                                        List[float], 
-                                        Tuple[float, float]]
+               diffusion_schedules: List[
+                                        Union[List[float], Tuple[float, float]]
                                     ],
                N_steps: List[int], 
                timesteps: List[float],
-               ang_noise_mult: Union[int, float] = 1.0,
-               lin_noise_mult: Union[int, float] = 1.0,
                temperatures: Union[Union[int, float], Sequence[Union[int, float]]] = 1.0,
-               linear_noise_schedule: bool = False) -> torch.Tensor:
+               log_t_schedule: bool = True,
+               time_exponent_temp: float = 0.5, # Theoretically, this should be zero.
+               time_exponent_alpha: float = 0.5, # Most commonly used exponent in image generation is 1.0, but it is too slow in our case.
+               ) -> torch.Tensor:
+        """
+        alpha = timestep * L^2 * (t^time_exponent_alpha)
+        T = temperature * (t^time_exponent_temp)
+        """
+
         if isinstance(temperatures, int) or isinstance(temperatures, float):
             temperatures = [float(temperatures) for _ in range(len(t_schedule))]
         
+        # ---------------------------------------------------------------------------- #
+        # Convert Data Type
+        # ---------------------------------------------------------------------------- #
         device = T_seed.device
         T = T_seed.clone().detach().type(torch.float64)
+        temperatures = torch.tensor(temperatures, device=device, dtype=torch.float64)
+        diffusion_schedules = torch.tensor(diffusion_schedules, device=device, dtype=torch.float64)
+        
 
+        # ---------------------------------------------------------------------------- #
+        # Begin Loop
+        # ---------------------------------------------------------------------------- #
         Ts = [T.clone().detach()]
-
         steps = 0
         for n, schedule in enumerate(diffusion_schedules):
-            temperature = float(temperatures[n])
-            t_schedule = torch.linspace(schedule[0], schedule[1], N_steps[n], device=device, dtype=torch.float64)
-            #dt_schedule = torch.ones_like(t_schedule) * (schedule[0] - schedule[1]) / n_steps * dt_mult
-            dt_schedule = torch.ones_like(t_schedule) * timesteps[n]
-            t_schedule = t_schedule.unsqueeze(-1)
+            temperature_base = temperatures[n]
+            if log_t_schedule:
+                t_schedule = torch.logspace(
+                    start=torch.log(schedule[0]), 
+                    end=torch.log(schedule[1]), 
+                    steps=N_steps[n], 
+                    base=torch.e, 
+                    device=device, 
+                    dtype=torch.float64,
+                ).unsqueeze(-1)
+            else:
+                t_schedule = torch.linspace(
+                    start=schedule[0], 
+                    end=schedule[1], 
+                    steps=N_steps[n], 
+                    device=device, 
+                    dtype=torch.float64
+                ).unsqueeze(-1)
 
-            print(f"{self.__class__.__name__}: sampling with (temperature: {temperature} || t_schedule: {schedule})")
+            print(f"{self.__class__.__name__}: sampling with (temp_base: {temperature_base} || t_schedule: {schedule})")
             for i in tqdm(range(len(t_schedule))):
                 t = t_schedule[i]
-                dt = dt_schedule[i]
+                temperature = temperature_base * torch.pow(t,time_exponent_temp)
+                alpha_ang = (self.ang_mult **2) * torch.pow(t,time_exponent_alpha) * timesteps[n]
+                alpha_lin = (self.lin_mult **2) * torch.pow(t,time_exponent_alpha) * timesteps[n]
+
                 with torch.no_grad():
-                    (ang_score, lin_score) = self.score_head(Ts=T.view(-1,7).float(), 
-                                                             key_pcd_multiscale=scene_pcd_multiscale,
-                                                             query_pcd=grasp_pcd,
-                                                             time = t.repeat(len(T)).float())
-                ang_score, lin_score = ang_score.type(torch.float64), lin_score.type(torch.float64)
+                    (ang_score_dimless, lin_score_dimless) = self.score_head(Ts=T.view(-1,7).float(), 
+                                                                            key_pcd_multiscale=scene_pcd_multiscale,
+                                                                            query_pcd=grasp_pcd,
+                                                                            time = t.repeat(len(T)).float())
+                ang_score = ang_score_dimless.type(torch.float64) / (self.ang_mult * torch.sqrt(t))
+                lin_score = lin_score_dimless.type(torch.float64) / (self.lin_mult * torch.sqrt(t))
 
-                ang_noise = float(ang_noise_mult) * torch.randn_like(ang_score, dtype=torch.float64) * torch.sqrt(dt * t * temperature)
-                lin_noise = float(lin_noise_mult) * torch.randn_like(lin_score, dtype=torch.float64) * torch.sqrt(dt * t * temperature)
-                if linear_noise_schedule:
-                    ang_noise, lin_noise = ang_noise * torch.sqrt(t), lin_noise * torch.sqrt(t)
+                ang_noise = torch.sqrt(temperature*alpha_ang) * torch.randn_like(ang_score, dtype=torch.float64) 
+                lin_noise = torch.sqrt(temperature*alpha_lin) * torch.randn_like(lin_score, dtype=torch.float64)
 
-
-                ang_disp = (ang_score * dt / 2) + ang_noise
-                lin_disp = (lin_score * dt / 2) + lin_noise
-
-                ang_disp = ang_disp * self.ang_mult
-                lin_disp = lin_disp * self.lin_mult
+                ang_disp = (alpha_ang/2) * ang_score + ang_noise
+                lin_disp = (alpha_lin/2) * lin_score + lin_noise
 
 
                 L = T.detach()[...,self.q_indices] * (self.q_factor.type(torch.float64))
