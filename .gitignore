@@ -4,6 +4,7 @@ demo/*
 !demo/test_unseen_demo
 !demo/test_demo_single_mug
 !demo/sapien_demo_5_mug_20230727
+!demo/sapien_demo_5_bottle_20230729
 runs/
 runs_old/
 
