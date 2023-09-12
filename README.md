@@ -1,5 +1,7 @@
 # Diffusion EDF
 Official implementation of the paper 'Diffusion-EDFs: Bi-equivariant Denoising Generative Modeling on SE(3) for Visual Robotic Manipulation'
+
+Paper: https://arxiv.org/abs/2309.02685
 # Installation
 
 **Step 1.** Clone Github repository.
@@ -37,7 +39,7 @@ To see running experiments, use tensorboard:
 tensorboard --logdir=./runs
 ```
 ## Evaluation
-Please open *'evaluate.ipynb'* with Jupyter notebook.
+Please open `evaluate.ipynb` with Jupyter notebook.
 
 **Inputs**
 
@@ -54,7 +56,7 @@ Please open *'evaluate.ipynb'* with Jupyter notebook.
 > Properly setting the unit system for position is crucial. In this code, centimeter unit is used for the model. For example, the distance between two points (x=0., y=0., z=0.) and (x=1., y=0., z=0.) is 1cm.
 
 > **Warning**\
-> Demonstration files are saved in meter units. Therefore, rescaling is defined in the 'train_configs.yaml'.
+> Demonstration files are saved in meter units. Therefore, rescaling is defined in the `train_configs.yaml`.
 > #### **`configs/pick_lowres/train_configs.yaml`**
 > ```yaml
 > rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
@@ -68,4 +70,16 @@ Please open *'evaluate.ipynb'* with Jupyter notebook.
 >       rescale_factor: *rescale_factor
 >```
 > Note that the voxel size of the voxel downsample filter in the above config file is 0.01m = 1cm. Note that 'train_configs.yaml' and 'task_configs.yaml' use meter units while 'score_model_configs' use centimeter units.
+
+# Citation
+Please consider citing our paper if you find it helpful.
+
+```
+@article{ryu2023diffusion,
+  title={Diffusion-EDFs: Bi-equivariant Denoising Generative Modeling on SE (3) for Visual Robotic Manipulation},
+  author={Ryu, Hyunwoo and Kim, Jiwoo and Chang, Junwoo and Ahn, Hyun Seok and Seo, Joohwan and Kim, Taehan and Choi, Jongeun and Horowitz, Roberto},
+  journal={arXiv preprint arXiv:2309.02685},
+  year={2023}
+}
+```
 
