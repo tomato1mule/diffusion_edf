@@ -17,10 +17,10 @@ log_root_dir: 'runs'
 
 rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
 preprocess_config:
-  - name: "crop_bbox"
-    kwargs:
-      targets: ['scene_pcd']
-      bbox: [[-0.3, 0.3], [0.1, 0.6], [-0.7, 0.5]]  # In meters, [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
+  # - name: "crop_bbox"
+  #   kwargs:
+  #     targets: ['scene_pcd']
+  #     bbox: [[-0.3, 0.3], [0.1, 0.6], [-0.7, 0.5]]  # In meters, [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
   - name: "downsample"
     kwargs:
       voxel_size: 0.01  # In meters

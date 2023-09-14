@@ -4,12 +4,12 @@ model_kwargs:
     - configs_root_dir: 'configs/real_robot_mug/pick_lowres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_09_12_17-14-20_Pick_LowRes_Real_Mug/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_09_14_21-15-50_Pick_LowRes_Real_Mug/checkpoint/200.pt'
       n_warmups: 10
     - configs_root_dir: 'configs/real_robot_mug/pick_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_09_12_17-29-49_Pick_HiRes_Real_Mug/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_09_14_21-41-55_Pick_HiRes_Real_Mug/checkpoint/200.pt'
       n_warmups: 10
   place_models_kwargs: []
     # - configs_root_dir: 'configs/sapien/place_lowres'
