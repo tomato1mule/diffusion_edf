@@ -5,12 +5,14 @@ from beartype import beartype
 import torch
 from e3nn import o3
 # from e3nn.o3._wigner import _Jd
+# _Jd: Tuple[torch.Tensor] = tuple(J.detach().clone().to(dtype=torch.float32) for J in _Jd)
 from e3nn.math._linalg import direct_sum
 from e3nn.util.jit import compile_mode
 from diffusion_edf.transforms import matrix_to_euler_angles, quaternion_to_matrix, standardize_quaternion
+from diffusion_edf import w3j
 
-_Jd, _W3j_flat, _W3j_indices = torch.load(os.path.join(os.path.dirname(__file__), 'constants.pt'))
-_Jd: Tuple[torch.Tensor] = tuple(J.detach().clone().to(dtype=torch.float32) for J in _Jd)
+
+
 
 def quat_to_angle_fast(q: torch.Tensor) -> torch.Tensor: # >10 times faster than e3nn's quaternion_to_angle function
     ang = matrix_to_euler_angles(quaternion_to_matrix(q), "YXY").T
@@ -164,40 +166,121 @@ def transform_feature_quat(irreps, feature, q, Js):
     return transform_feature_quat_(ls, feature_slices, Js, q)
 
 
-class TransformFeatureQuaternion(torch.nn.Module):
-    @beartype
-    def __init__(self, irreps: o3.Irreps):
-        super().__init__()
-        self.ls = tuple([ir.l for mul, ir in irreps])
-        self.slices = tuple([(slice_.start, slice_.stop) for slice_ in irreps.slices()])
-        self.Js = tuple(_Jd[l] for l in self.ls)
-        self.dim: int = o3.Irreps(irreps).dim
+# class TransformFeatureQuaternion(torch.nn.Module):
+#     def __init__(self, irreps: o3.Irreps):
+#         super().__init__()
+#         self.ls = tuple([ir.l for mul, ir in irreps])
+#         self.slices = tuple([(slice_.start, slice_.stop) for slice_ in irreps.slices()])
+#         self.Js = tuple(w3j._Jd[l] for l in self.ls)
+#         self.dim: int = o3.Irreps(irreps).dim
 
-        for n, (l,p) in o3.Irreps(irreps):
-            if p != 1:
-                raise NotImplementedError(f"E3 equivariance is not implemented! (input_irreps: {o3.Irreps(irreps)})")
-        self.lmax: int = o3.Irreps(irreps).lmax
+#         for n, (l,p) in o3.Irreps(irreps):
+#             if p != 1:
+#                 raise NotImplementedError(f"E3 equivariance is not implemented! (input_irreps: {o3.Irreps(irreps)})")
+#         self.lmax: int = o3.Irreps(irreps).lmax
         
-    @torch.jit.ignore()
-    def to(self, *args, **kwargs):
-        self.Js = tuple(_Jd[l].to(*args, **kwargs) for l in self.ls)
-        for module in self.children():
-            if isinstance(module, torch.nn.Module):
-                module.to(*args, **kwargs)
-        return super().to(*args, **kwargs)
+#     @torch.jit.ignore()
+#     def to(self, *args, **kwargs):
+#         self.Js = tuple(w3j._Jd[l].to(*args, **kwargs) for l in self.ls)
+#         for module in self.children():
+#             if isinstance(module, torch.nn.Module):
+#                 module.to(*args, **kwargs)
+#         return super().to(*args, **kwargs)
 
+#     def forward(self, feature: torch.Tensor, q: torch.Tensor) -> torch.Tensor : # (N_Q, N_D) x (N_T, 4) -> (N_T, N_Q, N_D)
+#         assert q.ndim == 2 and q.shape[-1] == 4, f"{q.shape}" # (nT, 4)
+#         assert feature.ndim == 2 and feature.shape[-1] == self.dim, f"{feature.shape}" # (nQ, D)
+
+#         if self.lmax == 0:
+#             return feature.expand(len(q), -1, -1)
+        
+#         feature_slices = []
+#         for slice_ in self.slices:
+#             feature_slices.append(feature[..., slice_[0]:slice_[1]])
+
+#         return transform_feature_quat_(ls=self.ls, feature_slices=feature_slices, Js=self.Js, q=q)
+
+class SliceAndTransform(torch.nn.Module):
+    mul: torch.jit.Final[int]
+    l: torch.jit.Final[int]
+    dim: torch.jit.Final[int]
+    start: torch.jit.Final[int]
+    len: torch.jit.Final[int]
+    
+    def __init__(self, mul:int, l: int, start: int, end: int, allow_zero_len: bool = False):
+        super().__init__()
+        self.mul = mul
+        self.l = l
+        self.dim = 2*self.l+1
+        self.register_buffer("J", w3j._Jd[l].detach().clone())
+        
+        if allow_zero_len:
+            assert end >= start, f"end ({end}) < start ({start})"
+        else:
+            assert end > start, f"end ({end}) =< start ({start})"
+        self.start = start
+        self.len = end - start
+        
+    def forward(self, feature: torch.Tensor, alpha: torch.Tensor, beta: torch.Tensor, gamma: torch.Tensor) -> torch.Tensor:
+        sliced = torch.narrow(feature, dim=-1, start=self.start, length=self.len)
+        assert sliced.shape[-1] == self.len, f"{sliced.shape[-1]} != {self.len}"
+        if self.l == 0:
+            return sliced.expand(len(alpha), len(sliced), self.len)
+        else:
+            return transform_feature_slice_nonscalar(feature=sliced, alpha=alpha, beta=beta, gamma=gamma, l=self.l, J=self.J)
+
+class TransformFeatureQuaternion(torch.nn.Module):
+    dim: torch.jit.Final[int]
+    lmax: torch.jit.Final[int]
+    # __constants__ = ['Js']
+    
+    def __init__(self, irreps: Union[str, o3.Irreps]):
+        super().__init__()
+
+        irreps = o3.Irreps(irreps)
+        for n, (l,p) in irreps:
+            if p != 1:
+                raise NotImplementedError(f"E3 equivariance is not implemented! (input_irreps: {irreps})")
+        self.dim = irreps.dim
+        self.lmax = irreps.lmax
+        
+        self.transforms = torch.nn.ModuleList()
+        for (mul, l), (start, end) in zip(
+            tuple((mul, ir.l) for mul, ir in irreps), 
+            tuple((slice_.start, slice_.stop) for slice_ in irreps.slices())
+        ):
+            self.transforms.append(
+                SliceAndTransform(mul=mul, l=l, start=start, end=end, allow_zero_len=False)
+            )
+        
+        
     def forward(self, feature: torch.Tensor, q: torch.Tensor) -> torch.Tensor : # (N_Q, N_D) x (N_T, 4) -> (N_T, N_Q, N_D)
         assert q.ndim == 2 and q.shape[-1] == 4, f"{q.shape}" # (nT, 4)
         assert feature.ndim == 2 and feature.shape[-1] == self.dim, f"{feature.shape}" # (nQ, D)
 
+        # --------------------------------------------------- #
+        # Return Identity if spin-0 only
+        # --------------------------------------------------- #
         if self.lmax == 0:
             return feature.expand(len(q), -1, -1)
         
-        feature_slices = []
-        for slice_ in self.slices:
-            feature_slices.append(feature[..., slice_[0]:slice_[1]])
-
-        return transform_feature_quat_(ls=self.ls, feature_slices=feature_slices, Js=self.Js, q=q)
+        # --------------------------------------------------- #
+        # Quaternion to Euler angles
+        # --------------------------------------------------- #
+        q = standardize_quaternion(q / torch.norm(q, dim=-1, keepdim=True))
+        angle = quat_to_angle_fast(q)
+        alpha, beta, gamma = angle[0], angle[1], angle[2]
+        
+        # --------------------------------------------------- #
+        # Quaternion to Euler angles
+        # --------------------------------------------------- #
+        feature_transformed = []
+        for transform in self.transforms:
+            feature_transformed.append(
+                transform(feature=feature, alpha=alpha, beta=beta, gamma=gamma)
+            )
+        
+        return torch.cat(feature_transformed, dim=-1)
 
 
 
