@@ -78,20 +78,12 @@ def pcd_to_featured_points(pcd: PointCloud, batch_idx: int = 0) -> FeaturedPoint
     return FeaturedPoints(x=pcd.points, f=pcd.colors, b = torch.empty_like(pcd.points[..., 0], dtype=torch.long).fill_(batch_idx))
 
 class TransformPcd(torch.nn.Module):
-    @beartype
     def __init__(self, irreps: Optional[Union[str, o3.Irreps]]):
         super().__init__()
         if irreps is None:
             self.transform_features = None
         else:
             self.transform_features = TransformFeatureQuaternion(irreps=o3.Irreps(irreps))
-            
-    @torch.jit.ignore()
-    def to(self, *args, **kwargs):
-        for module in self.children():
-            if isinstance(module, torch.nn.Module):
-                module.to(*args, **kwargs)
-        return super().to(*args, **kwargs)
 
     def forward(self, pcd: FeaturedPoints, Ts: torch.Tensor) -> FeaturedPoints: 
         assert Ts.ndim == 2 and Ts.shape[-1] == 7, f"{Ts.shape}" # Ts: (nT, 4+3: quaternion + position) 

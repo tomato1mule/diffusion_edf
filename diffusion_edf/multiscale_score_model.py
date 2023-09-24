@@ -102,10 +102,3 @@ class MultiscaleScoreModel(ScoreModelBase):
     
     def get_query_pcd(self, pcd: FeaturedPoints) -> FeaturedPoints:
         return self.query_model(pcd)
-
-    @torch.jit.ignore()
-    def to(self, *args, **kwargs):
-        for module in self.children():
-            if isinstance(module, torch.nn.Module):
-                module.to(*args, **kwargs)
-        return super().to(*args, **kwargs)
