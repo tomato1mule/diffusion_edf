@@ -24,6 +24,7 @@ def get_models(configs_root_dir: str,
                checkpoint_dir: str,
                device: str,
                n_warmups: int = 10,
+               compile_score_head: bool = True
                ):
 
     trainer = DiffusionEdfTrainer(
@@ -43,6 +44,8 @@ def get_models(configs_root_dir: str,
             device = device
         ).eval()
         model.diffusion_schedules = trainer.diffusion_schedules
+    if compile_score_head:
+        model.score_head = torch.jit.script(model.score_head)
 
     print(f"Warming up the model for {n_warmups} iterations", flush=True)
     if n_warmups:
@@ -59,10 +62,11 @@ class DiffusionEdfAgent():
     def __init__(self, model_kwargs_list: List[Dict], 
                  preprocess_config,
                  unprocess_config,
-                 device: str):
+                 device: str,
+                 compile_score_head: bool = True):
         self.models = []
         for kwargs in model_kwargs_list:
-            self.models.append(get_models(**kwargs, device=device))
+            self.models.append(get_models(**kwargs, device=device, compile_score_head=compile_score_head))
 
         self.proc_fn = train_utils.compose_proc_fn(preprocess_config=preprocess_config)
         self.unprocess_fn = train_utils.compose_proc_fn(preprocess_config=unprocess_config)

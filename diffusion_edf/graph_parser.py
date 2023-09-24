@@ -199,25 +199,28 @@ class GraphEdgeEncoderBase(torch.nn.Module):
                 
         if edge_cutoff is None:
             if fill_edge_weights is None:
+                edge_cutoff_ = None
                 log_edge_cutoff = None
             else:
                 assert isinstance(fill_edge_weights, float), f"{fill_edge_weights}"
-                edge_cutoff = torch.empty_like(edge_length).fill_(fill_edge_weights)
-                log_edge_cutoff = torch.empty_like(edge_length).fill_(math.log(fill_edge_weights))
+                # edge_cutoff_ = torch.empty_like(edge_length).fill_(fill_edge_weights)                # torch.jit.script incompatible
+                # log_edge_cutoff = torch.empty_like(edge_length).fill_(math.log(fill_edge_weights))   # torch.jit.script incompatible
+                edge_cutoff_ = torch.ones_like(edge_length) * fill_edge_weights
+                log_edge_cutoff = torch.ones_like(edge_length) * math.log(fill_edge_weights)
         else:
             if edge_cutoff.requires_grad:
                 edge_cutoff = torch.where(edge_cutoff >= self.cutoff_eps, edge_cutoff, self.cutoff_eps + (edge_cutoff - edge_cutoff.detach())) # Straight-through gradient estimation trick
-                log_edge_cutoff = torch.log(edge_cutoff)
             else:
                 edge_cutoff = torch.max(edge_cutoff, self.cutoff_eps)
-                log_edge_cutoff = torch.log(edge_cutoff)
+            log_edge_cutoff = torch.log(edge_cutoff)
+            edge_cutoff_ = edge_cutoff # This stupid code is due to torch.jit.script compatibility.
 
         return GraphEdge(edge_src=edge_src, 
                          edge_dst=edge_dst, 
                          edge_attr=edge_sh, 
                          edge_length=edge_length, 
                          edge_scalars=edge_scalars, 
-                         edge_weights=edge_cutoff,
+                         edge_weights=edge_cutoff_,
                          edge_logits=log_edge_cutoff,)
 
 
