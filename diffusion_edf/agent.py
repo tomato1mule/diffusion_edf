@@ -24,7 +24,8 @@ def get_models(configs_root_dir: str,
                checkpoint_dir: str,
                device: str,
                n_warmups: int = 10,
-               compile_score_head: bool = True
+               compile_score_head: bool = True,
+               strict_load: bool = False
                ):
 
     trainer = DiffusionEdfTrainer(
@@ -41,7 +42,8 @@ def get_models(configs_root_dir: str,
         model = trainer.get_model(
             checkpoint_dir=checkpoint_dir,
             deterministic=False, 
-            device = device
+            device = device,
+            strict=strict_load
         ).eval()
         model.diffusion_schedules = trainer.diffusion_schedules
     if compile_score_head:

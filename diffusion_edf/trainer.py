@@ -119,6 +119,7 @@ class DiffusionEdfTrainer():
     def get_model(self, deterministic: bool = False, 
                   device: Optional[Union[str, torch.device]] = None,
                   checkpoint_dir: Optional[str] = None,
+                  strict: bool = True
                   ) -> ScoreModelBase:
         if device is None:
             device = self.device
@@ -134,8 +135,8 @@ class DiffusionEdfTrainer():
         
         if checkpoint_dir is not None:
             checkpoint = torch.load(checkpoint_dir)
-            score_model.load_state_dict(checkpoint['score_model_state_dict'])
-            # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            score_model.load_state_dict(checkpoint['score_model_state_dict'], strict=strict)
+            # optimizer.load_state_dict(checkpoint['optimizer_state_dict'], strict=strict)
             epoch = checkpoint['epoch']
             steps = checkpoint['steps']
             print(f"Successfully Loaded checkpoint @ epoch: {epoch} (steps: {steps})")
