@@ -125,8 +125,8 @@ class ScoreModelBase(torch.nn.Module):
         T = temperature * (t^time_exponent_temp)
         """
 
-        if isinstance(temperatures, int) or isinstance(temperatures, float):
-            temperatures = [float(temperatures) for _ in range(len(t_schedule))]
+        if isinstance(temperatures, (int, float)):
+            temperatures = [float(temperatures) for _ in range(len(diffusion_schedules))]
         
         # ---------------------------------------------------------------------------- #
         # Convert Data Type
