@@ -159,7 +159,8 @@ class ScoreModelHead(torch.nn.Module):
         nT = len(Ts)
         nQ = len(query_pcd.x)
 
-        query_weight: torch.Tensor = query_pcd.w     # (nQ,)
+        query_weight = query_pcd.w     # (nQ,)
+        assert isinstance(query_weight, torch.Tensor) # to tell torch.jit.script that it is tensor
 
         time_embs_multiscale: List[torch.Tensor] = []
         time_enc: torch.Tensor = self.time_enc(time)                       # (nT, time_emb_mlp[0])
@@ -173,20 +174,20 @@ class ScoreModelHead(torch.nn.Module):
         query_features_transformed: torch.Tensor = query_transformed.f.clone()                                                 # (nT, nQ, F)         
         if self.query_time_encoding:
             assert self.query_time_mlp is not None
-            query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, 
+            query_transformed = set_featured_points_attribute(points=query_transformed, 
                                                                               f=self.query_time_mlp(time_enc).unsqueeze(-2).expand(nT, nQ, self.time_emb_dim),  # (nT, time_emb_D) -> # (nT, nQ, time_emb_D)
                                                                               w=None)    # (nT, nQ, 3), (nT, nQ, time_emb), (nT, nQ,), None
         else:
-            query_transformed: FeaturedPoints = set_featured_points_attribute(points=query_transformed, f=torch.empty_like(query_transformed.f), w=None)   # (nT, nQ, 3), (nT, nQ, -), (nT, nQ,), None
+            query_transformed = set_featured_points_attribute(points=query_transformed, f=torch.empty_like(query_transformed.f), w=None)   # (nT, nQ, 3), (nT, nQ, -), (nT, nQ,), None
 
-        query_transformed: FeaturedPoints = flatten_featured_points(query_transformed)                                         # (nT*nQ, 3), (nT*nQ, time_emb), (nT*nQ,), None
+        query_transformed = flatten_featured_points(query_transformed)                                         # (nT*nQ, 3), (nT*nQ, time_emb), (nT*nQ,), None
         if self.edge_time_encoding:
-            query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
+            query_transformed = self.key_tensor_field(query_points = query_transformed, 
                                                                       input_points_multiscale = key_pcd_multiscale,
                                                                       context_emb = time_embs_multiscale)                      # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
         else:
             assert self.query_time_encoding is True, f"You need to use at least one (query or edge) time encoding method."
-            query_transformed: FeaturedPoints = self.key_tensor_field(query_points = query_transformed, 
+            query_transformed = self.key_tensor_field(query_points = query_transformed, 
                                                                       input_points_multiscale = key_pcd_multiscale,
                                                                       context_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)                                                         # (nT*nQ, F)
         key_features: torch.Tensor = query_transformed.f

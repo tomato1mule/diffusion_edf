@@ -142,7 +142,7 @@ class GraphEdgeEncoderBase(torch.nn.Module):
         else:
             self.requires_encoding = True
             
-    @torch.autocast(device_type='cuda', enabled=False)
+    # @torch.autocast(device_type='cuda', enabled=False)
     def _encode_edges(self, x_src: torch.Tensor, 
                       x_dst: torch.Tensor, 
                       edge_src: torch.Tensor, 

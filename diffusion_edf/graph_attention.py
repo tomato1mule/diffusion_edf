@@ -223,16 +223,20 @@ class GraphAttentionMLP2(torch.nn.Module):
         assert isinstance(graph_edge.edge_attr, torch.Tensor)
         assert isinstance(graph_edge.edge_scalars, torch.Tensor)
         assert message.ndim == 2 # (nEdge, F_in)
-      
-        weight: torch.Tensor = self.sep_act.dtp_rad(graph_edge.edge_scalars)  # (nEdge, numel_1)
-        message: torch.Tensor = self.sep_act.dtp(message, graph_edge.edge_attr, weight) # (nEdge, F_pregate)
+        
+        edge_scalars = graph_edge.edge_scalars
+        edge_attr = graph_edge.edge_attr
+        assert edge_scalars is not None and edge_attr is not None # To tell torch.jit.script that it is not None
+        
+        weight: torch.Tensor = self.sep_act.dtp_rad(edge_scalars)  # (nEdge, numel_1)
+        message: torch.Tensor = self.sep_act.dtp(message, edge_attr, weight) # (nEdge, F_pregate)
         log_alpha = self.sep_alpha(message)     # (nEdge, mul_alpha)                                 # f_ij^(L=0) part  ||  Linear: irreps_in -> 'mul_alpha x 0e'
         log_alpha = self.vec2heads_alpha(log_alpha) # (nEdge, nHead, mul_alpha//nHead)               # reshape (N, Heads*head_dim) -> (N, Heads, head_dim)
         value: torch.Tensor = self.sep_act.lin(message) # (nEdge, F_pregate)                         # f_ij^(L>=0) part (before activation)
         value: torch.Tensor = self.sep_act.gate(value) # (nEdge, F_mid)                              # f_ij^(L>=0) part (after activation)
         value: torch.Tensor = self.sep_value(value,                                                  # DTP + Linear for f_ij^(L>=0) part
-                                             edge_attr=graph_edge.edge_attr, 
-                                             edge_scalars=graph_edge.edge_scalars)  # (nEdge, F_attn)          
+                                             edge_attr=edge_attr, 
+                                             edge_scalars=edge_scalars)  # (nEdge, F_attn)          
         # inner product
         log_alpha = self.alpha_act(log_alpha)                 # (nEdge, nHead, mul_alpha//nHead)         # Leaky ReLU
         log_alpha = torch.einsum('ehk, hk -> eh',             # Linear layer: (N_edge, N_head, mul_alpha//nHead) -> (N_edge, N_head)
