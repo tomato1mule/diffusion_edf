@@ -1,13 +1,15 @@
+import os
 from typing import List, Dict, Union, Optional, Tuple
 from beartype import beartype
 
 import torch
 from e3nn import o3
-from e3nn.o3._wigner import _Jd
+# from e3nn.o3._wigner import _Jd
 from e3nn.math._linalg import direct_sum
 from e3nn.util.jit import compile_mode
 from diffusion_edf.transforms import matrix_to_euler_angles, quaternion_to_matrix, standardize_quaternion
 
+_Jd, _W3j_flat, _W3j_indices = torch.load(os.path.join(os.path.dirname(__file__), 'constants.pt'))
 _Jd: Tuple[torch.Tensor] = tuple(J.detach().clone().to(dtype=torch.float32) for J in _Jd)
 
 def quat_to_angle_fast(q: torch.Tensor) -> torch.Tensor: # >10 times faster than e3nn's quaternion_to_angle function

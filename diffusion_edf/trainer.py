@@ -491,6 +491,7 @@ class DiffusionEdfTrainer():
 
     def warmup_score_model(self, score_model: ScoreModelBase, n_warmups: int = 10):
         assert self.trainloader is not None
+        score_model.requires_grad_(False)
 
         for iters in tqdm(range(n_warmups), file=sys.stdout):
             demo_batch = next(iter(self.trainloader))
@@ -501,9 +502,8 @@ class DiffusionEdfTrainer():
             scene_input, grasp_input, T_target = train_utils.flatten_batch(demo_batch=demo_batch) # T_target: (Nbatch, Ngrasps, 7)
             T_target = T_target.squeeze(0) # (B=1, N_poses=1, 7) -> (1,7) 
 
-            with torch.no_grad():
-                key_pcd_multiscale: List[FeaturedPoints] = score_model.get_key_pcd_multiscale(scene_input)
-                query_pcd: FeaturedPoints = score_model.get_query_pcd(grasp_input)
+            key_pcd_multiscale: List[FeaturedPoints] = score_model.get_key_pcd_multiscale(scene_input)
+            query_pcd: FeaturedPoints = score_model.get_query_pcd(grasp_input)
                 
             for time_schedule in self.diffusion_schedules:
                 time = train_utils.random_time(
@@ -522,14 +522,15 @@ class DiffusionEdfTrainer():
                     n_samples_x_ref=1,
                 )
 
-                with torch.no_grad():
-                    _____ = score_model.score_head(
-                        Ts=T.view(-1,7), 
-                        key_pcd_multiscale=key_pcd_multiscale,
-                        query_pcd=query_pcd,
-                        time = time.repeat(len(T))
-                    )
 
+                _____ = score_model.score_head(
+                    Ts=T.view(-1,7), 
+                    key_pcd_multiscale=key_pcd_multiscale,
+                    query_pcd=query_pcd,
+                    time = time.repeat(len(T))
+                )
+                
+        score_model.requires_grad_(True)
 
 
 

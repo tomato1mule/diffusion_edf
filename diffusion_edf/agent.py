@@ -1,5 +1,5 @@
 import os
-os.environ["PYTORCH_JIT_USE_NNC_NOT_NVFUSER"] = "1"
+# os.environ["PYTORCH_JIT_USE_NNC_NOT_NVFUSER"] = "1"
 from typing import List, Tuple, Optional, Union, Iterable, Dict, Sequence
 import math
 import argparse

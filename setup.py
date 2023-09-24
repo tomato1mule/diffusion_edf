@@ -36,6 +36,8 @@ setup(
         'dash',
         'dash_vtk',
         'dash_daq',
-        'beartype'
+        'beartype',
+        'tensorboard',
+        'einops'
     ]
 )
