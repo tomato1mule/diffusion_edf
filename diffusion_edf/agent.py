@@ -24,7 +24,7 @@ def get_models(configs_root_dir: str,
                checkpoint_dir: str,
                device: str,
                n_warmups: int = 10,
-               compile_score_head: bool = True,
+               compile_score_head: bool = False,
                strict_load: bool = False
                ):
 
@@ -65,7 +65,7 @@ class DiffusionEdfAgent():
                  preprocess_config,
                  unprocess_config,
                  device: str,
-                 compile_score_head: bool = True):
+                 compile_score_head: bool = False):
         self.models = []
         for kwargs in model_kwargs_list:
             self.models.append(get_models(**kwargs, device=device, compile_score_head=compile_score_head))

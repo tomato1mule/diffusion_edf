@@ -22,10 +22,12 @@ if __name__ == '__main__':
     parser.add_argument('--configs-root-dir', type=str, help='')
     parser.add_argument('--server-name', type=str, default='agent', help='')
     parser.add_argument('--init-nameserver', action='store_true', help='')
+    parser.add_argument('--compile-score-model-head', action='store_true', help='compile score head with torch.jit.script for faster inference, but may cause bug')
     args = parser.parse_args()
     configs_root_dir = args.configs_root_dir
     server_name = args.server_name
     init_nameserver = args.init_nameserver
+    compile_score_head = args.compile_score_model_head
     if not init_nameserver:
         init_nameserver = None
 
@@ -58,14 +60,16 @@ if __name__ == '__main__':
         model_kwargs_list=agent_configs['model_kwargs'][f"pick_models_kwargs"],
         preprocess_config=preprocess_config,
         unprocess_config=unprocess_config,
-        device=device
+        device=device,
+        compile_score_head=compile_score_head
     )
 
     place_agent = DiffusionEdfAgent(
         model_kwargs_list=agent_configs['model_kwargs'][f"place_models_kwargs"],
         preprocess_config=preprocess_config,
         unprocess_config=unprocess_config,
-        device=device
+        device=device,
+        compile_score_head=compile_score_head
     )
 
     @beartype
