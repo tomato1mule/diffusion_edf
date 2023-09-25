@@ -226,8 +226,10 @@ class MultiscaleTensorField(torch.nn.Module):
                     edge_scalars, 
                     context_emb[n].index_select(0, graph_edge.edge_dst)
                 ], dim=-1) # (nEdge, Emb = lEmb + cEmb)
+                edge_scalars = edge_scalars.type(torch.float32) # To avoid JIT type bug
             else:
                 pass                                  # (nEdge, Emb = lEmb)
+            
             edge_scalars = edge_scalars_pre_linear(edge_scalars)                          # (nEdge, Emb)
             ### Flatten graph ###
             graph_edge = set_graph_edge_attribute(graph_edge=graph_edge, 
