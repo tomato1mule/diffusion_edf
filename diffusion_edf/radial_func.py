@@ -125,7 +125,7 @@ class BesselBasisEncoder(torch.nn.Module):
         else:
             return out * (x_div_c < 1) # * (0 < x_div_c)
         
-class GaussianRadialBasis(torch.nn.Module):
+class _Deprecated_GaussianRadialBasis(torch.nn.Module):
     @beartype
     def __init__(self, dim: int, max_val: Union[float, int], min_val: Union[float, int] = 0.):
         super().__init__()
@@ -188,16 +188,24 @@ class _GaussianParamModule(torch.nn.Module):
         mean = torch.linspace(0.0, 1.0, dim+2, dtype=torch.float32)[1:-1].unsqueeze(0)
         self.mean = torch.nn.Parameter(mean, requires_grad=True)
         self.weight_cap = max_weight * float(math.sqrt(dim))
+        self._detach_out: bool = False
+    
+    def train(self, mode: bool = True):
+        super().train(mode=mode)
+        self._detach_out = not mode
     
     def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         mean: torch.Tensor = self.mean + 0.0
         std: torch.Tensor = F.softplus(self.std_logit) + 1e-5
         weight: torch.Tensor = torch.sigmoid(self.weight_logit) * self.weight_cap
         
-        return mean, std, weight
+        if self._detach_out:
+            return mean.detach(), std.detach(), weight.detach()
+        else:
+            return mean, std, weight
     
 
-class JittableGaussianRadialBasis(torch.nn.Module):
+class GaussianRadialBasis(torch.nn.Module):
     @beartype
     def __init__(self, dim: int, max_val: Union[float, int], min_val: Union[float, int] = 0.):
         super().__init__()
