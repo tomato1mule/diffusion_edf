@@ -132,6 +132,7 @@ class ScoreModelBase(torch.nn.Module):
         # Convert Data Type
         # ---------------------------------------------------------------------------- #
         device = T_seed.device
+        dtype = T_seed.dtype
         T = T_seed.clone().detach().type(torch.float64)
         temperatures = torch.tensor(temperatures, device=device, dtype=torch.float64)
         diffusion_schedules = torch.tensor(diffusion_schedules, device=device, dtype=torch.float64)
@@ -170,10 +171,10 @@ class ScoreModelBase(torch.nn.Module):
                 alpha_lin = (self.lin_mult **2) * torch.pow(t,time_exponent_alpha) * timesteps[n]
 
                 with torch.no_grad():
-                    (ang_score_dimless, lin_score_dimless) = self.score_head(Ts=T.view(-1,7).float(), 
+                    (ang_score_dimless, lin_score_dimless) = self.score_head(Ts=T.view(-1,7).type(dtype), 
                                                                             key_pcd_multiscale=scene_pcd_multiscale,
                                                                             query_pcd=grasp_pcd,
-                                                                            time = t.repeat(len(T)).float())
+                                                                            time = t.repeat(len(T)).type(dtype))
                 ang_score = ang_score_dimless.type(torch.float64) / (self.ang_mult * torch.sqrt(t))
                 lin_score = lin_score_dimless.type(torch.float64) / (self.lin_mult * torch.sqrt(t))
 

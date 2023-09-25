@@ -100,17 +100,19 @@ class DiffusionEdfTrainer():
         return dataloader
     
     @beartype
-    def _init_dataloaders(self):
+    def _init_dataloaders(self, half_precision: bool = False):
         trainset = DemoDataset(dataset_dir=self.train_configs['trainset']['dataset_dir'], 
                                annotation_file=self.train_configs['trainset']['annotation_file'], 
-                               device=self.device)
+                               device=self.device,
+                               dtype = torch.float16 if half_precision else torch.float32)
         self.trainloader = self.get_dataloader(dataset = trainset,
                                                shuffle = self.train_configs['trainset']['shuffle'],
                                                n_batches = self.train_configs['trainset']['n_batches'])
         if self.train_configs['testset'] is not None:
             testset = DemoDataset(dataset_dir=self.train_configs['testset']['dataset_dir'], 
                                   annotation_file=self.train_configs['testset']['annotation_file'], 
-                                  device=self.device)
+                                  device=self.device,
+                                  dtype = torch.float16 if half_precision else torch.float32)
             self.testloader = self.get_dataloader(dataset = testset,
                                                   shuffle = self.train_configs['testset']['shuffle'],
                                                   n_batches = self.train_configs['testset']['n_batches'])
@@ -510,7 +512,8 @@ class DiffusionEdfTrainer():
                 time = train_utils.random_time(
                     min_time=time_schedule[1], 
                     max_time=time_schedule[0], 
-                    device=T_target.device
+                    device=T_target.device,
+                    dtype=T_target.dtype
                 ) # Shape: (1,)
 
                 T, _, __, ___, ____ = self.biequiv_diffusion(

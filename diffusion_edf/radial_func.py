@@ -306,9 +306,10 @@ class SinusoidalPositionEmbeddings(torch.nn.Module):
         x = x / self.max_val * self.n # time: 0~10000
 
         device = x.device
+        dtype = x.dtype
         half_dim = self.dim // 2
         embeddings = math.log(self.n) / (half_dim - 1) # Period: 2pi~10000*2pi
-        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings) # shape: (self.dim/2, )
+        embeddings = torch.exp(torch.arange(half_dim, device=device, dtype=dtype) * -embeddings) # shape: (self.dim/2, )
         embeddings = x[..., None] * embeddings                                      # shape: (*x.shape, self.dim/2) 
         embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)        # shape: (*x.shape, self.dim)
 

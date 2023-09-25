@@ -25,7 +25,8 @@ def get_models(configs_root_dir: str,
                device: str,
                n_warmups: int = 10,
                compile_score_head: bool = False,
-               strict_load: bool = False
+               strict_load: bool = False,
+               half_precision: bool = False,
                ):
 
     trainer = DiffusionEdfTrainer(
@@ -35,7 +36,7 @@ def get_models(configs_root_dir: str,
         device=device
     )
 
-    trainer._init_dataloaders()
+    trainer._init_dataloaders(half_precision=half_precision)
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', message='The TorchScript type system doesn*')
         
@@ -46,6 +47,9 @@ def get_models(configs_root_dir: str,
             strict=strict_load
         ).eval()
         model.diffusion_schedules = trainer.diffusion_schedules
+    if half_precision:
+        model = model.half()
+        
     if compile_score_head:
         model.score_head = torch.jit.script(model.score_head)
 
@@ -65,10 +69,11 @@ class DiffusionEdfAgent():
                  preprocess_config,
                  unprocess_config,
                  device: str,
-                 compile_score_head: bool = False):
+                 compile_score_head: bool = False,
+                 half_precision: bool = False,):
         self.models = []
         for kwargs in model_kwargs_list:
-            self.models.append(get_models(**kwargs, device=device, compile_score_head=compile_score_head))
+            self.models.append(get_models(**kwargs, device=device, compile_score_head=compile_score_head, half_precision=half_precision))
 
         self.proc_fn = train_utils.compose_proc_fn(preprocess_config=preprocess_config)
         self.unprocess_fn = train_utils.compose_proc_fn(preprocess_config=unprocess_config)
@@ -131,9 +136,10 @@ class DiffusionEdfAgent():
                     time_exponent_temp=time_exponent_temp,
                     time_exponent_alpha=time_exponent_alpha,
                 )
+                Ts = Ts.type(T0.dtype)
                 T0 = Ts[-1]
                 Ts_out.append(Ts)
-        Ts_out = torch.cat(Ts_out, dim=0).float() # Ts_out: (nTime, nSample, 7)
+        Ts_out = torch.cat(Ts_out, dim=0) # Ts_out: (nTime, nSample, 7)
 
         return Ts_out, scene_pcd, grasp_pcd
 
