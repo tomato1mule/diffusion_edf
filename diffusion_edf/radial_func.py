@@ -163,6 +163,61 @@ class GaussianRadialBasis(torch.nn.Module):
         x = torch.sigmoid(self.weight_logit) * self.max_weight * x
         
         return x * self.normalizer
+    
+    
+class _GaussianParamModule(torch.nn.Module):
+    weight_cap: torch.jit.Final[float]
+    
+    def __init__(self, dim: int, max_weight: float):
+        dim = int(dim) + 0
+        max_weight =float(max_weight)
+        
+        super().__init__()
+        self.std_logit = torch.nn.Parameter(
+            torch.empty(1, dim, dtype=torch.float32).fill_(
+                math.log(math.exp((2.0 / dim)) -1)             # Inverse Softplus
+            ), requires_grad=True
+        )                                                               # Softplus logit
+        
+        self.weight_logit = torch.nn.Parameter(
+            torch.empty(1, dim, dtype=torch.float32).fill_(
+                -math.log(max_weight/1. - 1)                   # Inverse Sigmoid
+            ), requires_grad=True
+        )                                                               # Sigmoid logit
+        
+        mean = torch.linspace(0.0, 1.0, dim+2, dtype=torch.float32)[1:-1].unsqueeze(0)
+        self.mean = torch.nn.Parameter(mean, requires_grad=True)
+        self.weight_cap = max_weight * float(math.sqrt(dim))
+    
+    def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        mean: torch.Tensor = self.mean + 0.0
+        std: torch.Tensor = F.softplus(self.std_logit) + 1e-5
+        weight: torch.Tensor = torch.sigmoid(self.weight_logit) * self.weight_cap
+        
+        return mean, std, weight
+    
+
+class JittableGaussianRadialBasis(torch.nn.Module):
+    @beartype
+    def __init__(self, dim: int, max_val: Union[float, int], min_val: Union[float, int] = 0.):
+        super().__init__()
+        self.dim: int = int(dim)
+        self.max_val: float = float(max_val)
+        self.min_val: float = float(min_val)
+        if self.min_val < 0.:
+            warnings.warn(f"Negative min_val ({self.min_val}) is provided for radial basis encoder. Are you sure?")
+
+        self.param_module = torch.jit.script(_GaussianParamModule(dim=dim, max_weight=4.0))
+        
+
+    def forward(self, dist: torch.Tensor) -> torch.Tensor:
+        dist = (dist.unsqueeze(-1) - self.min_val) / (self.max_val - self.min_val)
+        x = dist.expand(-1, self.dim)
+        mean, std, weight = self.param_module()
+
+        x = gaussian(x, mean, std)
+        return x * weight
+
 
 
 class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
