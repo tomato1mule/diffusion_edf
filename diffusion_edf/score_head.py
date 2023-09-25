@@ -138,13 +138,6 @@ class ScoreModelHead(torch.nn.Module):
                                         internal_weights = True)
         #self.ang_vel_proj = LinearRS(irreps_in = self.irreps_prescore, irreps_out = o3.Irreps("1x1e"), bias=False, rescale=False).to(device)
 
-    @torch.jit.ignore()
-    def to(self, *args, **kwargs):
-        for module in self.children():
-            if isinstance(module, torch.nn.Module):
-                module.to(*args, **kwargs)
-        return super().to(*args, **kwargs)
-
     def forward(self, Ts: torch.Tensor,
                 key_pcd_multiscale: List[FeaturedPoints],
                 query_pcd: FeaturedPoints,
@@ -215,3 +208,38 @@ class ScoreModelHead(torch.nn.Module):
                 +   (torch.einsum('q,tqi->ti', query_weight, ang_spin)) # (N_T, 3)
 
         return ang_vel, lin_vel
+    
+    @torch.jit.ignore
+    def _get_fake_input(self):
+        device = next(iter(self.parameters())).device
+        
+        from diffusion_edf.transforms import random_quaternions
+        nT = 5
+        nP = 100
+        nQ = 10
+        Ts = torch.cat([random_quaternions(nT, device=device), torch.randn(nT, 3, device=device)], dim=-1)
+        time= torch.rand(nT, device=device)
+        
+        
+        key_pcd_multiscale = [
+            FeaturedPoints(
+                x=torch.randn(nP,3, device=device, ),
+                f=o3.Irreps(self.irreps_key_edf).randn(nP,-1, device=device, ),
+                b=torch.zeros(nP, device=device, dtype=torch.long)    
+            ) for _ in range(self.n_scales)
+        ]
+        query_pcd= FeaturedPoints(
+                x=torch.randn(nQ,3, device=device, ),
+                f=o3.Irreps(self.irreps_key_edf).randn(nQ,-1, device=device, ),
+                b=torch.zeros(nQ, device=device, dtype=torch.long),
+                w=torch.ones(nQ, device=device, )    
+            )
+    
+        return Ts, key_pcd_multiscale, query_pcd, time
+        
+        
+        
+        
+        
+        
+        
