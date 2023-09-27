@@ -77,7 +77,8 @@ class EbmScoreModelHead(torch.nn.Module):
         self.edge_time_encoding = edge_time_encoding
         self.query_time_encoding = query_time_encoding
         if not self.edge_time_encoding and not self.query_time_encoding:
-            raise NotImplementedError("No time encoding! Are you sure?")
+            # raise NotImplementedError("No time encoding! Are you sure?")
+            pass
 
         ################# Key field ########################
         if self.query_time_encoding:
@@ -113,7 +114,8 @@ class EbmScoreModelHead(torch.nn.Module):
         ##################### EBM ########################
         self.register_buffer('q_indices', torch.tensor([[1,2,3], [0,3,2], [3,0,1], [2,1,0]], dtype=torch.long), persistent=False)
         self.register_buffer('q_factor', torch.tensor([[-0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, 0.5]]), persistent=False)
-        self.energy_rescale_factor = float(self.key_edf_dim) # math.sqrt(self.key_edf_dim)
+        self.energy_rescale_factor = 1./float(self.key_edf_dim) # math.sqrt(self.key_edf_dim)
+        # self.energy_rescale_factor = torch.nn.Parameter(torch.tensor(1./float(self.key_edf_dim))) 
         self.inference_mode: bool = False
         
     def compute_energy(self, Ts: torch.Tensor,
@@ -157,7 +159,7 @@ class EbmScoreModelHead(torch.nn.Module):
                                                                       input_points_multiscale = key_pcd_multiscale,
                                                                       context_emb = time_embs_multiscale)                      # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
         else:
-            assert self.query_time_encoding is True, f"You need to use at least one (query or edge) time encoding method."
+            # assert self.query_time_encoding is True, f"You need to use at least one (query or edge) time encoding method."
             query_transformed = self.key_tensor_field(query_points = query_transformed, 
                                                                       input_points_multiscale = key_pcd_multiscale,
                                                                       context_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)                                                         # (nT*nQ, F)
@@ -165,7 +167,7 @@ class EbmScoreModelHead(torch.nn.Module):
         query_features_transformed = query_features_transformed.view(-1, query_features_transformed.shape[-1])                    # (nT*nQ, F)
 
         ######################################################################
-        energy = (key_features-query_features_transformed).square().sum(dim=-1) / self.energy_rescale_factor # (nT*nQ)
+        energy = (key_features-query_features_transformed).square().sum(dim=-1) * self.energy_rescale_factor # (nT*nQ)
         energy = torch.einsum('q,tq->t', query_weight, energy.view(nT, nQ)) # (N_T,)
 
         return energy
@@ -200,8 +202,8 @@ class EbmScoreModelHead(torch.nn.Module):
         logP.sum().backward(inputs=T, create_graph=not self.inference_mode)
         grad = T.grad
         L = T.detach()[...,self.q_indices] * self.q_factor
-        ang_vel = transforms.quaternion_apply(transforms.quaternion_invert(T[...,:4].detach()), grad[...,4:])
-        lin_vel = torch.einsum('...ia,...i', L, grad[...,:4])
+        ang_vel = torch.einsum('...ia,...i', L, grad[...,:4]) * self.ang_mult
+        lin_vel = transforms.quaternion_apply(transforms.quaternion_invert(T[...,:4].detach()), grad[...,4:]) * self.lin_mult
         
         if self.inference_mode:
             ang_vel, lin_vel = ang_vel.detach(), lin_vel.detach()

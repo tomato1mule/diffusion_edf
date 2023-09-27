@@ -59,8 +59,8 @@ class DiffusionEdfTrainer():
         self.n_schedules = len(self.diffusion_schedules)
         self.t_max = self.diffusion_schedules[0][0]
         for schedule in self.diffusion_schedules:
-            assert schedule[0] > schedule[1]
-            if schedule[0] > self.t_max:
+            assert schedule[0] >= schedule[1]
+            if schedule[0] >= self.t_max:
                 self.t_max = schedule[0]
         self.t_augment = self.train_configs['diffusion_configs']['t_augment']
             

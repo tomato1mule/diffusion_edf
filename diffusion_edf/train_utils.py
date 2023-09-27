@@ -95,7 +95,7 @@ def random_time(min_time: Union[float, int],
                 device: Union[str, torch.device],
                 dtype: Optional[torch.dtype] = None) -> torch.Tensor:
     device = torch.device(device)
-    assert min_time < max_time and min_time > 0.00001
+    assert min_time <= max_time and min_time > 0.00001
     min_time = torch.tensor([float(min_time)], device=device)
     max_time = torch.tensor([float(max_time)], device=device)
 
