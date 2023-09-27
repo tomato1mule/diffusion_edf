@@ -55,13 +55,14 @@ if __name__ == '__main__':
     server_configs_dir = os.path.join(configs_root_dir, 'server.yaml')
     with open(server_configs_dir) as f:
         server_configs = yaml.load(f, Loader=yaml.FullLoader)
-
+        
     pick_agent = DiffusionEdfAgent(
         model_kwargs_list=agent_configs['model_kwargs'][f"pick_models_kwargs"],
         preprocess_config=preprocess_config,
         unprocess_config=unprocess_config,
         device=device,
-        compile_score_head=compile_score_head
+        compile_score_head=compile_score_head,
+        critic_kwargs=agent_configs['model_kwargs'].get(f"pick_critic_kwargs", None)
     )
 
     place_agent = DiffusionEdfAgent(
@@ -69,7 +70,8 @@ if __name__ == '__main__':
         preprocess_config=preprocess_config,
         unprocess_config=unprocess_config,
         device=device,
-        compile_score_head=compile_score_head
+        compile_score_head=compile_score_head,
+        critic_kwargs=agent_configs['model_kwargs'].get(f"place_critic_kwargs", None)
     )
 
     @beartype

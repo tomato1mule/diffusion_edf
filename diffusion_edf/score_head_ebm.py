@@ -172,6 +172,13 @@ class EbmScoreModelHead(torch.nn.Module):
         energy = torch.einsum('q,tq->t', query_weight, energy.view(nT, nQ)) # (N_T,)
 
         return energy
+    
+    @torch.jit.export
+    def warmup(self, Ts: torch.Tensor,
+               key_pcd_multiscale: List[FeaturedPoints],
+               query_pcd: FeaturedPoints,
+               time: torch.Tensor) -> torch.Tensor:
+        return self.compute_energy(Ts=Ts, key_pcd_multiscale=key_pcd_multiscale, query_pcd=query_pcd, time=time)
         
     def train(self, mode: bool = True):
         super().train(mode=mode)
@@ -238,7 +245,6 @@ class EbmScoreModelHead(torch.nn.Module):
             )
     
         return Ts, key_pcd_multiscale, query_pcd, time
-        
         
         
         

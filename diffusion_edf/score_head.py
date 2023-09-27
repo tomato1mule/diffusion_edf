@@ -210,6 +210,13 @@ class ScoreModelHead(torch.nn.Module):
 
         return ang_vel, lin_vel
     
+    @torch.jit.export
+    def warmup(self, Ts: torch.Tensor,
+               key_pcd_multiscale: List[FeaturedPoints],
+               query_pcd: FeaturedPoints,
+               time: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        return self.forward(Ts=Ts, key_pcd_multiscale=key_pcd_multiscale, query_pcd=query_pcd, time=time)
+    
     @torch.jit.ignore
     def _get_fake_input(self):
         device = next(iter(self.parameters())).device

@@ -524,11 +524,11 @@ class DiffusionEdfTrainer():
                         grasp_points=grasp_input,
                         ang_mult=score_model.ang_mult,
                         lin_mult=score_model.lin_mult,
-                        n_samples_x_ref=1,
+                        n_samples_x_ref=1+(iters%5),
                     )
 
                 with torch.no_grad():
-                    _____ = score_model.score_head(
+                    _____ = score_model.score_head.warmup(
                         Ts=T.view(-1,7), 
                         key_pcd_multiscale=key_pcd_multiscale,
                         query_pcd=query_pcd,
