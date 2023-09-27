@@ -516,23 +516,24 @@ class DiffusionEdfTrainer():
                     dtype=T_target.dtype
                 ) # Shape: (1,)
 
-                T, _, __, ___, ____ = self.biequiv_diffusion(
-                    T_init=T_target, 
-                    time=time,
-                    scene_points=scene_input,
-                    grasp_points=grasp_input,
-                    ang_mult=score_model.ang_mult,
-                    lin_mult=score_model.lin_mult,
-                    n_samples_x_ref=1,
-                )
+                with torch.no_grad():
+                    T, _, __, ___, ____ = self.biequiv_diffusion(
+                        T_init=T_target, 
+                        time=time,
+                        scene_points=scene_input,
+                        grasp_points=grasp_input,
+                        ang_mult=score_model.ang_mult,
+                        lin_mult=score_model.lin_mult,
+                        n_samples_x_ref=1,
+                    )
 
-
-                _____ = score_model.score_head(
-                    Ts=T.view(-1,7), 
-                    key_pcd_multiscale=key_pcd_multiscale,
-                    query_pcd=query_pcd,
-                    time = time.repeat(len(T))
-                )
+                with torch.no_grad():
+                    _____ = score_model.score_head(
+                        Ts=T.view(-1,7), 
+                        key_pcd_multiscale=key_pcd_multiscale,
+                        query_pcd=query_pcd,
+                        time = time.repeat(len(T))
+                    )
                 
         score_model.requires_grad_(True)
 

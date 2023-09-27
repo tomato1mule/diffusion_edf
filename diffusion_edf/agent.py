@@ -1,6 +1,6 @@
 import os
 # os.environ["PYTORCH_JIT_USE_NNC_NOT_NVFUSER"] = "1"
-from typing import List, Tuple, Optional, Union, Iterable, Dict, Sequence
+from typing import List, Tuple, Optional, Union, Iterable, Dict, Sequence, Any
 import math
 import argparse
 import warnings
@@ -73,14 +73,14 @@ class DiffusionEdfAgent():
                  compile_score_head: bool = False,
                  half_precision: bool = False,
                  critic_kwargs: Optional[Dict] = None):
-        self.models = []
-        for kwargs in model_kwargs_list:
-            self.models.append(get_models(**kwargs, device=device, compile_score_head=compile_score_head, half_precision=half_precision))
-        
         if critic_kwargs is not None:
             self.critic = get_models(**critic_kwargs, device=device, compile_score_head=compile_score_head, half_precision=half_precision)
         else:
             self.critic = None
+        
+        self.models = []
+        for kwargs in model_kwargs_list:
+            self.models.append(get_models(**kwargs, device=device, compile_score_head=compile_score_head, half_precision=half_precision))
 
         self.proc_fn = train_utils.compose_proc_fn(preprocess_config=preprocess_config)
         self.unprocess_fn = train_utils.compose_proc_fn(preprocess_config=unprocess_config)
@@ -105,7 +105,8 @@ class DiffusionEdfAgent():
                log_t_schedule: bool = True,
                time_exponent_temp: float = 1.0, # Theoretically, this should be zero.
                time_exponent_alpha: float = 0.5, # Most commonly used exponent in image generation is 1.0, but it is too slow in our case.
-               ) -> Tuple[torch.Tensor, PointCloud, PointCloud]:
+               return_info: Optional[bool] = False,
+               ) -> Union[Tuple[torch.Tensor, PointCloud, PointCloud], Tuple[torch.Tensor, PointCloud, PointCloud, Dict[str, Any]]]:
         """
         alpha = timestep * L^2 * (t^time_exponent_alpha)
         T = temperature * (t^time_exponent_temp)
@@ -127,6 +128,7 @@ class DiffusionEdfAgent():
         T0: torch.Tensor = Ts_init.poses
         assert T0.ndim == 2 and T0.shape[-1] == 7, f"{T0.shape}"
 
+        info = {}
         Ts_out = []
         for model, N_steps, timesteps, temperatures, diffusion_schedules in zip(self.models, N_steps_list, timesteps_list, temperatures_list, diffusion_schedules_list):
             #################### Feature extraction #####################
@@ -158,12 +160,23 @@ class DiffusionEdfAgent():
                 Ts_out.append(Ts)
         Ts_out = torch.cat(Ts_out, dim=0) # Ts_out: (nTime, nSample, 7)
         
-        # if self.critic is not None:
-        #     energy = self.critic(
-                
-        #     )
+        if self.critic is not None:
+            with torch.no_grad():
+                key_pcd_multiscale: List[FeaturedPoints] = self.critic.get_key_pcd_multiscale(scene_input)
+                query_pcd: FeaturedPoints = self.critic.get_query_pcd(grasp_input)
 
-        return Ts_out, scene_pcd, grasp_pcd
+                energy: torch.Tensor = self.critic.score_head.compute_energy(Ts = Ts_out[-1,...], 
+                                                                             key_pcd_multiscale = key_pcd_multiscale, 
+                                                                             query_pcd = query_pcd,
+                                                                             time = torch.ones(Ts_out.shape[-2], device=Ts_out.device, dtype=Ts_out.dtype)) # (nT,)
+                energy_sorted, idx_sorted = energy.sort(descending=False)
+                Ts_out = Ts_out[..., idx_sorted, :]
+                info["energy"] = energy_sorted
+
+        if return_info:
+            return Ts_out, scene_pcd, grasp_pcd, info
+        else:
+            return Ts_out, scene_pcd, grasp_pcd
 
 
 
