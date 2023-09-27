@@ -51,7 +51,8 @@ def get_models(configs_root_dir: str,
         model = model.half()
         
     if compile_score_head:
-        model.score_head = torch.jit.script(model.score_head)
+        if model.score_head.jittable:
+            model.score_head = torch.jit.script(model.score_head)
 
     print(f"Warming up the model for {n_warmups} iterations", flush=True)
     if n_warmups:
@@ -70,13 +71,29 @@ class DiffusionEdfAgent():
                  unprocess_config,
                  device: str,
                  compile_score_head: bool = False,
-                 half_precision: bool = False,):
+                 half_precision: bool = False,
+                 critic_kwargs: Optional[Dict] = None):
         self.models = []
         for kwargs in model_kwargs_list:
             self.models.append(get_models(**kwargs, device=device, compile_score_head=compile_score_head, half_precision=half_precision))
+        
+        if critic_kwargs is not None:
+            self.critic = get_models(**critic_kwargs, device=device, compile_score_head=compile_score_head, half_precision=half_precision)
+        else:
+            self.critic = None
 
         self.proc_fn = train_utils.compose_proc_fn(preprocess_config=preprocess_config)
         self.unprocess_fn = train_utils.compose_proc_fn(preprocess_config=unprocess_config)
+        
+    def compute_critic_energy(self, key_pcd, query_pcd, Ts, time) -> torch.Tensor:
+        key_pcd_multiscale: List[FeaturedPoints] = self.critic.get_key_pcd_multiscale(key_pcd)
+        query_pcd: FeaturedPoints = self.critic.get_query_pcd(query_pcd)
+
+        energy: torch.Tensor = self.critic.score_head.compute_energy(Ts = Ts, 
+                                                                     key_pcd_multiscale = key_pcd_multiscale, 
+                                                                     query_pcd = query_pcd,
+                                                                     time = time)
+        return energy
 
     def sample(self, scene_pcd: PointCloud, 
                grasp_pcd: PointCloud, 
@@ -140,6 +157,11 @@ class DiffusionEdfAgent():
                 T0 = Ts[-1]
                 Ts_out.append(Ts)
         Ts_out = torch.cat(Ts_out, dim=0) # Ts_out: (nTime, nSample, 7)
+        
+        # if self.critic is not None:
+        #     energy = self.critic(
+                
+        #     )
 
         return Ts_out, scene_pcd, grasp_pcd
 

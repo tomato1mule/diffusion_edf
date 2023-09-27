@@ -16,6 +16,7 @@ from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
 
 
 class EbmScoreModelHead(torch.nn.Module):
+    jittable: bool = False
     max_time: float
     time_emb_mlp: List[int]
     key_edf_dim: int

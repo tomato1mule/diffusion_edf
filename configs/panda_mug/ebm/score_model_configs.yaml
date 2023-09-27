@@ -6,7 +6,7 @@ model_kwargs:
     time_emb_mlp: [512, 256, 128]
     ang_mult: 2.5
     lin_mult: 15.  # In centimeters
-    edge_time_encoding: True
+    edge_time_encoding: False
     query_time_encoding: False
     key_tensor_field_kwargs:
       irreps_output: '64x0e+32x1e+16x2e'
