@@ -128,13 +128,13 @@ if __name__ == '__main__':
                      grasp_pcd: data.PointCloud,
                      current_poses: data.SE3,
                      task_name: str,
-                     ) -> torch.Tensor:
+                     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
             
             assert current_poses.poses.ndim == 2 and current_poses.poses.shape[-1] == 7, f"{current_poses.shape}"
             n_init_poses = len(current_poses)
             
             if task_name == 'pick':
-                Ts, scene_proc, grasp_proc = pick_agent.sample(
+                Ts, scene_proc, grasp_proc, info = pick_agent.sample(
                     scene_pcd=scene_pcd.to(device), 
                     grasp_pcd=grasp_pcd.to(device), 
                     Ts_init=current_poses.to(device),
@@ -144,13 +144,14 @@ if __name__ == '__main__':
                     diffusion_schedules_list=self.pick_diffusion_configs['diffusion_schedules_list'],
                     log_t_schedule=self.pick_diffusion_configs['log_t_schedule'],
                     time_exponent_temp=self.pick_diffusion_configs['time_exponent_temp'],
-                    time_exponent_alpha=self.pick_diffusion_configs['time_exponent_alpha']
+                    time_exponent_alpha=self.pick_diffusion_configs['time_exponent_alpha'],
+                    return_info=True
                 )
 
                 assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"
 
             elif task_name == 'place':
-                Ts, scene_proc, grasp_proc = place_agent.sample(
+                Ts, scene_proc, grasp_proc, info = place_agent.sample(
                     scene_pcd=scene_pcd.to(device), 
                     grasp_pcd=grasp_pcd.to(device), 
                     Ts_init=current_poses.to(device),
@@ -160,14 +161,15 @@ if __name__ == '__main__':
                     diffusion_schedules_list=self.place_diffusion_configs['diffusion_schedules_list'],
                     log_t_schedule=self.place_diffusion_configs['log_t_schedule'],
                     time_exponent_temp=self.place_diffusion_configs['time_exponent_temp'],
-                    time_exponent_alpha=self.place_diffusion_configs['time_exponent_alpha']
+                    time_exponent_alpha=self.place_diffusion_configs['time_exponent_alpha'],
+                    return_info=True
                 )
 
                 assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"
             else:
                 raise ValueError(f"Unknown task name '{task_name}'")
 
-            return Ts
+            return Ts, info
         
         @expose
         def request_trajectories(self, scene_pcd: data.PointCloud, 
@@ -175,7 +177,7 @@ if __name__ == '__main__':
                                  current_poses: data.SE3,
                                  task_name: str,
                                  ) -> Tuple[List[data.SE3], Dict[str, Any]]:
-            denoise_seq: torch.Tensor = self._denoise(
+            denoise_seq, info = self._denoise(
                 scene_pcd=scene_pcd, grasp_pcd=grasp_pcd, current_poses=current_poses, task_name=task_name
             ).to(device='cpu') # (n_time, n_init_pose, 7)
 
@@ -192,7 +194,7 @@ if __name__ == '__main__':
             else:
                 raise ValueError(f"Unknown task name: '{task_name}'")
 
-            info = {}
+            # info = {}
 
             return trajectories, info
         
