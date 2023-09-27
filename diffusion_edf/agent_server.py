@@ -181,7 +181,8 @@ if __name__ == '__main__':
                                  ) -> Tuple[List[data.SE3], Dict[str, Any]]:
             denoise_seq, info = self._denoise(
                 scene_pcd=scene_pcd, grasp_pcd=grasp_pcd, current_poses=current_poses, task_name=task_name
-            ).to(device='cpu') # (n_time, n_init_pose, 7)
+            ) # (n_time, n_init_pose, 7)
+            denoise_seq = denoise_seq.to(device='cpu')
 
             Ts = data.SE3(poses=denoise_seq[-1])
 
@@ -197,6 +198,13 @@ if __name__ == '__main__':
                 raise ValueError(f"Unknown task name: '{task_name}'")
 
             # info = {}
+            def recursive_cuda_to_cpu(info: Dict):
+                for k,v in info.items():
+                    if isinstance(v, torch.Tensor):
+                        info[k]=v.to('cpu')
+                    elif isinstance(v, Dict):
+                        info[k]=recursive_cuda_to_cpu(v)
+            recursive_cuda_to_cpu(info)
 
             return trajectories, info
         
