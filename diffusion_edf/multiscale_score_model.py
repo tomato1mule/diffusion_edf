@@ -18,7 +18,7 @@ from diffusion_edf.gnn_data import FeaturedPoints, TransformPcd, set_featured_po
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
 from diffusion_edf.score_head import ScoreModelHead
 from diffusion_edf.score_model_base import ScoreModelBase
-from diffusion_edf.emb_score_head import EbmScoreModelHead
+from diffusion_edf.score_head_ebm import EbmScoreModelHead
 
 
 class MultiscaleScoreModel(ScoreModelBase):
