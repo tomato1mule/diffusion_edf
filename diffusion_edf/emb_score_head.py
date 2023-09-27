@@ -27,6 +27,8 @@ class EbmScoreModelHead(torch.nn.Module):
     query_time_encoding: bool
     n_scales: int
     energy_rescale_factor: torch.jit.Final[float]
+    q_indices: torch.Tensor
+    q_factor: torch.Tensor
 
     @beartype
     def __init__(self, 
@@ -108,8 +110,11 @@ class EbmScoreModelHead(torch.nn.Module):
         self.query_transform = TransformPcd(irreps = self.irreps_query_edf)
         
         
-        
+        ##################### EBM ########################
+        self.register_buffer('q_indices', torch.tensor([[1,2,3], [0,3,2], [3,0,1], [2,1,0]], dtype=torch.long), persistent=False)
+        self.register_buffer('q_factor', torch.tensor([[-0.5, -0.5, -0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, 0.5]]), persistent=False)
         self.energy_rescale_factor = float(self.key_edf_dim) # math.sqrt(self.key_edf_dim)
+        self.inference_mode: bool = False
         
     def compute_energy(self, Ts: torch.Tensor,
                        key_pcd_multiscale: List[FeaturedPoints],
@@ -165,7 +170,13 @@ class EbmScoreModelHead(torch.nn.Module):
 
         return energy
         
-        
+    def train(self, mode: bool = True):
+        super().train(mode=mode)
+        self.inference_mode = not mode
+        if mode:
+            self.requires_grad_(True)
+        else:
+            self.requires_grad_(False)
         
 
     def forward(self, Ts: torch.Tensor,
@@ -179,63 +190,21 @@ class EbmScoreModelHead(torch.nn.Module):
         assert time.ndim == 1 and len(time) == len(Ts), f"{time.shape}" # time: (nT,)
         assert query_pcd.f.ndim == 2 and query_pcd.f.shape[-1] == self.query_edf_dim, f"{query_pcd.f.shape}" # query_pcd: (nQ, 3), (nQ, F), (nQ,), (nQ)
 
-        nT = len(Ts)
-        nQ = len(query_pcd.x)
-
-        query_weight = query_pcd.w     # (nQ,)
-        assert isinstance(query_weight, torch.Tensor) # to tell torch.jit.script that it is tensor
-
-        time_embs_multiscale: List[torch.Tensor] = []
-        time_enc: torch.Tensor = self.time_enc(time)                       # (nT, time_emb_mlp[0])
-        for time_mlp in self.time_mlps_multiscale:
-            time_embs_multiscale.append(
-                time_mlp(time_enc).unsqueeze(-2).expand(-1, nQ, -1).reshape(nT*nQ, self.time_emb_dim)        # (nT, time_emb_D) -> # (nT*nQ, time_emb_D)
-            )        
-
-        ################# TODO: SCRUTINIZE THIS CODE ########################
-        query_transformed: FeaturedPoints = self.query_transform(pcd = query_pcd, Ts = Ts)                                     # (nT, nQ, 3), (nT, nQ, F), (nT, nQ,), (nT, nQ,)
-        query_features_transformed: torch.Tensor = query_transformed.f.clone()                                                 # (nT, nQ, F)         
-        if self.query_time_encoding:
-            assert self.query_time_mlp is not None
-            query_transformed = set_featured_points_attribute(points=query_transformed, 
-                                                                              f=self.query_time_mlp(time_enc).unsqueeze(-2).expand(nT, nQ, self.time_emb_dim),  # (nT, time_emb_D) -> # (nT, nQ, time_emb_D)
-                                                                              w=None)    # (nT, nQ, 3), (nT, nQ, time_emb), (nT, nQ,), None
-        else:
-            query_transformed = set_featured_points_attribute(points=query_transformed, f=torch.empty_like(query_transformed.f), w=None)   # (nT, nQ, 3), (nT, nQ, -), (nT, nQ,), None
-
-        query_transformed = flatten_featured_points(query_transformed)                                         # (nT*nQ, 3), (nT*nQ, time_emb), (nT*nQ,), None
-        if self.edge_time_encoding:
-            query_transformed = self.key_tensor_field(query_points = query_transformed, 
-                                                                      input_points_multiscale = key_pcd_multiscale,
-                                                                      context_emb = time_embs_multiscale)                      # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)
-        else:
-            assert self.query_time_encoding is True, f"You need to use at least one (query or edge) time encoding method."
-            query_transformed = self.key_tensor_field(query_points = query_transformed, 
-                                                                      input_points_multiscale = key_pcd_multiscale,
-                                                                      context_emb = None)                                         # (nT*nQ, 3), (nT*nQ, F), (nT*nQ,), (nT*nQ,)                                                         # (nT*nQ, F)
-        key_features: torch.Tensor = query_transformed.f
-        query_features_transformed = query_features_transformed.view(-1, query_features_transformed.shape[-1])                    # (nT*nQ, F)
-
-        ######################################################################
-
-        lin_vel: torch.Tensor = self.lin_vel_tp(query_features_transformed, key_features,   # (nT*nQ, 1+F_prescore)
-                                                edge_scalars = None, batch=None,)           # batch does nothing unless you use batchnorm
-        ang_spin: torch.Tensor = self.ang_vel_tp(query_features_transformed, key_features,  # (nT*nQ, 1+F_prescore)
-                                                 edge_scalars = None, batch=None)           # batch does nothing unless you use batchnorm
-        lin_vel, ang_spin = lin_vel[..., 1:], ang_spin[..., 1:] # Discard the placeholder 1x0e feature to avoid torch jit error. TODO: Remove this
-
-        lin_vel = lin_vel.view(nT, nQ, self.n_irreps_prescore, 3).mean(dim=-2)    # (N_T, N_Q, 3), Project multiple nx1e -> 1x1e 
-        ang_spin = ang_spin.view(nT, nQ, self.n_irreps_prescore, 3).mean(dim=-2)  # (N_T, N_Q, 3), Project multiple nx1e -> 1x1e 
-
-        q = Ts[..., :4]
-        qinv: torch.Tensor = transforms.quaternion_invert(q.unsqueeze(-2)) # (N_T, 1, 4)
-        lin_vel = transforms.quaternion_apply(qinv, lin_vel) # (N_T, N_Q, 3)
-        ang_spin = transforms.quaternion_apply(qinv, ang_spin) # (N_T, N_Q, 3)
-        ang_orbital = torch.cross(query_pcd.x.unsqueeze(0) / self.lin_mult, lin_vel, dim=-1) # (N_T, N_Q, 3)
-
-        lin_vel = torch.einsum('q,tqi->ti', query_weight, lin_vel) # (N_T, 3)
-        ang_vel = (torch.einsum('q,tqi->ti', query_weight, ang_orbital)) \
-                +   (torch.einsum('q,tqi->ti', query_weight, ang_spin)) # (N_T, 3)
+        T = Ts.detach().requires_grad_(True)
+        logP = -self.compute_energy(
+            Ts=T,
+            key_pcd_multiscale=key_pcd_multiscale,
+            query_pcd=query_pcd,
+            time=time
+        )
+        logP.sum().backward(inputs=T, create_graph=not self.inference_mode)
+        grad = T.grad
+        L = T.detach()[...,self.q_indices] * self.q_factor
+        ang_vel = transforms.quaternion_apply(transforms.quaternion_invert(T[...,:4].detach()), grad[...,4:])
+        lin_vel = torch.einsum('...ia,...i', L, grad[...,:4])
+        
+        if self.inference_mode:
+            ang_vel, lin_vel = ang_vel.detach(), lin_vel.detach()
 
         return ang_vel, lin_vel
     
