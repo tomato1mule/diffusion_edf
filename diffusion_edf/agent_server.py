@@ -23,19 +23,30 @@ if __name__ == '__main__':
     parser.add_argument('--server-name', type=str, default='agent', help='')
     parser.add_argument('--init-nameserver', action='store_true', help='')
     parser.add_argument('--compile-score-model-head', action='store_true', help='compile score head with torch.jit.script for faster inference, but may cause bug')
+    parser.add_argument('--nameserver-host-ip', type=str, default='', help='')
+    parser.add_argument('--nameserver-host-port', type=str, default='', help='')
     args = parser.parse_args()
     configs_root_dir = args.configs_root_dir
     server_name = args.server_name
     init_nameserver = args.init_nameserver
     compile_score_head = args.compile_score_model_head
+    nameserver_host_ip = args.nameserver_host_ip
+    nameserver_host_port = args.nameserver_host_port
     if not init_nameserver:
         init_nameserver = None
+    if not nameserver_host_ip:
+        nameserver_host_ip = None
+    if not nameserver_host_port:
+        nameserver_host_port = None
+    else:
+        nameserver_host_port = int(nameserver_host_port)
 
 
     # ---------------------------------------------------------------------------- #
     # Initialize Pyro Server
     # ---------------------------------------------------------------------------- #
-    server = PyroServer(server_name='agent', init_nameserver=init_nameserver)
+    server = PyroServer(server_name='agent', init_nameserver=init_nameserver, 
+                        nameserver_host=nameserver_host_ip, nameserver_port=nameserver_host_port)
 
 
     # ---------------------------------------------------------------------------- #

@@ -38,6 +38,6 @@ setup(
         'dash_daq',
         'beartype',
         'tensorboard',
-        'einops'
+        'einops=0.7.0'
     ]
 )
