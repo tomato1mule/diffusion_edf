@@ -17,14 +17,20 @@ model_kwargs:
     task_configs_file: 'task_configs.yaml'
     checkpoint_dir: 'runs/2023_09_27_18-47-29_EBM_Panda/checkpoint/180.pt'
     n_warmups: 10
-  place_models_kwargs: []
-    # - configs_root_dir: 'configs/sapien/place_lowres'
-    #   train_configs_file: 'train_configs.yaml'
-    #   task_configs_file: 'task_configs.yaml'
-    #   checkpoint_dir: 'example_runs/2023_07_27_23-06-52_Place_LowRes_Sapien_5_mug/checkpoint/200.pt'
-    #   n_warmups: 10
-    # - configs_root_dir: 'configs/sapien/place_highres'
-    #   train_configs_file: 'train_configs.yaml'
-    #   task_configs_file: 'task_configs.yaml'
-    #   checkpoint_dir: 'example_runs/2023_07_27_23-33-08_Place_HiRes_Sapien_5_mug/checkpoint/200.pt'
-    #   n_warmups: 10
+  place_models_kwargs:
+    - configs_root_dir: 'configs/panda_mug/place_lowres'
+      train_configs_file: 'train_configs.yaml'
+      task_configs_file: 'task_configs.yaml'
+      checkpoint_dir: 'runs/2023_10_03_13-51-30_Place_LowRes_Panda/checkpoint/200.pt'
+      n_warmups: 10
+    - configs_root_dir: 'configs/panda_mug/place_highres'
+      train_configs_file: 'train_configs.yaml'
+      task_configs_file: 'task_configs.yaml'
+      checkpoint_dir: 'runs/2023_10_03_14-40-58_Place_HiRes_Panda/checkpoint/200.pt'
+      n_warmups: 10
+  place_critic_kwargs:
+    configs_root_dir: 'configs/panda_mug/place_ebm'
+    train_configs_file: 'train_configs.yaml'
+    task_configs_file: 'task_configs.yaml'
+    checkpoint_dir: 'runs/2023_10_03_15-39-39_Place_EBM_Panda/checkpoint/200.pt'
+    n_warmups: 10
