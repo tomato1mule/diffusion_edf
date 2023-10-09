@@ -4,33 +4,33 @@ model_kwargs:
     - configs_root_dir: 'configs/panda_mug/pick_lowres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_10_05_00-30-57_Pick_LowRes_Panda/checkpoint/180.pt'
+      checkpoint_dir: 'runs/2023_09_23_13-49-33_Pick_LowRes_Panda/checkpoint/180.pt'
       n_warmups: 10
     - configs_root_dir: 'configs/panda_mug/pick_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_10_05_00-38-54_Pick_HiRes_Panda/checkpoint/180.pt'
+      checkpoint_dir: 'runs/2023_09_23_14-00-27_Pick_HiRes_Panda/checkpoint/180.pt'
       n_warmups: 10
   pick_critic_kwargs:
     configs_root_dir: 'configs/panda_mug/ebm'
     train_configs_file: 'train_configs.yaml'
     task_configs_file: 'task_configs.yaml'
-    checkpoint_dir: 'runs/2023_10_05_00-48-58_EBM_Panda/checkpoint/180.pt'
+    checkpoint_dir: 'runs/2023_09_27_18-47-29_EBM_Panda/checkpoint/180.pt'
     n_warmups: 10
   place_models_kwargs:
     - configs_root_dir: 'configs/panda_mug/place_lowres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_10_05_11-32-22_Place_LowRes_Panda/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_10_03_20-48-38_Place_LowRes_Panda/checkpoint/200.pt'
       n_warmups: 10
     - configs_root_dir: 'configs/panda_mug/place_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_10_05_11-47-48_Place_HiRes_Panda/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_10_03_21-07-49_Place_HiRes_Panda/checkpoint/200.pt'
       n_warmups: 10
   place_critic_kwargs:
     configs_root_dir: 'configs/panda_mug/place_ebm'
     train_configs_file: 'train_configs.yaml'
     task_configs_file: 'task_configs.yaml'
-    checkpoint_dir: 'runs/2023_10_05_12-06-51_Place_EBM_Panda/checkpoint/200.pt'
+    checkpoint_dir: 'runs/2023_10_03_21-28-18_Place_EBM_Panda/checkpoint/200.pt'
     n_warmups: 10
