@@ -125,7 +125,7 @@ class BesselBasisEncoder(torch.nn.Module):
         else:
             return out * (x_div_c < 1) # * (0 < x_div_c)
         
-class GaussianRadialBasis(torch.nn.Module):
+class _Deprecated_GaussianRadialBasis(torch.nn.Module):
     @beartype
     def __init__(self, dim: int, max_val: Union[float, int], min_val: Union[float, int] = 0.):
         super().__init__()
@@ -163,6 +163,69 @@ class GaussianRadialBasis(torch.nn.Module):
         x = torch.sigmoid(self.weight_logit) * self.max_weight * x
         
         return x * self.normalizer
+    
+    
+class _GaussianParamModule(torch.nn.Module):
+    weight_cap: torch.jit.Final[float]
+    
+    def __init__(self, dim: int, max_weight: float):
+        dim = int(dim) + 0
+        max_weight =float(max_weight)
+        
+        super().__init__()
+        self.std_logit = torch.nn.Parameter(
+            torch.empty(1, dim, dtype=torch.float32).fill_(
+                math.log(math.exp((2.0 / dim)) -1)             # Inverse Softplus
+            ), requires_grad=True
+        )                                                               # Softplus logit
+        
+        self.weight_logit = torch.nn.Parameter(
+            torch.empty(1, dim, dtype=torch.float32).fill_(
+                -math.log(max_weight/1. - 1)                   # Inverse Sigmoid
+            ), requires_grad=True
+        )                                                               # Sigmoid logit
+        
+        mean = torch.linspace(0.0, 1.0, dim+2, dtype=torch.float32)[1:-1].unsqueeze(0)
+        self.mean = torch.nn.Parameter(mean, requires_grad=True)
+        self.weight_cap = max_weight * float(math.sqrt(dim))
+        self._detach_out: bool = False
+    
+    def train(self, mode: bool = True):
+        super().train(mode=mode)
+        self._detach_out = not mode
+    
+    def forward(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        mean: torch.Tensor = self.mean + 0.0
+        std: torch.Tensor = F.softplus(self.std_logit) + 1e-5
+        weight: torch.Tensor = torch.sigmoid(self.weight_logit) * self.weight_cap
+        
+        if self._detach_out:
+            return mean.detach(), std.detach(), weight.detach()
+        else:
+            return mean, std, weight
+    
+
+class GaussianRadialBasis(torch.nn.Module):
+    @beartype
+    def __init__(self, dim: int, max_val: Union[float, int], min_val: Union[float, int] = 0.):
+        super().__init__()
+        self.dim: int = int(dim)
+        self.max_val: float = float(max_val)
+        self.min_val: float = float(min_val)
+        if self.min_val < 0.:
+            warnings.warn(f"Negative min_val ({self.min_val}) is provided for radial basis encoder. Are you sure?")
+
+        self.param_module = torch.jit.script(_GaussianParamModule(dim=dim, max_weight=4.0))
+        
+
+    def forward(self, dist: torch.Tensor) -> torch.Tensor:
+        dist = (dist.unsqueeze(-1) - self.min_val) / (self.max_val - self.min_val)
+        x = dist.expand(-1, self.dim)
+        mean, std, weight = self.param_module()
+
+        x = gaussian(x, mean, std)
+        return x * weight
+
 
 
 class GaussianRadialBasisLayerFiniteCutoff(torch.nn.Module):
@@ -243,9 +306,10 @@ class SinusoidalPositionEmbeddings(torch.nn.Module):
         x = x / self.max_val * self.n # time: 0~10000
 
         device = x.device
+        dtype = x.dtype
         half_dim = self.dim // 2
         embeddings = math.log(self.n) / (half_dim - 1) # Period: 2pi~10000*2pi
-        embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings) # shape: (self.dim/2, )
+        embeddings = torch.exp(torch.arange(half_dim, device=device, dtype=dtype) * -embeddings) # shape: (self.dim/2, )
         embeddings = x[..., None] * embeddings                                      # shape: (*x.shape, self.dim/2) 
         embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)        # shape: (*x.shape, self.dim)
 

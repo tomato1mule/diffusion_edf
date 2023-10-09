@@ -18,6 +18,7 @@ from diffusion_edf.gnn_data import FeaturedPoints, TransformPcd, set_featured_po
 from diffusion_edf.radial_func import SinusoidalPositionEmbeddings
 from diffusion_edf.score_head import ScoreModelHead
 from diffusion_edf.score_model_base import ScoreModelBase
+from diffusion_edf.score_head_ebm import EbmScoreModelHead
 
 
 class MultiscaleScoreModel(ScoreModelBase):
@@ -83,16 +84,29 @@ class MultiscaleScoreModel(ScoreModelBase):
         assert 'use_dst_point_attn' not in key_tensor_field_kwargs.keys()
         key_tensor_field_kwargs['use_dst_point_attn'] = False
 
-        print("ScoreModel: Initializing Score Head")
-        self.score_head = ScoreModelHead(max_time=max_time, 
-                                         time_emb_mlp=time_emb_mlp,
-                                         key_tensor_field_kwargs=key_tensor_field_kwargs,
-                                         irreps_query_edf=self.query_model.irreps_output,
-                                         lin_mult=lin_mult,
-                                         ang_mult=ang_mult,
-                                         edge_time_encoding=edge_time_encoding,
-                                         query_time_encoding=query_time_encoding,
-                                         )
+        use_ebm_score_head: bool = score_head_kwargs.get("ebm", False)
+        if use_ebm_score_head:
+            print("EbmScoreModel: Initializing Score Head")
+            self.score_head = EbmScoreModelHead(max_time=max_time, 
+                                                time_emb_mlp=time_emb_mlp,
+                                                key_tensor_field_kwargs=key_tensor_field_kwargs,
+                                                irreps_query_edf=self.query_model.irreps_output,
+                                                lin_mult=lin_mult,
+                                                ang_mult=ang_mult,
+                                                edge_time_encoding=edge_time_encoding,
+                                                query_time_encoding=query_time_encoding,
+                                                )
+        else:
+            print("ScoreModel: Initializing Score Head")
+            self.score_head = ScoreModelHead(max_time=max_time, 
+                                            time_emb_mlp=time_emb_mlp,
+                                            key_tensor_field_kwargs=key_tensor_field_kwargs,
+                                            irreps_query_edf=self.query_model.irreps_output,
+                                            lin_mult=lin_mult,
+                                            ang_mult=ang_mult,
+                                            edge_time_encoding=edge_time_encoding,
+                                            query_time_encoding=query_time_encoding,
+                                            )
 
         self.lin_mult = self.score_head.lin_mult
         self.ang_mult = self.score_head.ang_mult
@@ -102,10 +116,3 @@ class MultiscaleScoreModel(ScoreModelBase):
     
     def get_query_pcd(self, pcd: FeaturedPoints) -> FeaturedPoints:
         return self.query_model(pcd)
-
-    @torch.jit.ignore()
-    def to(self, *args, **kwargs):
-        for module in self.children():
-            if isinstance(module, torch.nn.Module):
-                module.to(*args, **kwargs)
-        return super().to(*args, **kwargs)

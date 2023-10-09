@@ -163,7 +163,7 @@ class EquiformerBlock(torch.nn.Module):
             
     def forward(self, src_points: FeaturedPoints, 
                 dst_points: FeaturedPoints,
-                graph_edge = GraphEdge) -> FeaturedPoints:
+                graph_edge: GraphEdge) -> FeaturedPoints:
         assert src_points.x.ndim == 2
         assert dst_points.x.ndim == 2
         
@@ -188,8 +188,9 @@ class EquiformerBlock(torch.nn.Module):
 
         ### Edge Post Attention (for point attention) ###
         if self.use_src_point_attn:
-            assert isinstance(src_points.w, torch.Tensor)
-            edge_post_attn = (src_points.w)[graph_edge.edge_src]         # Shape: (N_edge,)
+            src_points_w = src_points.w
+            assert isinstance(src_points_w, torch.Tensor)
+            edge_post_attn = (src_points_w)[graph_edge.edge_src]         # Shape: (N_edge,)
         else:
             edge_post_attn = None
         if self.use_dst_point_attn:

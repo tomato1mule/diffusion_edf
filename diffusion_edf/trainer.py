@@ -59,8 +59,8 @@ class DiffusionEdfTrainer():
         self.n_schedules = len(self.diffusion_schedules)
         self.t_max = self.diffusion_schedules[0][0]
         for schedule in self.diffusion_schedules:
-            assert schedule[0] > schedule[1]
-            if schedule[0] > self.t_max:
+            assert schedule[0] >= schedule[1]
+            if schedule[0] >= self.t_max:
                 self.t_max = schedule[0]
         self.t_augment = self.train_configs['diffusion_configs']['t_augment']
             
@@ -100,17 +100,19 @@ class DiffusionEdfTrainer():
         return dataloader
     
     @beartype
-    def _init_dataloaders(self):
+    def _init_dataloaders(self, half_precision: bool = False):
         trainset = DemoDataset(dataset_dir=self.train_configs['trainset']['dataset_dir'], 
                                annotation_file=self.train_configs['trainset']['annotation_file'], 
-                               device=self.device)
+                               device=self.device,
+                               dtype = torch.float16 if half_precision else torch.float32)
         self.trainloader = self.get_dataloader(dataset = trainset,
                                                shuffle = self.train_configs['trainset']['shuffle'],
                                                n_batches = self.train_configs['trainset']['n_batches'])
         if self.train_configs['testset'] is not None:
             testset = DemoDataset(dataset_dir=self.train_configs['testset']['dataset_dir'], 
                                   annotation_file=self.train_configs['testset']['annotation_file'], 
-                                  device=self.device)
+                                  device=self.device,
+                                  dtype = torch.float16 if half_precision else torch.float32)
             self.testloader = self.get_dataloader(dataset = testset,
                                                   shuffle = self.train_configs['testset']['shuffle'],
                                                   n_batches = self.train_configs['testset']['n_batches'])
@@ -119,6 +121,7 @@ class DiffusionEdfTrainer():
     def get_model(self, deterministic: bool = False, 
                   device: Optional[Union[str, torch.device]] = None,
                   checkpoint_dir: Optional[str] = None,
+                  strict: bool = True
                   ) -> ScoreModelBase:
         if device is None:
             device = self.device
@@ -134,8 +137,8 @@ class DiffusionEdfTrainer():
         
         if checkpoint_dir is not None:
             checkpoint = torch.load(checkpoint_dir)
-            score_model.load_state_dict(checkpoint['score_model_state_dict'])
-            # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            score_model.load_state_dict(checkpoint['score_model_state_dict'], strict=strict)
+            # optimizer.load_state_dict(checkpoint['optimizer_state_dict'], strict=strict)
             epoch = checkpoint['epoch']
             steps = checkpoint['steps']
             print(f"Successfully Loaded checkpoint @ epoch: {epoch} (steps: {steps})")
@@ -491,6 +494,7 @@ class DiffusionEdfTrainer():
 
     def warmup_score_model(self, score_model: ScoreModelBase, n_warmups: int = 10):
         assert self.trainloader is not None
+        score_model.requires_grad_(False)
 
         for iters in tqdm(range(n_warmups), file=sys.stdout):
             demo_batch = next(iter(self.trainloader))
@@ -501,35 +505,37 @@ class DiffusionEdfTrainer():
             scene_input, grasp_input, T_target = train_utils.flatten_batch(demo_batch=demo_batch) # T_target: (Nbatch, Ngrasps, 7)
             T_target = T_target.squeeze(0) # (B=1, N_poses=1, 7) -> (1,7) 
 
-            with torch.no_grad():
-                key_pcd_multiscale: List[FeaturedPoints] = score_model.get_key_pcd_multiscale(scene_input)
-                query_pcd: FeaturedPoints = score_model.get_query_pcd(grasp_input)
+            key_pcd_multiscale: List[FeaturedPoints] = score_model.get_key_pcd_multiscale(scene_input)
+            query_pcd: FeaturedPoints = score_model.get_query_pcd(grasp_input)
                 
             for time_schedule in self.diffusion_schedules:
                 time = train_utils.random_time(
                     min_time=time_schedule[1], 
                     max_time=time_schedule[0], 
-                    device=T_target.device
+                    device=T_target.device,
+                    dtype=T_target.dtype
                 ) # Shape: (1,)
 
-                T, _, __, ___, ____ = self.biequiv_diffusion(
-                    T_init=T_target, 
-                    time=time,
-                    scene_points=scene_input,
-                    grasp_points=grasp_input,
-                    ang_mult=score_model.ang_mult,
-                    lin_mult=score_model.lin_mult,
-                    n_samples_x_ref=1,
-                )
+                with torch.no_grad():
+                    T, _, __, ___, ____ = self.biequiv_diffusion(
+                        T_init=T_target, 
+                        time=time,
+                        scene_points=scene_input,
+                        grasp_points=grasp_input,
+                        ang_mult=score_model.ang_mult,
+                        lin_mult=score_model.lin_mult,
+                        n_samples_x_ref=1+(iters%5),
+                    )
 
                 with torch.no_grad():
-                    _____ = score_model.score_head(
+                    _____ = score_model.score_head.warmup(
                         Ts=T.view(-1,7), 
                         key_pcd_multiscale=key_pcd_multiscale,
                         query_pcd=query_pcd,
                         time = time.repeat(len(T))
                     )
-
+                
+        score_model.requires_grad_(True)
 
 
 

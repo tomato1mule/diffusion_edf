@@ -22,12 +22,14 @@ if __name__ == '__main__':
     parser.add_argument('--configs-root-dir', type=str, help='')
     parser.add_argument('--server-name', type=str, default='agent', help='')
     parser.add_argument('--init-nameserver', action='store_true', help='')
+    parser.add_argument('--compile-score-model-head', action='store_true', help='compile score head with torch.jit.script for faster inference, but may cause bug')
     parser.add_argument('--nameserver-host-ip', type=str, default='', help='')
     parser.add_argument('--nameserver-host-port', type=str, default='', help='')
     args = parser.parse_args()
     configs_root_dir = args.configs_root_dir
     server_name = args.server_name
     init_nameserver = args.init_nameserver
+    compile_score_head = args.compile_score_model_head
     nameserver_host_ip = args.nameserver_host_ip
     nameserver_host_port = args.nameserver_host_port
     if not init_nameserver:
@@ -64,19 +66,23 @@ if __name__ == '__main__':
     server_configs_dir = os.path.join(configs_root_dir, 'server.yaml')
     with open(server_configs_dir) as f:
         server_configs = yaml.load(f, Loader=yaml.FullLoader)
-
+        
     pick_agent = DiffusionEdfAgent(
         model_kwargs_list=agent_configs['model_kwargs'][f"pick_models_kwargs"],
         preprocess_config=preprocess_config,
         unprocess_config=unprocess_config,
-        device=device
+        device=device,
+        compile_score_head=compile_score_head,
+        critic_kwargs=agent_configs['model_kwargs'].get(f"pick_critic_kwargs", None)
     )
 
     place_agent = DiffusionEdfAgent(
         model_kwargs_list=agent_configs['model_kwargs'][f"place_models_kwargs"],
         preprocess_config=preprocess_config,
         unprocess_config=unprocess_config,
-        device=device
+        device=device,
+        compile_score_head=compile_score_head,
+        critic_kwargs=agent_configs['model_kwargs'].get(f"place_critic_kwargs", None)
     )
 
     @beartype
@@ -135,13 +141,13 @@ if __name__ == '__main__':
                      grasp_pcd: data.PointCloud,
                      current_poses: data.SE3,
                      task_name: str,
-                     ) -> torch.Tensor:
+                     ) -> Tuple[torch.Tensor, Dict[str, Any]]:
             
             assert current_poses.poses.ndim == 2 and current_poses.poses.shape[-1] == 7, f"{current_poses.shape}"
             n_init_poses = len(current_poses)
             
             if task_name == 'pick':
-                Ts, scene_proc, grasp_proc = pick_agent.sample(
+                Ts, scene_proc, grasp_proc, info = pick_agent.sample(
                     scene_pcd=scene_pcd.to(device), 
                     grasp_pcd=grasp_pcd.to(device), 
                     Ts_init=current_poses.to(device),
@@ -151,13 +157,14 @@ if __name__ == '__main__':
                     diffusion_schedules_list=self.pick_diffusion_configs['diffusion_schedules_list'],
                     log_t_schedule=self.pick_diffusion_configs['log_t_schedule'],
                     time_exponent_temp=self.pick_diffusion_configs['time_exponent_temp'],
-                    time_exponent_alpha=self.pick_diffusion_configs['time_exponent_alpha']
+                    time_exponent_alpha=self.pick_diffusion_configs['time_exponent_alpha'],
+                    return_info=True
                 )
 
                 assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"
 
             elif task_name == 'place':
-                Ts, scene_proc, grasp_proc = place_agent.sample(
+                Ts, scene_proc, grasp_proc, info = place_agent.sample(
                     scene_pcd=scene_pcd.to(device), 
                     grasp_pcd=grasp_pcd.to(device), 
                     Ts_init=current_poses.to(device),
@@ -167,14 +174,15 @@ if __name__ == '__main__':
                     diffusion_schedules_list=self.place_diffusion_configs['diffusion_schedules_list'],
                     log_t_schedule=self.place_diffusion_configs['log_t_schedule'],
                     time_exponent_temp=self.place_diffusion_configs['time_exponent_temp'],
-                    time_exponent_alpha=self.place_diffusion_configs['time_exponent_alpha']
+                    time_exponent_alpha=self.place_diffusion_configs['time_exponent_alpha'],
+                    return_info=True
                 )
 
                 assert Ts.ndim == 3 and Ts.shape[-2] == n_init_poses and Ts.shape[-1] == 7, f"{Ts.shape}"
             else:
                 raise ValueError(f"Unknown task name '{task_name}'")
 
-            return Ts
+            return Ts, info
         
         @expose
         def request_trajectories(self, scene_pcd: data.PointCloud, 
@@ -182,9 +190,10 @@ if __name__ == '__main__':
                                  current_poses: data.SE3,
                                  task_name: str,
                                  ) -> Tuple[List[data.SE3], Dict[str, Any]]:
-            denoise_seq: torch.Tensor = self._denoise(
+            denoise_seq, info = self._denoise(
                 scene_pcd=scene_pcd, grasp_pcd=grasp_pcd, current_poses=current_poses, task_name=task_name
-            ).to(device='cpu') # (n_time, n_init_pose, 7)
+            ) # (n_time, n_init_pose, 7)
+            denoise_seq = denoise_seq.to(device='cpu')
 
             Ts = data.SE3(poses=denoise_seq[-1])
 
@@ -199,7 +208,14 @@ if __name__ == '__main__':
             else:
                 raise ValueError(f"Unknown task name: '{task_name}'")
 
-            info = {}
+            # info = {}
+            def recursive_cuda_to_cpu(info: Dict):
+                for k,v in info.items():
+                    if isinstance(v, torch.Tensor):
+                        info[k]=v.to('cpu')
+                    elif isinstance(v, Dict):
+                        info[k]=recursive_cuda_to_cpu(v)
+            recursive_cuda_to_cpu(info)
 
             return trajectories, info
         

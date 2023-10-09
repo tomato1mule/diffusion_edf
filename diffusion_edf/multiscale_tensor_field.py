@@ -192,7 +192,7 @@ class MultiscaleTensorField(torch.nn.Module):
     def forward(self, query_points: FeaturedPoints,
                 input_points_multiscale: List[FeaturedPoints],
                 context_emb: Optional[List[torch.Tensor]] = None,
-                max_neighbors: Optional[int] = 1000) -> FeaturedPoints:
+                max_neighbors: int = 1000) -> FeaturedPoints:
         assert len(input_points_multiscale) == self.n_scales
         assert query_points.x.ndim == 2 # (Nq, 3)
         if self.context_emb_dim is not None:
@@ -213,18 +213,24 @@ class MultiscaleTensorField(torch.nn.Module):
             graph_edge: GraphEdge = graph_parser(src=input_points, dst=query_points, max_neighbors=max_neighbors)
 
             ### Encode length and context embeddings ###
+            edge_scalars = graph_edge.edge_scalars
+            assert isinstance(edge_scalars, torch.Tensor) # to tell torch.jit.script that it is a tensor
+            
             if edge_encode_context is True:
                 # assert isinstance(context_emb, torch.Tensor)
                 # assert context_emb.ndim == 2  # (Nq, tEmb)
                 # assert self.context_emb_dim == context_emb.shape[-1], f"{self.context_emb_dim} != {context_emb.shape[-1]} of {context_emb.shape}"
                 # context_emb = context_emb.index_select(0, graph_edge.edge_dst)            # (nEdge, cEmb)
-                # edge_scalars = torch.cat([graph_edge.edge_scalars, context_emb], dim=-1)  # (nEdge, Emb = lEmb + cEmb)
+                # edge_scalars = torch.cat([edge_scalars, context_emb], dim=-1)  # (nEdge, Emb = lEmb + cEmb)
                 edge_scalars = torch.cat([
-                    graph_edge.edge_scalars, 
+                    edge_scalars, 
                     context_emb[n].index_select(0, graph_edge.edge_dst)
                 ], dim=-1) # (nEdge, Emb = lEmb + cEmb)
+                # edge_scalars = edge_scalars.type(torch.float32) # To avoid JIT type bug
+                edge_scalars = edge_scalars.type(edge_scalars_pre_linear[0].weight.dtype) # To avoid JIT type bug
             else:
-                edge_scalars = graph_edge.edge_scalars                                    # (nEdge, Emb = lEmb)
+                pass                                  # (nEdge, Emb = lEmb)
+            
             edge_scalars = edge_scalars_pre_linear(edge_scalars)                          # (nEdge, Emb)
             ### Flatten graph ###
             graph_edge = set_graph_edge_attribute(graph_edge=graph_edge, 

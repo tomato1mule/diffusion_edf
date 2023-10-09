@@ -92,14 +92,17 @@ def transform_and_sample_reference_points(T_target: torch.Tensor,
 @beartype
 def random_time(min_time: Union[float, int], 
                 max_time: Union[float, int],
-                device: Union[str, torch.device]) -> torch.Tensor:
+                device: Union[str, torch.device],
+                dtype: Optional[torch.dtype] = None) -> torch.Tensor:
     device = torch.device(device)
-    assert min_time < max_time and min_time > 0.00001
+    assert min_time <= max_time and min_time > 0.00001
     min_time = torch.tensor([float(min_time)], device=device)
     max_time = torch.tensor([float(max_time)], device=device)
 
     time = (min_time/max_time + torch.rand(1, device = min_time.device, dtype=min_time.dtype) * (1-min_time/max_time))*max_time   # Shape: (1,)
     #time = torch.exp(torch.rand_like(max_time) * (torch.log(max_time)-torch.log(min_time)) + torch.log(min_time)) 
+    if dtype is not None:
+        time = time.to(dtype=dtype)
     return time
 
 
