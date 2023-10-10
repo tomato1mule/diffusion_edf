@@ -206,9 +206,12 @@ class EbmScoreModelHead(torch.nn.Module):
             key_pcd_multiscale=key_pcd_multiscale,
             query_pcd=query_pcd,
             time=time
-        )
-        logP.sum().backward(inputs=T, create_graph=not self.inference_mode)
-        grad = T.grad
+        ) # shape: (nT,)
+        
+        # logP.sum().backward(inputs=T, create_graph=not self.inference_mode)
+        # grad = T.grad
+        grad = torch.autograd.grad(outputs=logP.sum(), inputs=T, create_graph=not self.inference_mode)[0] # shape: (nT, 7)
+        
         L = T.detach()[...,self.q_indices] * self.q_factor
         ang_vel = torch.einsum('...ia,...i', L, grad[...,:4]) * self.ang_mult
         lin_vel = transforms.quaternion_apply(transforms.quaternion_invert(T[...,:4].detach()), grad[...,4:]) * self.lin_mult
