@@ -5,6 +5,7 @@ demo/*
 !demo/test_demo_single_mug
 !demo/sapien_demo_5_mug_20230727
 !demo/sapien_demo_5_bottle_20230729
+!demo/example_demo_real_mug_franka_panda
 runs/
 runs_old/
 

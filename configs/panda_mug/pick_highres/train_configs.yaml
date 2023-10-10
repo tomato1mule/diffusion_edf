@@ -1,13 +1,13 @@
 device: 'cuda:0'
 
 trainset:
-  dataset_dir: 'demo/panda_mug'
+  dataset_dir: 'demo/example_demo_real_mug_franka_panda'
   annotation_file: 'data.yaml'
   n_batches: 1
   shuffle: True
 
 testset:
-  dataset_dir: 'demo/panda_mug'
+  dataset_dir: 'demo/example_demo_real_mug_franka_panda'
   annotation_file: 'data.yaml'
   n_batches: 1
   shuffle: False
