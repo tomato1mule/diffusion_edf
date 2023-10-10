@@ -95,8 +95,9 @@ model_kwargs:
     weight_activation: 'sigmoid'
     weight_mult: null
     keypoint_kwargs: 
-      pool_ratio: 0.03
+      pool_ratio: 0.1
       weight_pre_emb_dim: 64
+      bbox: [[-15.0, 15.0], [-15.0, 15.0], [8.0, 20.0]]  # In centimeters, [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
     feature_extractor_kwargs:
       irreps_input: '3x0e'
       irreps_output: '48x0e+24x1e+12x2e'

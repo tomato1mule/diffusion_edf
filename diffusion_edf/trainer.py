@@ -56,6 +56,9 @@ class DiffusionEdfTrainer():
         self.n_samples_x_ref = self.train_configs['n_samples_x_ref']
         self.unit_length = 1/self.train_configs['rescale_factor']
         self.diffusion_schedules = self.train_configs['diffusion_configs']['time_schedules']
+        self.diffusion_xref_bbox = self.train_configs['diffusion_configs'].get('diffusion_xref_bbox', None)
+        if self.diffusion_xref_bbox is not None:
+            self.diffusion_xref_bbox = torch.tensor(self.diffusion_xref_bbox)
         self.n_schedules = len(self.diffusion_schedules)
         self.t_max = self.diffusion_schedules[0][0]
         for schedule in self.diffusion_schedules:
@@ -247,6 +250,7 @@ class DiffusionEdfTrainer():
                           lin_mult: Union[int, float],
                           n_samples_x_ref: int,
                           contact_radius: Optional[Union[int, float]] = None,
+                          xref_bbox: Optional[torch.Tensor] = None,
                           ) -> Tuple[torch.Tensor, 
                                      torch.Tensor, 
                                      torch.Tensor,
@@ -278,12 +282,17 @@ class DiffusionEdfTrainer():
         else:
             contact_radius = float(contact_radius)
             
+        if self.diffusion_xref_bbox is not None:
+            if grasp_points.x.dtype != self.diffusion_xref_bbox.dtype or grasp_points.x.device != self.diffusion_xref_bbox.device:
+                self.diffusion_xref_bbox = self.diffusion_xref_bbox.to(dtype=grasp_points.x.dtype, device=grasp_points.x.device)
+            
         x_ref, n_neighbors = train_utils.transform_and_sample_reference_points(
             T_target=T_init,
             scene_points=scene_points,
             grasp_points=grasp_points,
             contact_radius=contact_radius,
-            n_samples_x_ref=n_samples_x_ref
+            n_samples_x_ref=n_samples_x_ref,
+            xref_bbox=xref_bbox
         )
         T_diffused, delta_T, time_in, (gt_ang_score, gt_lin_score), (gt_ang_score_ref, gt_lin_score_ref) = train_utils.diffuse_T_target(
             T_target=T_init, 

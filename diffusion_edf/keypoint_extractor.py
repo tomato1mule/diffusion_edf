@@ -64,6 +64,7 @@ class KeypointExtractor(torch.nn.Module):
         super().__init__()
         self.deterministic = deterministic
         self.pool_ratio = float(keypoint_kwargs['pool_ratio'])
+        self.keypoint_bbox: Optional[List[List[float]]] = keypoint_kwargs.get('bbox', None)
         weight_pre_emb_dim: Optional[int] = keypoint_kwargs['weight_pre_emb_dim']
         if weight_pre_emb_dim:
             pass
@@ -133,32 +134,45 @@ class KeypointExtractor(torch.nn.Module):
                        retain_feature: bool = False,
                        retain_weight: bool = False) -> FeaturedPoints:
         assert src_points.x.ndim == 2 and src_points.x.shape[-1] == 3, f"{src_points.x.shape}"
+        x = src_points.x
+        f = src_points.f
+        b = src_points.b
+        w = src_points.w
+        
+        
+        if self.keypoint_bbox is not None:
+            keypoint_bbox = torch.tensor(self.keypoint_bbox, dtype=x.dtype, device=x.device)
+            inrange_idx = ((x >= keypoint_bbox[:,0]) * (x <= keypoint_bbox[:,1])).all(dim=-1).nonzero().squeeze()
+            x = x.index_select(index=inrange_idx, dim=0)
+            f = f.index_select(index=inrange_idx, dim=0)
+            b = b.index_select(index=inrange_idx, dim=0)
+            if w is not None:
+                w = w.index_select(index=inrange_idx, dim=0)
 
-        node_dst_idx = fps(src=src_points.x.detach(), 
-                           batch=src_points.b.detach(), 
+        node_dst_idx = fps(src=x.detach(), 
+                           batch=b.detach(), 
                            ratio=self.pool_ratio, 
                            random_start=not self.deterministic)
         
 
         if retain_feature:
-            x = src_points.x.index_select(index=node_dst_idx, dim=0)
-            b = src_points.b.index_select(index=node_dst_idx, dim=0)
-            f = src_points.f.index_select(index=node_dst_idx, dim=0)
+            x = x.index_select(index=node_dst_idx, dim=0)
+            b = b.index_select(index=node_dst_idx, dim=0)
+            f = f.index_select(index=node_dst_idx, dim=0)
         else:
-            x = src_points.x.index_select(index=node_dst_idx, dim=0)
-            b = src_points.b.index_select(index=node_dst_idx, dim=0)
+            x = x.index_select(index=node_dst_idx, dim=0)
+            b = b.index_select(index=node_dst_idx, dim=0)
             f = torch.empty_like(x)
-        if retain_weight:
-            if src_points.w is None:
-                w = None
-            else:
-                w = src_points.w.index_select(index=node_dst_idx, dim=0)
+            
+        if retain_weight and w is not None:
+            w = w.index_select(index=node_dst_idx, dim=0)
         else:
             w = None
 
         return FeaturedPoints(x=x, f=f, b=b, w=w)
     
     def get_query_points(self, src_points: FeaturedPoints) -> FeaturedPoints:
+        # DONT FORGET self.keypoint_bbox if you'd like to add sth here
         return self.init_query_points(src_points=src_points, retain_feature=False, retain_weight=False)
 
     def forward(self, input_points: FeaturedPoints, max_neighbors: Optional[int] = 1000) -> FeaturedPoints:

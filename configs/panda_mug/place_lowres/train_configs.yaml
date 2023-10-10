@@ -39,6 +39,7 @@ diffusion_configs:
   time_schedules:
     - [1., 0.15]
     - [0.15, 0.05]
+  diffusion_xref_bbox: [[-0.15, 0.15], [-0.15, 0.15], [0.08, 0.2]]  # In meters, [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
 
 
 optimizer_kwargs:

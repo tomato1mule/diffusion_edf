@@ -74,16 +74,21 @@ def transform_and_sample_reference_points(T_target: torch.Tensor,
                                           scene_points: FeaturedPoints,
                                           grasp_points: FeaturedPoints,
                                           contact_radius: Union[float, int],
-                                          n_samples_x_ref: int) -> Tuple[torch.Tensor, torch.Tensor]:
+                                          n_samples_x_ref: int,
+                                          xref_bbox: Optional[torch.Tensor] = None,) -> Tuple[torch.Tensor, torch.Tensor]:
     assert T_target.ndim == 2 and T_target.shape[-1] == 7, f"{T_target.shape}" # (nT, 7)
     if len(T_target) != 1:
         raise NotImplementedError
+    dst_points = grasp_points.x
+    if xref_bbox is not None:
+        inrange_idx = ((dst_points >= xref_bbox[:,0]) * (dst_points <= xref_bbox[:,1])).all(dim=-1).nonzero().squeeze()
+        dst_points = dst_points.index_select(index=inrange_idx, dim=0)
     
     x_ref, n_neighbors = sample_reference_points(
         src_points = PointCloud(points=scene_points.x, colors=scene_points.f).transformed(
                                 SE3(T_target).inv(), squeeze=True
                                 ).points, 
-        dst_points = grasp_points.x, 
+        dst_points = dst_points, 
         r=float(contact_radius), 
         n_samples=n_samples_x_ref
     )
