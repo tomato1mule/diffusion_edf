@@ -1,5 +1,6 @@
 # Diffusion EDF
-![plot](https://github.com/tomato1mule/personal_website/blob/main/figures/diffusion_edf_cluttered_small.gif)
+![plot](https://github.com/tomato1mule/diffusion_edf/blob/main/figures/panda_pick.gif?raw=true)
+![plot](https://github.com/tomato1mule/diffusion_edf/blob/main/figures/panda_place.gif?raw=true)
 
 Official implementation of the paper 'Diffusion-EDFs: Bi-equivariant Denoising Generative Modeling on SE(3) for Visual Robotic Manipulation'
 
