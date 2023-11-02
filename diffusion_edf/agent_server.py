@@ -185,6 +185,45 @@ if __name__ == '__main__':
             return Ts, info
         
         @expose
+        def denoise(self, scene_pcd: data.PointCloud, 
+                     grasp_pcd: data.PointCloud,
+                     current_poses: data.SE3,
+                     task_name: str,
+                     ) -> Tuple[List[data.SE3], Dict[str, Any]]:
+            traj_tensors, info = self._denoise(scene_pcd=scene_pcd, grasp_pcd=grasp_pcd, current_poses=current_poses, task_name=task_name)
+            traj_tensors = traj_tensors.detach().cpu()
+            trajectories = []
+            for i in range(traj_tensors.shape[-2]):
+                Ts = traj_tensors[:,i]
+                Ts = data.SE3(poses=Ts)
+
+                if task_name == 'pick':
+                    unproc_fn = pick_agent.unprocess_fn
+                    Ts = unproc_fn(Ts)
+                elif task_name == 'place':
+                    unproc_fn = place_agent.unprocess_fn
+                    Ts = unproc_fn(Ts)
+                else:
+                    raise ValueError(f"Unknown task name: '{task_name}'")
+                
+                trajectories.append(Ts)
+                
+
+            # info = {}
+            def recursive_cuda_to_cpu(info: Dict):
+                for k,v in info.items():
+                    if isinstance(v, torch.Tensor):
+                        info[k]=v.to('cpu')
+                    elif isinstance(v, Dict):
+                        info[k]=recursive_cuda_to_cpu(v)
+            recursive_cuda_to_cpu(info)
+            
+            return Ts, info
+            
+            
+            
+        
+        @expose
         def request_trajectories(self, scene_pcd: data.PointCloud, 
                                  grasp_pcd: data.PointCloud,
                                  current_poses: data.SE3,
