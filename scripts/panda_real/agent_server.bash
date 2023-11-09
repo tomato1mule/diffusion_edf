@@ -4,7 +4,7 @@ echo "Initializing Agent Server"
 
 configs_root_dir="configs/panda_mug"
 server_name="agent"
-nameserver_host_ip="192.168.0.15"
+nameserver_host_ip="192.168.0.6"
 nameserver_host_port="9090"
 
 python3 diffusion_edf/agent_server.py --configs-root-dir=$configs_root_dir \
