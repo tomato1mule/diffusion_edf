@@ -37,7 +37,7 @@ n_samples_x_ref: 10
 diffusion_configs:
   t_augment: null
   time_schedules:
-    - [0.01, 0.01]
+    - [0.05, 0.05]
 
 
 optimizer_kwargs:

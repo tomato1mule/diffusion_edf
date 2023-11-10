@@ -168,7 +168,7 @@ class DiffusionEdfAgent():
                 energy: torch.Tensor = self.critic.score_head.compute_energy(Ts = Ts_out[-1,...], 
                                                                              key_pcd_multiscale = key_pcd_multiscale, 
                                                                              query_pcd = query_pcd,
-                                                                             time = torch.ones(Ts_out.shape[-2], device=Ts_out.device, dtype=Ts_out.dtype)) # (nT,)
+                                                                             time = torch.ones(Ts_out.shape[-2], device=Ts_out.device, dtype=Ts_out.dtype)) # Any arbitrary time encoding is okay because it will not be used in critic model (in score_model_configs.yaml, query_time_encoding and edge_time_encoding are both false)
                 energy_sorted, idx_sorted = energy.sort(descending=False)
                 Ts_out = Ts_out[..., idx_sorted, :]
                 info["energy"] = energy_sorted
