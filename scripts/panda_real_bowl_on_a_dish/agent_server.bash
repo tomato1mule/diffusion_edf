@@ -2,7 +2,7 @@
 
 echo "Initializing Agent Server"
 
-configs_root_dir="configs/panda_mug"
+configs_root_dir="configs/panda_bowl"
 server_name="agent"
 nameserver_host_ip="192.168.0.6"
 nameserver_host_port="9090"
