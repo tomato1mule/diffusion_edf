@@ -22,7 +22,7 @@ model_kwargs:
       n_layers: 1
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'
-      r_mincut_nonscalar_sh: 0.5    # In centimeters
+      r_mincut_nonscalar_sh: 0.1    # In centimeters
       length_enc_max_r: 100.      # In centimeters
 
   key_kwargs:
