@@ -30,7 +30,7 @@ preprocess_config:
       rescale_factor: *rescale_factor
 
 
-max_epochs: 400
+max_epochs: 300
 n_epochs_per_checkpoint: 50
 n_samples_x_ref: 10
 
