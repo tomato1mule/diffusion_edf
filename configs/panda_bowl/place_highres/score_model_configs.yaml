@@ -5,17 +5,16 @@ model_kwargs:
     time_emb_mlp: [256, 128, 64]
     ang_mult: 2.5
     lin_mult: 15.  # In centimeters
-    time_enc_n: 1000.
     edge_time_encoding: True
     query_time_encoding: False
     key_tensor_field_kwargs:
       irreps_output: '64x0e+32x1e+16x2e'
       irreps_sh: '1x0e+1x1e+1x2e'
       num_heads: 4
-      fc_neurons: [-1, 32, 32]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
+      fc_neurons: [-1, 128, 64]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
       length_emb_dim: 64          
-      r_cluster_multiscale:        # In centimeters 
-        - 5.
+      r_cluster_multiscale:        # In centimeters
+        - 5.                       # Set higher value (like 6.) if unstable.
         - 10.
         - 20.
         - null
