@@ -26,7 +26,7 @@ model_kwargs:
     - configs_root_dir: 'configs/panda_mug/place_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'example_runs/2023_11_04_18-40-27_Place_HiRes_Panda/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_11_12_22-39-14_Place_HiRes_Panda/checkpoint/400.pt'
       n_warmups: 10
   place_critic_kwargs:
     configs_root_dir: 'configs/panda_mug/place_ebm'

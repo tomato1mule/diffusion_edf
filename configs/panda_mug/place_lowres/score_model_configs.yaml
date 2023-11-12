@@ -5,24 +5,23 @@ model_kwargs:
     time_emb_mlp: [256, 128, 64]
     ang_mult: 2.5
     lin_mult: 15.  # In centimeters
-    time_enc_n: 1000.
     edge_time_encoding: True
     query_time_encoding: False
     key_tensor_field_kwargs:
       irreps_output: '64x0e+32x1e+16x2e'
       irreps_sh: '1x0e+1x1e+1x2e'
       num_heads: 4
-      fc_neurons: [-1, 32, 32]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
+      fc_neurons: [-1, 128, 64]    # fc_neurons[0] must be equal to time_emb_dim and length_emb_dim
       length_emb_dim: 64          
-      r_cluster_multiscale:        # In centimeters 
-        - 5.
+      r_cluster_multiscale:        # In centimeters
+        - 5.                       # Set higher value (like 6.) if unstable.
         - 10.
         - 20.
         - null
       n_layers: 1
       irreps_mlp_mid: 3
       cutoff_method: 'edge_attn'
-      r_mincut_nonscalar_sh: 0.5    # In centimeters
+      r_mincut_nonscalar_sh: 0.1    # In centimeters
       length_enc_max_r: 100.      # In centimeters
 
   key_kwargs:
@@ -57,10 +56,10 @@ model_kwargs:
         - 2
         - 2
       pool_ratio:           # Pooling ratio. For example, p=0.5 means the number of points are halved.
-        - 0.15
-        - 0.15
-        - 0.25
-        - 0.25
+        - 0.2
+        - 0.2
+        - 0.2
+        - 0.2
       radius:               # In centimeters; Maximum radius to connect neighboring nodes. If set to None, it will be set to 1/sqrt(p) of the previous layer's radius. Typically, this results in the number of edges being reduced by ratio p.
         - 3.                # Base radius must not be None
         - null

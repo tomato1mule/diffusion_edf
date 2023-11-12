@@ -30,14 +30,14 @@ preprocess_config:
       rescale_factor: *rescale_factor
 
 
-max_epochs: 200
-n_epochs_per_checkpoint: 20
+max_epochs: 400
+n_epochs_per_checkpoint: 50
 n_samples_x_ref: 10
 
 diffusion_configs:
   t_augment: null
   time_schedules:
-    - [0.01, 0.01]
+    - [0.03, 0.03]
   diffusion_xref_bbox: [[-0.15, 0.15], [-0.15, 0.15], [0.08, 0.2]]  # In meters, [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
 
 
