@@ -38,7 +38,7 @@ diffusion_configs:
   t_augment: null
   time_schedules:
     - [1., 0.15]
-    - [0.15, 0.01]
+    - [0.15, 0.03]
   diffusion_xref_bbox: [[-0.15, 0.15], [-0.15, 0.15], [0.08, 0.2]]  # In meters, [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
 
 
