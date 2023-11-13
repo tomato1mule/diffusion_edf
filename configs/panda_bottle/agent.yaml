@@ -1,36 +1,36 @@
 device: 'cuda'
 model_kwargs:
   pick_models_kwargs:
-    - configs_root_dir: 'configs/panda_bowl/pick_lowres'
+    - configs_root_dir: 'configs/panda_bottle/pick_lowres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_11_12_14-27-54_Pick_LowRes_Panda_Bowl/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_11_13_19-25-10_Pick_LowRes_Panda_Bottle/checkpoint/200.pt'
       n_warmups: 10
-    - configs_root_dir: 'configs/panda_bowl/pick_highres'
+    - configs_root_dir: 'configs/panda_bottle/pick_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_11_12_15-16-35_Pick_HiRes_Panda_Bowl/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_11_13_19-48-32_Pick_HiRes_Panda_Bottle/checkpoint/200.pt'
       n_warmups: 10
-  pick_critic_kwargs:
-    configs_root_dir: 'configs/panda_bowl/pick_ebm'
-    train_configs_file: 'train_configs.yaml'
-    task_configs_file: 'task_configs.yaml'
-    checkpoint_dir: 'runs/2023_11_13_00-53-05_Pick_EBM_Panda_Bowl/checkpoint/200.pt'
-    n_warmups: 10
+  pick_critic_kwargs: Null
+    # configs_root_dir: 'configs/panda_bottle/pick_ebm'
+    # train_configs_file: 'train_configs.yaml'
+    # task_configs_file: 'task_configs.yaml'
+    # checkpoint_dir: 'runs/2023_11_13_00-53-05_Pick_EBM_Panda_Bowl/checkpoint/200.pt'
+    # n_warmups: 10
   place_models_kwargs:
-    - configs_root_dir: 'configs/panda_bowl/place_lowres'
+    - configs_root_dir: 'configs/panda_bottle/place_lowres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_11_12_16-22-45_Place_LowRes_Panda_Bowl/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_11_13_20-17-41_Place_LowRes_Panda_Bottle/checkpoint/200.pt'
       n_warmups: 10
-    - configs_root_dir: 'configs/panda_bowl/place_highres'
+    - configs_root_dir: 'configs/panda_bottle/place_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_11_12_17-20-22_Place_HiRes_Panda_Bowl/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_11_13_20-42-00_Place_HiRes_Panda_Bottle/checkpoint/200.pt'
       n_warmups: 10
-  place_critic_kwargs:
-    configs_root_dir: 'configs/panda_bowl/place_ebm'
-    train_configs_file: 'train_configs.yaml'
-    task_configs_file: 'task_configs.yaml'
-    checkpoint_dir: 'runs/2023_11_12_19-44-46_Place_EBM_Panda_Bowl/checkpoint/200.pt'
-    n_warmups: 10
+  place_critic_kwargs: Null
+    # configs_root_dir: 'configs/panda_bottle/place_ebm'
+    # train_configs_file: 'train_configs.yaml'
+    # task_configs_file: 'task_configs.yaml'
+    # checkpoint_dir: 'runs/2023_11_12_19-44-46_Place_EBM_Panda_Bowl/checkpoint/200.pt'
+    # n_warmups: 10
