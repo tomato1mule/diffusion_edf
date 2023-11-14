@@ -57,10 +57,10 @@ model_kwargs:
         - 2
         - 2
       pool_ratio:           # Pooling ratio. For example, p=0.5 means the number of points are halved.
-        - 0.15
-        - 0.15
-        - 0.25
-        - 0.25
+        - 0.2
+        - 0.2
+        - 0.2
+        - 0.2
       radius:               # In centimeters; Maximum radius to connect neighboring nodes. If set to None, it will be set to 1/sqrt(p) of the previous layer's radius. Typically, this results in the number of edges being reduced by ratio p.
         - 3.                # Base radius must not be None
         - null

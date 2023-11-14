@@ -1,13 +1,13 @@
 device: 'cuda:0'
 
 trainset:
-  dataset_dir: 'demo/example_demo_real_mug_franka_panda'
+  dataset_dir: 'demo/panda_mug_on_hanger'
   annotation_file: 'data.yaml'
   n_batches: 1
   shuffle: True
 
 testset:
-  dataset_dir: 'demo/example_demo_real_mug_franka_panda'
+  dataset_dir: 'demo/panda_mug_on_hanger'
   annotation_file: 'data.yaml'
   n_batches: 1
   shuffle: False
@@ -52,7 +52,7 @@ preprocess_config:
       rescale_factor: *rescale_factor
 
 
-max_epochs: 300
+max_epochs: 400
 n_epochs_per_checkpoint: 50
 n_samples_x_ref: 10
 
