@@ -9,7 +9,7 @@ task_configs_file="task_configs.yaml"
 PYTHONHASHSEED=0 python3 diffusion_edf/train.py --configs-root-dir=$configs_root_dir \
                                                 --train-configs-file=$train_configs_file \
                                                 --task-configs-file=$task_configs_file \
-                                                --log-name-postfix="Place_LowRes_Panda"
+                                                --log-name-postfix="Place_LowRes_Panda_Mug"
 
 echo "Train Super-resolution Score-matching Model"
 
@@ -20,7 +20,7 @@ task_configs_file="task_configs.yaml"
 PYTHONHASHSEED=0 python3 diffusion_edf/train.py --configs-root-dir=$configs_root_dir \
                                                 --train-configs-file=$train_configs_file \
                                                 --task-configs-file=$task_configs_file \
-                                                --log-name-postfix="Place_HiRes_Panda"
+                                                --log-name-postfix="Place_HiRes_Panda_Mug"
 
 echo "Train EBM Model"
 
@@ -31,5 +31,5 @@ task_configs_file="task_configs.yaml"
 PYTHONHASHSEED=0 python3 diffusion_edf/train.py --configs-root-dir=$configs_root_dir \
                                                 --train-configs-file=$train_configs_file \
                                                 --task-configs-file=$task_configs_file \
-                                                --log-name-postfix="Place_EBM_Panda"
+                                                --log-name-postfix="Place_EBM_Panda_Mug"
                                                 

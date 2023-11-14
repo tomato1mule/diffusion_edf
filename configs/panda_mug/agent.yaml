@@ -21,16 +21,16 @@ model_kwargs:
     - configs_root_dir: 'configs/panda_mug/place_lowres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_11_12_23-36-25_Place_LowRes_Panda/checkpoint/300.pt'
+      checkpoint_dir: 'runs/2023_11_14_17-12-50_Place_LowRes_Panda_Mug/checkpoint/400.pt'
       n_warmups: 10
     - configs_root_dir: 'configs/panda_mug/place_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_11_12_22-39-14_Place_HiRes_Panda/checkpoint/300.pt'
+      checkpoint_dir: 'runs/2023_11_14_17-51-06_Place_HiRes_Panda_Mug/checkpoint/400.pt'
       n_warmups: 10
-  place_critic_kwargs:
-    configs_root_dir: 'configs/panda_mug/place_ebm'
-    train_configs_file: 'train_configs.yaml'
-    task_configs_file: 'task_configs.yaml'
-    checkpoint_dir: 'runs/2023_11_13_00-21-41_Place_EBM_Panda/checkpoint/300.pt'
-    n_warmups: 10
+  place_critic_kwargs: Null
+    # configs_root_dir: 'configs/panda_mug/place_ebm'
+    # train_configs_file: 'train_configs.yaml'
+    # task_configs_file: 'task_configs.yaml'
+    # checkpoint_dir: 'runs/2023_11_13_00-21-41_Place_EBM_Panda/checkpoint/300.pt'
+    # n_warmups: 10
