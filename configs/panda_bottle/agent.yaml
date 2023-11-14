@@ -11,26 +11,26 @@ model_kwargs:
       task_configs_file: 'task_configs.yaml'
       checkpoint_dir: 'runs/2023_11_13_19-48-32_Pick_HiRes_Panda_Bottle/checkpoint/200.pt'
       n_warmups: 10
-  pick_critic_kwargs: Null
-    # configs_root_dir: 'configs/panda_bottle/pick_ebm'
-    # train_configs_file: 'train_configs.yaml'
-    # task_configs_file: 'task_configs.yaml'
-    # checkpoint_dir: 'runs/2023_11_13_00-53-05_Pick_EBM_Panda_Bowl/checkpoint/200.pt'
-    # n_warmups: 10
+  pick_critic_kwargs: # Null
+    configs_root_dir: 'configs/panda_bottle/pick_ebm'
+    train_configs_file: 'train_configs.yaml'
+    task_configs_file: 'task_configs.yaml'
+    checkpoint_dir: 'runs/2023_11_14_12-49-14_Pick_EBM_Panda_Bottle/checkpoint/200.pt'
+    n_warmups: 10
   place_models_kwargs:
     - configs_root_dir: 'configs/panda_bottle/place_lowres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_11_13_20-17-41_Place_LowRes_Panda_Bottle/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_11_13_21-18-47_Place_LowRes_Panda_Bottle/checkpoint/400.pt'
       n_warmups: 10
     - configs_root_dir: 'configs/panda_bottle/place_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_11_13_20-42-00_Place_HiRes_Panda_Bottle/checkpoint/200.pt'
+      checkpoint_dir: 'runs/2023_11_13_22-07-00_Place_HiRes_Panda_Bottle/checkpoint/400.pt'
       n_warmups: 10
-  place_critic_kwargs: Null
-    # configs_root_dir: 'configs/panda_bottle/place_ebm'
-    # train_configs_file: 'train_configs.yaml'
-    # task_configs_file: 'task_configs.yaml'
-    # checkpoint_dir: 'runs/2023_11_12_19-44-46_Place_EBM_Panda_Bowl/checkpoint/200.pt'
-    # n_warmups: 10
+  place_critic_kwargs: # Null
+    configs_root_dir: 'configs/panda_bottle/place_ebm'
+    train_configs_file: 'train_configs.yaml'
+    task_configs_file: 'task_configs.yaml'
+    checkpoint_dir: 'runs/2023_11_14_11-55-30_Place_EBM_Panda_Bottle/checkpoint/400.pt'
+    n_warmups: 10
