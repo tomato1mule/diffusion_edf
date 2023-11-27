@@ -4,7 +4,9 @@
 
 Official implementation of the paper 'Diffusion-EDFs: Bi-equivariant Denoising Generative Modeling on SE(3) for Visual Robotic Manipulation'
 
-Paper: https://arxiv.org/abs/2309.02685 (New version with real robot experiments will be uploaded soon!!)
+**Project Website:** https://sites.google.com/view/diffusion-edfs/home
+
+**Paper:** https://arxiv.org/abs/2309.02685 (New version with real robot experiments will be uploaded soon!!)
 # Installation
 
 **Step 1.** Clone Github repository.
