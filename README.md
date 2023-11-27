@@ -55,7 +55,7 @@ Open the ```evaluate_<task_name>.ipynb``` file using jupyter notebook to see how
 bash scritps/<task_name>/train.bash
 ```
 > [!TIP]
-> We provide three real-world manipulation examples.
+> We provide three real-world manipulation examples with Franka Panda robot.
 > * ```bash scripts/panda_real_mug_on_hanger/train.bash```
 > * ```bash scripts/panda_real_bowl_on_dish/train.bash```
 > * ```bash scripts/panda_real_bottle_on_shelf/train.bash```
