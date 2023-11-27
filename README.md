@@ -13,7 +13,7 @@ Official implementation of the paper 'Diffusion-EDFs: Bi-equivariant Denoising G
 ```shell
 git clone --recurse-submodules https://github.com/tomato1mule/diffusion_edf
 ```
-> **Warning**\
+> [!IMPORTANT]
 > You must RECURSIVELY clone the repositories. Please also use github LFS to clone ```demo``` and ```checkpoints``` directories. Without LFS, they would appear empty.
 
 
@@ -67,10 +67,10 @@ tensorboard --logdir=./runs
     - **T_seed[..., :4]**: Quaternion (qw, qx, qy, qz)
     - **T_seed[..., 4:]**: Position (x, y, z)
 
-> **Note**\
+> [!IMPORTANT]
 > Properly setting the unit system for position is crucial. In this code, centimeter unit is used for the model. For example, the distance between two points (x=0., y=0., z=0.) and (x=1., y=0., z=0.) is 1cm.
 
-> **Warning**\
+> [!NOTE]
 > Demonstration files are saved in meter units. Therefore, rescaling is defined in the `train_configs.yaml`.
 > For example, 
 > #### **`configs/panda_mug/pick_lowres/train_configs.yaml`**
