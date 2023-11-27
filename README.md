@@ -40,16 +40,27 @@ cd ..
 ```
 
 # Quickstart
-### Evaluation
+## Evaluation
 Open the ```evaluate_<task_name>.ipynb``` file using jupyter notebook to see how Diffusion-EDFs work.
+> [!TIP]
+> We provide three real-world manipulation examples with Franka Panda robot.
+> * ```evaluate_real_mug.ipynb```
+> * ```evaluate_real_bowl.ipynb```
+> * ```evaluate_real_bottle.ipynb```
 
 
 
-### Training
+## Training
 ```shell
 bash scritps/<task_name>/train.bash
 ```
-To see running experiments, use tensorboard:
+> [!TIP]
+> We provide three real-world manipulation examples.
+> * ```bash scripts/panda_real_mug_on_hanger/train.bash```
+> * ```bash scripts/panda_real_bowl_on_dish/train.bash```
+> * ```bash scripts/panda_real_bottle_on_shelf/train.bash```
+
+To see logs for running experiments, use tensorboard:
 ```shell
 tensorboard --logdir=./runs
 ```
