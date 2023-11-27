@@ -4,13 +4,16 @@
 
 Official implementation of the paper 'Diffusion-EDFs: Bi-equivariant Denoising Generative Modeling on SE(3) for Visual Robotic Manipulation'
 
-Paper: https://arxiv.org/abs/2309.02685
+Paper: https://arxiv.org/abs/2309.02685 (New version with real robot experiments will be uploaded soon!!)
 # Installation
 
 **Step 1.** Clone Github repository.
 ```shell
 git clone --recurse-submodules https://github.com/tomato1mule/diffusion_edf
 ```
+> **Warning**\
+> You must RECURSIVELY clone the repositories. Please also use github LFS to clone ```demo``` and ```checkpoints``` directories. Without LFS, they would appear empty.
+
 
 **Step 2.** Setup Conda/Mamba environment. We recommend using Mamba for faster installation.
 ```shell
@@ -21,29 +24,36 @@ conda activate diff_edf
 
 **Step 3.** Install Diffusion EDF.
 ```shell
+mamba install -c conda-forge cxx-compiler==1.5.0
 pip install torch==1.13.1 torchvision==0.14.1
 pip install torch-scatter torch-sparse torch-cluster -f https://data.pyg.org/whl/torch-1.13.1+cu117.html
 pip install -e .
 ```
-**Step 3.** Install EDF Interface.
+
+**Step 4.** Install EDF Interface.
 ```shell
 cd edf_interface
 pip install -e . # If error occurs, please check in step 1 you have correctly cloned with '--recurse-submodules' flag.
+cd ..
 ```
 
-# Usage
-## Training
+# Quickstart
+### Evaluation
+Open the ```evaluate_<task_name>.ipynb``` file using jupyter notebook to see how Diffusion-EDFs work.
+
+
+
+### Training
 ```shell
-bash train_pick.bash
-bash train_place.bash
+bash scritps/<task_name>/train.bash
 ```
 To see running experiments, use tensorboard:
 ```shell
 tensorboard --logdir=./runs
 ```
-## Evaluation
-Please open `evaluate.ipynb` with Jupyter notebook.
 
+
+# Doc
 **Inputs**
 
 * **scene_input, grasp_input**: FeaturedPoints (NamedTuple)
@@ -60,7 +70,8 @@ Please open `evaluate.ipynb` with Jupyter notebook.
 
 > **Warning**\
 > Demonstration files are saved in meter units. Therefore, rescaling is defined in the `train_configs.yaml`.
-> #### **`configs/pick_lowres/train_configs.yaml`**
+> For example, 
+> #### **`configs/panda_mug/pick_lowres/train_configs.yaml`**
 > ```yaml
 > rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
 > preprocess_config:
@@ -68,6 +79,7 @@ Please open `evaluate.ipynb` with Jupyter notebook.
 >     kwargs:
 >       voxel_size: 0.01 # In Meters
 >       coord_reduction: "average"
+>   # ...
 >   - name: "Rescale"
 >     kwargs:
 >       rescale_factor: *rescale_factor
