@@ -26,7 +26,7 @@ setup(
         'torch',
         'torchvision',
         'e3nn==0.4.4',
-        'open3d==0.16.0',
+        # 'open3d==0.16.0',
         'xitorch==0.5.1',
         'pyyaml',        # 6.0
         'tqdm',          # 4.64.1
@@ -38,6 +38,6 @@ setup(
         'dash_daq',
         'beartype',
         'tensorboard',
-        'einops=0.7.0'
+        # 'einops==0.7.0'
     ]
 )

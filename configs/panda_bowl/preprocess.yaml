@@ -1,0 +1,18 @@
+rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
+unrescale_factor: &unrescale_factor 0.01 # Centimeters to Meters
+preprocess_config:
+  # - name: "crop_bbox"
+  #   kwargs:
+  #     targets: ['scene_pcd']
+  #     bbox: [[-0.3, 0.3], [0.1, 0.6], [-0.7, 0.5]]  # In meters, [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
+  - name: "downsample"
+    kwargs:
+      voxel_size: 0.01  # In meters
+      coord_reduction: "average"
+  - name: "rescale"
+    kwargs:
+      rescale_factor: *rescale_factor
+unprocess_config:
+  - name: "rescale"
+    kwargs:
+      rescale_factor: *unrescale_factor

@@ -1,13 +1,16 @@
 # Custom
 demo/*
-!demo/test_demo
-!demo/test_unseen_demo
-!demo/test_demo_single_mug
+!demo/panda_mug_on_hanger
+!demo/panda_mug_on_hanger_test
+!demo/panda_bowl_on_dish
+!demo/panda_bowl_on_dish_test
+!demo/panda_bottle_on_shelf
+!demo/panda_bottle_on_shelf_test
 !demo/sapien_demo_5_mug_20230727
 !demo/sapien_demo_5_bottle_20230729
-!demo/example_demo_real_mug_franka_panda
 runs/
 runs_old/
+tmp
 
 
 # Byte-compiled / optimized / DLL files

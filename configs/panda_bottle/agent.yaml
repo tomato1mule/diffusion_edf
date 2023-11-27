@@ -1,0 +1,36 @@
+device: 'cuda'
+model_kwargs:
+  pick_models_kwargs:
+    - configs_root_dir: 'configs/panda_bottle/pick_lowres'
+      train_configs_file: 'train_configs.yaml'
+      task_configs_file: 'task_configs.yaml'
+      checkpoint_dir: 'checkpoints/real_bottle/Pick_LowRes_250.pt'  
+      n_warmups: 10
+    - configs_root_dir: 'configs/panda_bottle/pick_highres'
+      train_configs_file: 'train_configs.yaml'
+      task_configs_file: 'task_configs.yaml'
+      checkpoint_dir: 'checkpoints/real_bottle/Pick_HiRes_250.pt'  
+      n_warmups: 10
+  pick_critic_kwargs:
+    configs_root_dir: 'configs/panda_bottle/pick_ebm'
+    train_configs_file: 'train_configs.yaml'
+    task_configs_file: 'task_configs.yaml'
+    checkpoint_dir: 'checkpoints/real_bottle/Pick_EBM_250.pt'
+    n_warmups: 10
+  place_models_kwargs:
+    - configs_root_dir: 'configs/panda_bottle/place_lowres'
+      train_configs_file: 'train_configs.yaml'
+      task_configs_file: 'task_configs.yaml'
+      checkpoint_dir: 'checkpoints/real_bottle/Place_LowRes_300.pt'
+      n_warmups: 10
+    - configs_root_dir: 'configs/panda_bottle/place_highres'
+      train_configs_file: 'train_configs.yaml'
+      task_configs_file: 'task_configs.yaml'
+      checkpoint_dir: 'checkpoints/real_bottle/Place_HiRes_300.pt'
+      n_warmups: 10
+  place_critic_kwargs: 
+    configs_root_dir: 'configs/panda_bottle/place_ebm'
+    train_configs_file: 'train_configs.yaml'
+    task_configs_file: 'task_configs.yaml'
+    checkpoint_dir: 'checkpoints/real_bottle/Place_EBM_300.pt'
+    n_warmups: 10

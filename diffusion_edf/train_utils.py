@@ -11,7 +11,7 @@ import gzip, pickle
 
 import torch
 from torch.utils.data import DataLoader
-from open3d.visualization.tensorboard_plugin import summary
+# from open3d.visualization.tensorboard_plugin import summary
 from torch.utils.tensorboard import SummaryWriter
 from torch_cluster import radius
 from torch_scatter import scatter_sum

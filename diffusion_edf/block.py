@@ -4,7 +4,7 @@ import math
 import torch
 from e3nn import o3
 from e3nn.util.jit import compile_mode
-from einops import rearrange
+# from einops import rearrange
 
 from diffusion_edf.equiformer.drop import GraphDropPath, EquivariantDropout
 from diffusion_edf.equiformer.tensor_product_rescale import FullyConnectedTensorProductRescale, LinearRS, FullyConnectedTensorProductRescaleSwishGate

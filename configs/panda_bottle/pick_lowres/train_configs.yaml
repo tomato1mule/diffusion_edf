@@ -1,0 +1,76 @@
+device: 'cuda:0'
+
+trainset:
+  dataset_dir: 'demo/panda_bottle_on_shelf'
+  annotation_file: 'data.yaml'
+  n_batches: 1
+  shuffle: True
+
+testset:
+  dataset_dir: 'demo/panda_bottle_on_shelf'
+  annotation_file: 'data.yaml'
+  n_batches: 1
+  shuffle: False
+
+model_config_file: 'score_model_configs.yaml'
+log_root_dir: 'runs'
+
+rescale_factor: &rescale_factor 100.0 # Meters to Centimeters
+preprocess_config:
+  # - name: "crop_bbox"
+  #   kwargs:
+  #     targets: ['scene_pcd']
+  #     bbox: [[-0.3, 0.3], [0.1, 0.6], [-0.7, 0.5]]  # In meters, [[x_min, x_max], [y_min, y_max], [z_min, z_max]]
+  - name: "downsample"
+    kwargs:
+      voxel_size: 0.01  # In meters
+      coord_reduction: "average"
+  - name: "randomize_hsl"
+    kwargs:
+      hrange: 0.05
+      srange: 0.1
+      lrange: 0.4
+      prob: 0.75
+  - name: "pos_jitter"
+    kwargs:
+      std: 0.003 # In meters
+      prob: 0.35
+  - name: "color_jitter"
+    kwargs:
+      std: 0.03 
+      prob: 0.35
+  - name: "downsample"
+    kwargs:
+      voxel_size: 0.01  # In meters
+      coord_reduction: "average"
+  - name: "pos_jitter"
+    kwargs:
+      std: 0.003 # In meters
+      prob: 0.35
+  - name: "color_jitter"
+    kwargs:
+      std: 0.03 
+      prob: 0.35
+  - name: "rescale"
+    kwargs:
+      rescale_factor: *rescale_factor
+
+
+max_epochs: 250
+n_epochs_per_checkpoint: 50
+n_samples_x_ref: 10
+
+diffusion_configs:
+  t_augment: null
+  time_schedules:
+    - [1., 0.15]
+    - [0.15, 0.01]
+
+
+optimizer_kwargs:
+  lr: 0.0003
+  betas: [0.9, 0.98]
+  eps: 0.000000001 # 1e-9
+  weight_decay: 0.0001 # 1e-4
+  amsgrad: True
+

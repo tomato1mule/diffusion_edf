@@ -4,21 +4,21 @@ model_kwargs:
     - configs_root_dir: 'configs/sapien/pick_lowres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_07_30_19-29-43_Pick_LowRes_Sapien_5_bottle/checkpoint/200.pt'
+      checkpoint_dir: 'checkpoints/sim_bottle/pick_lo_200.pt'
       n_warmups: 10
     - configs_root_dir: 'configs/sapien/pick_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_07_30_19-48-08_Pick_HiRes_Sapien_5_bottle/checkpoint/200.pt'
+      checkpoint_dir: 'checkpoints/sim_bottle/pick_hi_200.pt'
       n_warmups: 10
   place_models_kwargs:
     - configs_root_dir: 'configs/sapien/place_lowres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_07_30_17-25-16_Place_LowRes_Sapien_5_bottle/checkpoint/200.pt'
+      checkpoint_dir: 'checkpoints/sim_bottle/place_lo_200.pt'
       n_warmups: 10
     - configs_root_dir: 'configs/sapien/place_highres'
       train_configs_file: 'train_configs.yaml'
       task_configs_file: 'task_configs.yaml'
-      checkpoint_dir: 'runs/2023_07_30_19-09-46_Place_HiRes_Sapien_5_bottle/checkpoint/200.pt'
+      checkpoint_dir: 'checkpoints/sim_bottle/place_hi_200.pt'
       n_warmups: 10

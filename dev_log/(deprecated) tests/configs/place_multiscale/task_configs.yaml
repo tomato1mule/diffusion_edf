@@ -1,6 +1,0 @@
-pick:
-  unit_length: 0.01
-  contact_radius: 5.
-place:
-  unit_length: 0.01
-  contact_radius: 3.
