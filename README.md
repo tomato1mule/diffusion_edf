@@ -6,7 +6,7 @@ Official implementation of the paper 'Diffusion-EDFs: Bi-equivariant Denoising G
 
 **Project Website:** https://sites.google.com/view/diffusion-edfs/home
 
-**Paper:** https://arxiv.org/abs/2309.02685 (New version with real robot experiments will be uploaded soon!!)
+**Paper:** https://arxiv.org/abs/2309.02685
 # Installation
 
 **Step 1.** Clone Github repository.
