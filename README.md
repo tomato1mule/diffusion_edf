@@ -27,8 +27,8 @@ conda activate diff_edf
 **Step 3.** Install Diffusion EDF.
 ```shell
 mamba install -c conda-forge cxx-compiler==1.5.0
-pip install torch==1.13.1 torchvision==0.14.1
-pip install torch-scatter torch-sparse torch-cluster -f https://data.pyg.org/whl/torch-1.13.1+cu117.html
+pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 --extra-index-url https://download.pytorch.org/whl/cu117
+pip install --no-index torch-scatter torch-sparse torch-cluster -f https://data.pyg.org/whl/torch-1.13.1+cu117.html
 pip install -e .
 ```
 
