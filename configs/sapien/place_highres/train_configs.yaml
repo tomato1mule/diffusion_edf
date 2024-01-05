@@ -7,7 +7,7 @@ trainset:
   shuffle: True
 
 testset:
-  dataset_dir: 'demo/test_unseen_demo'
+  dataset_dir: 'demo/sapien_demo_5_mug_20230727'
   annotation_file: 'data.yaml'
   n_batches: 1
   shuffle: False
