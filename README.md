@@ -4,7 +4,7 @@
 
 Official implementation of the paper 'Diffusion-EDFs: Bi-equivariant Denoising Generative Modeling on SE(3) for Visual Robotic Manipulation' (CVPR 2024)
 
-**Project Website:** https://sites.google.com/view/diffusion-edfs/home
+**Project Website:** https://sites.google.com/view/diffusion-edfs
 
 **Paper:** https://arxiv.org/abs/2309.02685
 # Installation
