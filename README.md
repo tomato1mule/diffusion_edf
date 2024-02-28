@@ -1,8 +1,8 @@
-# Diffusion EDF
+# [CVPR 2024] Diffusion EDFs
 ![plot](https://github.com/tomato1mule/diffusion_edf/blob/main/figures/panda_pick.gif?raw=true)
 ![plot](https://github.com/tomato1mule/diffusion_edf/blob/main/figures/panda_place.gif?raw=true)
 
-Official implementation of the paper 'Diffusion-EDFs: Bi-equivariant Denoising Generative Modeling on SE(3) for Visual Robotic Manipulation'
+Official implementation of the paper 'Diffusion-EDFs: Bi-equivariant Denoising Generative Modeling on SE(3) for Visual Robotic Manipulation' (CVPR 2024)
 
 **Project Website:** https://sites.google.com/view/diffusion-edfs/home
 
