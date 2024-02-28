@@ -1,4 +1,4 @@
-# [CVPR 2024] Diffusion EDFs
+# [CVPR 2024] Diffusion-EDFs
 ![plot](https://github.com/tomato1mule/diffusion_edf/blob/main/figures/panda_pick.gif?raw=true)
 ![plot](https://github.com/tomato1mule/diffusion_edf/blob/main/figures/panda_place.gif?raw=true)
 
